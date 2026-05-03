@@ -5,7 +5,7 @@ import { bootstrapDemoFlow, getMockMvpState } from "../../src/mvp/mock-flow";
 export default async function AdminPage() {
   const cookieStore = await cookies();
   const sessionId = cookieStore.get("mock-session-id")?.value ?? "dev-default";
-  const hasAdminSession = cookieStore.get("mock-admin-role")?.value === "admin";
+  const hasAdminSession = Boolean(cookieStore.get("mock-admin-session")?.value);
 
   bootstrapDemoFlow(sessionId, "user_mock_001");
   const state = getMockMvpState(sessionId);

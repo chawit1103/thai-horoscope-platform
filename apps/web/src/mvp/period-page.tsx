@@ -4,8 +4,20 @@ import { bootstrapDemoFlow, getEntitledHoroscope, getMockMvpState, type PeriodTy
 
 export async function HoroscopePage({ periodType }: { periodType: PeriodType }) {
   const cookieStore = await cookies();
-  const sessionId = cookieStore.get("mock-session-id")?.value ?? "dev-default";
-  const userId = cookieStore.get("mock-user-id")?.value ?? "user_mock_001";
+  const sessionId = cookieStore.get("mock-session-id")?.value;
+  const userId = cookieStore.get("mock-user-id")?.value;
+  if (!sessionId || !userId) {
+    return (
+      <section className="page">
+        <p className="eyebrow">Mock session required</p>
+        <h1>เริ่มต้น onboarding ก่อนดูดวง</h1>
+        <p className="lead">เพื่อแยกข้อมูลรายผู้ใช้ในโหมดพัฒนา กรุณากรอกข้อมูลที่หน้าเริ่มต้นก่อน</p>
+        <Link className="button-link" href="/">
+          ไปหน้า onboarding
+        </Link>
+      </section>
+    );
+  }
   bootstrapDemoFlow(sessionId, userId);
   const state = getMockMvpState(sessionId);
   const result = getEntitledHoroscope(periodType, { sessionId, userId });

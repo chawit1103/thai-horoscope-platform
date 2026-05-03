@@ -1,5 +1,6 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   approveDraft,
@@ -36,9 +37,29 @@ export async function saveOnboardingAction(formData: FormData): Promise<void> {
   redirect("/today");
 }
 
+
+async function requireDevAdminAuthorization(formData: FormData): Promise<string> {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Development admin guard is disabled in production. Production auth is reserved for PR11.");
+  }
+
+  const actorId = String(formData.get("actorId") ?? "dev_admin_mock").trim();
+  const suppliedToken = String(formData.get("adminToken") ?? "").trim();
+  const expectedToken = process.env.MOCK_ADMIN_TOKEN ?? "";
+  const cookieStore = await cookies();
+  const sessionRole = cookieStore.get("mock-admin-role")?.value;
+
+  if (!expectedToken || suppliedToken !== expectedToken || sessionRole !== "admin") {
+    throw new Error("Unauthorized: admin approval requires development admin session.");
+  }
+
+  return actorId || "dev_admin_mock";
+}
+
 export async function approveAndQueueAction(formData: FormData): Promise<void> {
+  const actorId = await requireDevAdminAuthorization(formData);
   const resultId = String(formData.get("resultId") ?? "");
-  const approved = approveDraft(resultId);
+  const approved = approveDraft(resultId, actorId);
   const message = queueMockOutboundMessage(approved.id);
   recordMockDeliveryAttempt(message.id);
   redirect("/admin");

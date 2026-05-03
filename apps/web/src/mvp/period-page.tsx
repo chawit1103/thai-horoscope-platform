@@ -5,13 +5,14 @@ export function HoroscopePage({ periodType }: { periodType: PeriodType }) {
   bootstrapDemoFlow();
   const state = getMockMvpState();
   const result = getEntitledHoroscope(periodType);
+  const currentPlan = state.userPlans[state.currentUserId] ?? "free";
 
   if (!result) {
     return (
       <section className="page">
         <p className="eyebrow">Entitlement</p>
         <h1>แพ็กเกจปัจจุบันยังไม่เปิดอ่านหน้านี้</h1>
-        <p className="lead">แผน {state.user.planCode} เปิดอ่าน: daily สำหรับ free, daily/weekly สำหรับ basic, และครบทุกช่วงสำหรับ premium</p>
+        <p className="lead">แผน {currentPlan} เปิดอ่าน: daily สำหรับ free, daily/weekly สำหรับ basic, และครบทุกช่วงสำหรับ premium</p>
         <Link className="button-link" href="/today">
           กลับไปดูวันนี้
         </Link>
@@ -27,7 +28,7 @@ export function HoroscopePage({ periodType }: { periodType: PeriodType }) {
       <section className="meta-grid">
         <div className="panel">
           <span className="muted">Plan</span>
-          <strong>{state.user.planCode}</strong>
+          <strong>{currentPlan}</strong>
         </div>
         <div className="panel">
           <span className="muted">Chart snapshot</span>

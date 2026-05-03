@@ -13,6 +13,8 @@ import {
   resetMockMvpState,
   runMockEndToEndFlow,
   saveBirthProfile,
+  setMockCurrentUser,
+  setMockUserPlan,
   storeChartSnapshot,
 } from "../src/mvp/mock-flow";
 
@@ -99,6 +101,47 @@ describe("mock end-to-end MVP flow", () => {
 
     assert.equal(message.channel, "mock");
     assert.equal(attempt.gateway, "mock");
+  });
+
+
+  it("is idempotent for repeated queue and delivery calls", () => {
+    const profile = saveBirthProfile(birthInput);
+    const chartSnapshot = storeChartSnapshot(callMockAstroCalc(profile));
+    const draft = generateHoroscopeResult({ chartSnapshot, periodType: "daily", periodKey: "2026-05-03" });
+    approveDraft(draft.id);
+
+    const firstMessage = queueMockOutboundMessage(draft.id);
+    const secondMessage = queueMockOutboundMessage(draft.id);
+    const firstAttempt = recordMockDeliveryAttempt(firstMessage.id);
+    const secondAttempt = recordMockDeliveryAttempt(secondMessage.id);
+
+    const state = getMockMvpState();
+    assert.equal(firstMessage.id, secondMessage.id);
+    assert.equal(firstAttempt.id, secondAttempt.id);
+    assert.equal(state.outboundMessages.length, 1);
+    assert.equal(state.deliveryAttempts.length, 1);
+  });
+
+  it("isolates onboarding artifacts between mock users", () => {
+    setMockCurrentUser("user_a");
+    setMockUserPlan("user_a", "premium");
+    const aProfile = saveBirthProfile({ ...birthInput, birthPlaceText: "Chiang Mai" });
+    const aChart = storeChartSnapshot(callMockAstroCalc(aProfile));
+    const aDaily = generateHoroscopeResult({ chartSnapshot: aChart, periodType: "daily", periodKey: "2026-05-03" });
+
+    setMockCurrentUser("user_b");
+    setMockUserPlan("user_b", "free");
+    const bProfile = saveBirthProfile({ ...birthInput, birthPlaceText: "Phuket" });
+    const bChart = storeChartSnapshot(callMockAstroCalc(bProfile));
+    const bDaily = generateHoroscopeResult({ chartSnapshot: bChart, periodType: "daily", periodKey: "2026-05-03" });
+
+    assert.notEqual(aProfile.userId, bProfile.userId);
+    assert.notEqual(aDaily.id, bDaily.id);
+    assert.equal(getEntitledHoroscope("daily")?.userId, "user_b");
+
+    const state = getMockMvpState();
+    assert.equal(state.birthProfiles.filter((profile) => profile.userId === "user_a").length, 1);
+    assert.equal(state.birthProfiles.filter((profile) => profile.userId === "user_b").length, 1);
   });
 
   it("does not produce forbidden production side effects", () => {

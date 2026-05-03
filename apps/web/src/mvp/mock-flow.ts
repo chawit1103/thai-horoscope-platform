@@ -86,7 +86,8 @@ export interface AuditLogEntry {
 }
 
 export interface MockMvpState {
-  user: { id: string; planCode: PlanCode };
+  currentUserId: string;
+  userPlans: Record<string, PlanCode>;
   birthProfiles: BirthProfile[];
   chartSnapshots: ChartSnapshot[];
   horoscopeResults: HoroscopeResult[];
@@ -106,6 +107,18 @@ const entitlements: Record<PlanCode, PeriodType[]> = {
 
 let state: MockMvpState = createInitialState();
 
+export function setMockCurrentUser(userId: string): void {
+  const normalized = userId.trim();
+  if (!normalized) throw new Error("Mock user id is required.");
+  state.currentUserId = normalized;
+  if (!state.userPlans[normalized]) state.userPlans[normalized] = "premium";
+}
+
+export function setMockUserPlan(userId: string, planCode: PlanCode): void {
+  setMockCurrentUser(userId);
+  state.userPlans[userId] = planCode;
+}
+
 export function resetMockMvpState(planCode: PlanCode = "premium"): void {
   state = createInitialState(planCode);
 }
@@ -124,7 +137,7 @@ export function saveBirthProfile(input: BirthProfileInput, now = new Date("2026-
   const profile: BirthProfile = {
     ...input,
     id: `birth_${state.birthProfiles.length + 1}`,
-    userId: state.user.id,
+    userId: state.currentUserId,
     birthPlaceText: input.birthPlaceText.trim(),
     timezone: input.timezone.trim(),
     createdAt: now.toISOString(),
@@ -197,6 +210,7 @@ export function generateHoroscopeResult(input: {
 }): HoroscopeResult {
   const existing = state.horoscopeResults.find(
     (result) =>
+      result.userId === input.chartSnapshot.userId &&
       result.chartSnapshotId === input.chartSnapshot.id &&
       result.periodType === input.periodType &&
       result.periodKey === input.periodKey,
@@ -209,7 +223,7 @@ export function generateHoroscopeResult(input: {
   const now = input.now ?? new Date("2026-05-03T09:02:00.000Z");
   const ruleHits = createRuleHits(input.chartSnapshot, input.periodType);
   const result: HoroscopeResult = {
-    id: `horo_${input.periodType}_${input.periodKey.replace(/[^a-zA-Z0-9]/g, "_")}`,
+    id: `horo_${input.chartSnapshot.userId}_${input.periodType}_${input.periodKey.replace(/[^a-zA-Z0-9]/g, "_")}`,
     userId: input.chartSnapshot.userId,
     periodType: input.periodType,
     periodKey: input.periodKey,
@@ -225,11 +239,12 @@ export function generateHoroscopeResult(input: {
 }
 
 export function getEntitledHoroscope(periodType: PeriodType): HoroscopeResult | undefined {
-  if (!canViewPeriod(state.user.planCode, periodType)) {
+  const planCode = state.userPlans[state.currentUserId] ?? "free";
+  if (!canViewPeriod(planCode, periodType)) {
     return undefined;
   }
 
-  return state.horoscopeResults.find((result) => result.periodType === periodType);
+  return state.horoscopeResults.find((result) => result.userId === state.currentUserId && result.periodType === periodType);
 }
 
 export function approveDraft(resultId: string, actorId = "dev_admin_mock", now = new Date("2026-05-03T09:03:00.000Z")): HoroscopeResult {
@@ -248,11 +263,22 @@ export function queueMockOutboundMessage(resultId: string, now = new Date("2026-
     throw new Error("Only approved horoscope results can be queued.");
   }
 
+  const topicCode = `${result.periodType}_horoscope`;
+  const idempotencyKey = `${result.id}:${result.userId}:${topicCode}:${result.periodKey}`;
+  const existing = state.outboundMessages.find((candidate) =>
+    `${candidate.horoscopeResultId}:${candidate.userId}:${candidate.topicCode}:${requireHoroscopeResult(candidate.horoscopeResultId).periodKey}` === idempotencyKey &&
+    (candidate.status === "queued" || candidate.status === "sent"),
+  );
+
+  if (existing) {
+    return existing;
+  }
+
   const message: OutboundMessage = {
     id: `out_${state.outboundMessages.length + 1}`,
     userId: result.userId,
     horoscopeResultId: result.id,
-    topicCode: `${result.periodType}_horoscope`,
+    topicCode,
     channel: "mock",
     title: result.content_json.title,
     body: `${result.content_json.summary} เพื่อความบันเทิงและการทบทวนตนเอง`,
@@ -270,6 +296,12 @@ export function recordMockDeliveryAttempt(messageId: string, now = new Date("202
 
   if (!message) {
     throw new Error(`Outbound message not found: ${messageId}`);
+  }
+
+  const existing = state.deliveryAttempts.find((attempt) => attempt.outboundMessageId === message.id && attempt.status === "sent");
+  if (existing) {
+    message.status = "sent";
+    return existing;
   }
 
   message.status = "sent";
@@ -346,7 +378,8 @@ export function getMockPeriodKey(periodType: PeriodType): string {
 
 function createInitialState(planCode: PlanCode = "premium"): MockMvpState {
   return {
-    user: { id: "user_mock_001", planCode },
+    currentUserId: "user_mock_001",
+    userPlans: { user_mock_001: planCode },
     birthProfiles: [],
     chartSnapshots: [],
     horoscopeResults: [],

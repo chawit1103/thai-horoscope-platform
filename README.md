@@ -36,6 +36,39 @@ PLANS.md                # Initial project execution plan
 - Implement LINE and Email first; add Telegram and Teams as adapters later.
 - Treat horoscope content as entertainment and self-reflection, not medical, legal, or financial advice.
 
+## PR10 mock MVP flow
+
+This branch includes a development-only mock end-to-end flow in `/apps/web`.
+
+Run it locally:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Open:
+
+- `/onboarding` to save a mock birth profile.
+- `/today`, `/weekly`, `/monthly`, `/yearly` to view entitlement-gated mock horoscope results.
+- `/admin` to approve a mock draft, queue a mock outbound message, and record a mock delivery attempt.
+
+The flow is intentionally non-production:
+
+- No real payment provider is used.
+- No real notification is sent.
+- No LINE credentials or production secrets are required.
+- No real ephemeris or Swiss Ephemeris dependency is used.
+- The astro calculation step is a deterministic mock adapter.
+
+Quality checks:
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
 ## File map
 
 ```text

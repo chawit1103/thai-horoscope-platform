@@ -2,10 +2,12 @@ import Link from "next/link";
 import { bootstrapDemoFlow, getEntitledHoroscope, getMockMvpState, type PeriodType } from "./mock-flow";
 
 export function HoroscopePage({ periodType }: { periodType: PeriodType }) {
-  bootstrapDemoFlow();
-  const state = getMockMvpState();
-  const result = getEntitledHoroscope(periodType);
-  const currentPlan = state.userPlans[state.currentUserId] ?? "free";
+  const sessionId = "dev-default";
+  const userId = "user_mock_001";
+  bootstrapDemoFlow(sessionId, userId);
+  const state = getMockMvpState(sessionId);
+  const result = getEntitledHoroscope(periodType, { sessionId, userId });
+  const currentPlan = state.userPlans[userId] ?? "free";
 
   if (!result) {
     return (

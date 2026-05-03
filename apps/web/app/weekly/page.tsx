@@ -1,5 +1,5 @@
 import { HoroscopePage } from "../../src/mvp/period-page";
 
-export default function WeeklyPage() {
+export default async function WeeklyPage() {
   return <HoroscopePage periodType="weekly" />;
 }

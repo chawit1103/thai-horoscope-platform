@@ -1,9 +1,11 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { bootstrapDemoFlow, getEntitledHoroscope, getMockMvpState, type PeriodType } from "./mock-flow";
 
-export function HoroscopePage({ periodType }: { periodType: PeriodType }) {
-  const sessionId = "dev-default";
-  const userId = "user_mock_001";
+export async function HoroscopePage({ periodType }: { periodType: PeriodType }) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("mock-session-id")?.value ?? "dev-default";
+  const userId = cookieStore.get("mock-user-id")?.value ?? "user_mock_001";
   bootstrapDemoFlow(sessionId, userId);
   const state = getMockMvpState(sessionId);
   const result = getEntitledHoroscope(periodType, { sessionId, userId });
@@ -28,25 +30,13 @@ export function HoroscopePage({ periodType }: { periodType: PeriodType }) {
       <h1>{result.content_json.title}</h1>
       <p className="lead">{result.content_json.summary}</p>
       <section className="meta-grid">
-        <div className="panel">
-          <span className="muted">Plan</span>
-          <strong>{currentPlan}</strong>
-        </div>
-        <div className="panel">
-          <span className="muted">Chart snapshot</span>
-          <strong>{result.chartSnapshotId}</strong>
-        </div>
-        <div className="panel">
-          <span className="muted">Rule hits</span>
-          <strong>{result.rule_hits_json.length}</strong>
-        </div>
+        <div className="panel"><span className="muted">Plan</span><strong>{currentPlan}</strong></div>
+        <div className="panel"><span className="muted">Chart snapshot</span><strong>{result.chartSnapshotId}</strong></div>
+        <div className="panel"><span className="muted">Rule hits</span><strong>{result.rule_hits_json.length}</strong></div>
       </section>
       <section className="grid">
         {result.content_json.sections.map((section) => (
-          <article className="panel" key={section.heading}>
-            <h2>{section.heading}</h2>
-            <p>{section.body}</p>
-          </article>
+          <article className="panel" key={section.heading}><h2>{section.heading}</h2><p>{section.body}</p></article>
         ))}
       </section>
       <p className="disclaimer">{result.content_json.disclaimer}</p>

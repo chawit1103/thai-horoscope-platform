@@ -1,17 +1,35 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { approveDraft, callMockAstroCalc, generateHoroscopeResult, getMockPeriodKey, queueMockOutboundMessage, recordMockDeliveryAttempt, saveBirthProfile, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
 
-async function getSessionId(): Promise<string> {
+async function getOrCreateSessionContext(): Promise<{ sessionId: string; userId: string }> {
   const c = await cookies();
-  let id = c.get("mock-session-id")?.value;
-  if (!id) {
-    id = `sess_${crypto.randomUUID()}`;
-    c.set("mock-session-id", id, { httpOnly: true, sameSite: "lax", path: "/" });
+  let sessionId = c.get("mock-session-id")?.value;
+  if (!sessionId) {
+    sessionId = `sess_${crypto.randomUUID()}`;
+    c.set("mock-session-id", sessionId, { httpOnly: true, sameSite: "lax", path: "/" });
   }
-  return id;
+
+  let userId = c.get("mock-user-id")?.value;
+  if (!userId) {
+    userId = `user_${createHash("sha256").update(sessionId).digest("hex").slice(0, 12)}`;
+    c.set("mock-user-id", userId, { httpOnly: true, sameSite: "lax", path: "/" });
+  }
+
+  return { sessionId, userId };
+}
+
+async function requireSessionContext(): Promise<{ sessionId: string; userId: string }> {
+  const c = await cookies();
+  const sessionId = c.get("mock-session-id")?.value;
+  const userId = c.get("mock-user-id")?.value;
+  if (!sessionId || !userId) {
+    throw new Error("Unauthorized: missing mock session context. Start onboarding first.");
+  }
+  return { sessionId, userId };
 }
 
 export async function startMockAdminSessionAction(formData: FormData): Promise<void> {
@@ -24,8 +42,7 @@ export async function startMockAdminSessionAction(formData: FormData): Promise<v
 }
 
 export async function saveOnboardingAction(formData: FormData): Promise<void> {
-  const sessionId = await getSessionId();
-  const userId = String(formData.get("userId") ?? "user_mock_001").trim();
+  const { sessionId, userId } = await getOrCreateSessionContext();
   const birthTimeUnknown = formData.get("birthTimeUnknown") === "on";
   const profile = saveBirthProfile({ birthDate: String(formData.get("birthDate") ?? ""), birthTime: String(formData.get("birthTime") ?? ""), birthTimeUnknown, birthPlaceText: String(formData.get("birthPlaceText") ?? ""), timezone: String(formData.get("timezone") ?? ""), consentBirthData: formData.get("consentBirthData") === "on" }, { sessionId, userId });
   const chartSnapshot = storeChartSnapshot(callMockAstroCalc(profile), sessionId);
@@ -45,7 +62,7 @@ export function approveAndQueueAuthorized(input: {sessionId:string; resultId:str
 
 export async function approveAndQueueAction(formData: FormData): Promise<void> {
   const c = await cookies();
-  const sessionId = await getSessionId();
+  const { sessionId } = await requireSessionContext();
   approveAndQueueAuthorized({
     sessionId,
     resultId: String(formData.get("resultId") ?? ""),

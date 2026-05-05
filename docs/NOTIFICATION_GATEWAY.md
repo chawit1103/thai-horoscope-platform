@@ -147,6 +147,20 @@ line: optional short notification
 - Include unsubscribe link for marketing/promotional messages.
 - Payment/system emails may be required transactional messages.
 
+Current PR13 email environment:
+
+```text
+EMAIL_PROVIDER_MODE=sandbox        # sandbox | http
+EMAIL_FROM_ADDRESS=                # verified sender/from address outside tests
+EMAIL_PROVIDER_ENDPOINT=           # provider HTTP endpoint when mode=http
+EMAIL_PROVIDER_API_KEY=            # provider API key, never committed
+EMAIL_WEBHOOK_SECRET=              # provider webhook verification secret, never committed
+EMAIL_AUDIT_HASH_SECRET=           # runtime HMAC secret for non-PII email audit target IDs
+EMAIL_VERIFICATION_TOKEN_TTL_MS=86400000
+```
+
+Tests must use sandbox mode or injected providers and must never send real email. Email delivery logs must avoid raw email addresses, message bodies, provider API keys, authorization headers, and verification tokens.
+
 ## Telegram gateway future requirements
 
 - Users must start the bot before receiving private messages.

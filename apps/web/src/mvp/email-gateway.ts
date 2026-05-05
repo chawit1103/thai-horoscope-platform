@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export type EmailTopicCode = "email_verification"|"account_security"|"data_export"|"account_deletion"|"payment_receipt"|"daily_horoscope"|"weekly_horoscope"|"monthly_horoscope"|"yearly_horoscope"|"marketing";
+export type EmailTopicCode = "email_verification"|"account_security"|"data_export"|"account_deletion"|"payment_receipt"|"system"|"daily_horoscope"|"weekly_horoscope"|"monthly_horoscope"|"yearly_horoscope"|"marketing"|"engagement";
 export type EmailDeliveryStatus = "sent"|"failed"|"blocked"|"bounced"|"complained"|"unsubscribed";
 export type EmailWebhookEventType = "bounce"|"complaint"|"unsubscribe";
 
@@ -13,9 +13,9 @@ export interface EmailWebhookEvent { type:EmailWebhookEventType; email:string; p
 export interface EmailDeliveryResult { status:EmailDeliveryStatus; providerMessageId?:string; errorCode?:string; raw?:unknown; }
 export interface EmailAuditLogEntry { action:string; targetId:string; metadata:Record<string,string>; createdAt:string; }
 type TransactionalEmailTemplate = "email_verification"|"account_security"|"data_export"|"account_deletion"|"payment_receipt";
-const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+export const EMAIL_VERIFICATION_TOKEN_TTL_MS = readPositiveIntegerEnv("EMAIL_VERIFICATION_TOKEN_TTL_MS", 24 * 60 * 60 * 1000);
 const EMAIL_VERIFICATION_TOKEN_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
-const TRANSACTIONAL_TOPIC_CODES = new Set<EmailTopicCode>(["email_verification", "account_security", "account_deletion", "data_export", "payment_receipt"]);
+const TRANSACTIONAL_TOPIC_CODES = new Set<EmailTopicCode>(["email_verification", "account_security", "account_deletion", "data_export", "payment_receipt", "system"]);
 
 export class SandboxEmailProvider implements EmailProvider {
   readonly sent: EmailProviderRequest[] = [];
@@ -61,7 +61,7 @@ export class EmailGateway {
     if (!channelAccount.verified && message.topicCode !== "email_verification") return this.block("blocked", "email_not_verified", channelAccount, message);
     if (channelAccount.bounced) return this.block("bounced", "email_bounced", channelAccount, message);
     if (channelAccount.complained) return this.block("complained", "email_complained", channelAccount, message);
-    const isTransactional = TRANSACTIONAL_TOPIC_CODES.has(message.topicCode);
+    const isTransactional = isGatewayTransactionalTopic(message.topicCode);
     if (channelAccount.unsubscribed && !isTransactional) return this.block("unsubscribed", "email_unsubscribed", channelAccount, message);
 
     if (this.config.sandboxMode) {
@@ -82,9 +82,8 @@ export class EmailGateway {
       this.audit("email_delivery_sent", channelAccount, message, response.providerMessageId);
       return { status: "sent", providerMessageId: response.providerMessageId };
     } catch (error) {
-      const messageText = error instanceof Error ? error.message : "provider_send_failed";
       this.audit("email_delivery_failed", channelAccount, message, undefined, "email_provider_failed");
-      return { status: "failed", errorCode: "email_provider_failed", raw: { message: messageText } };
+      return { status: "failed", errorCode: "email_provider_failed" };
     }
   }
 
@@ -106,7 +105,7 @@ export class EmailGateway {
       action,
       targetId: stableEmailTarget(account.email, this.config.auditHashSecret),
       createdAt: new Date().toISOString(),
-      metadata: sanitizeEmailLogMetadata({ topicCode: message.topicCode, transactional: String(message.transactional), providerMessageId: providerMessageId ?? "", errorCode: errorCode ?? "", email: account.email, subject: message.subject }),
+      metadata: sanitizeEmailLogMetadata({ topicCode: message.topicCode, transactional: String(isGatewayTransactionalTopic(message.topicCode)), providerMessageId: providerMessageId ?? "", errorCode: errorCode ?? "", email: account.email, subject: message.subject }),
     });
   }
 }
@@ -115,8 +114,8 @@ export function createEmailChannelAccount(input:{ userId:string; email:string; n
   return { userId: input.userId, email: input.email.trim().toLowerCase(), verified:false, unsubscribed:false, bounced:false, complained:false, updatedAt:(input.now??new Date("2026-05-03T10:00:00.000Z")).toISOString() };
 }
 
-export function createEmailVerificationToken(account:EmailChannelAccount, secret:string):string {
-  const issuedAt = new Date().toISOString();
+export function createEmailVerificationToken(account:EmailChannelAccount, secret:string, issuedAtDate=new Date()):string {
+  const issuedAt = issuedAtDate.toISOString();
   const payload = Buffer.from(JSON.stringify({ userId: account.userId, email: account.email, issuedAt }), "utf8").toString("base64url");
   const signature = hmac(payload, secret);
   account.verificationTokenHash = hmac(`${payload}.${signature}`, secret);
@@ -177,6 +176,8 @@ export function sanitizeEmailLogMetadata(metadata:Record<string,string>):Record<
 }
 
 function stableEmailTarget(email:string, secret:string):string { return `email_${hmac(email.toLowerCase(), secret).slice(0, 16)}`; }
+function isGatewayTransactionalTopic(topicCode:EmailTopicCode):boolean { return TRANSACTIONAL_TOPIC_CODES.has(topicCode); }
+function readPositiveIntegerEnv(name:string, fallback:number):number { const raw=process.env[name]; if(!raw) return fallback; const parsed=Number(raw); return Number.isSafeInteger(parsed)&&parsed>0 ? parsed : fallback; }
 function hmac(value:string, secret:string):string { return createHmac("sha256", secret).update(value).digest("base64url"); }
 function constantTimeEqual(a:string,b:string):boolean { const left=Buffer.from(a); const right=Buffer.from(b); return left.length===right.length && timingSafeEqual(left,right); }
 function escapeHtml(value:string):string { return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }

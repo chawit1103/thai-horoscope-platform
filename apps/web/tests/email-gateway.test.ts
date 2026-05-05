@@ -6,6 +6,12 @@ import { EmailGateway, HttpEmailProvider, SandboxEmailProvider, applyEmailWebhoo
 const makeGateway = (provider: EmailProvider = new SandboxEmailProvider(), auditLogs: EmailAuditLogEntry[] = []) =>
   new EmailGateway({ provider, fromEmail: "noreply@example.test", sandboxMode: true, auditHashSecret: "test-audit-secret", auditLogs });
 
+const signVerificationToken = (payload: Record<string, string>, secret: string) => {
+  const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const signature = createHmac("sha256", secret).update(encodedPayload).digest("base64url");
+  return `${encodedPayload}.${signature}`;
+};
+
 describe("email gateway", () => {
   it("routes only to verified email accounts", async () => {
     const provider = new SandboxEmailProvider();
@@ -27,19 +33,36 @@ describe("email gateway", () => {
     assert.equal(provider.sent.length, 0);
   });
 
-  it("suppresses horoscope/marketing email after unsubscribe even if caller marks transactional", async () => {
+  it("suppresses horoscope and marketing email after unsubscribe even if caller marks transactional", async () => {
     const provider = new SandboxEmailProvider();
     const gateway = makeGateway(provider);
     const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
     markEmailUnsubscribed(account);
 
-    const result = await gateway.send(account, { topicCode: "daily_horoscope", subject: "Hello", text: "Hello", html: "<p>Hello</p>", transactional: true });
-    assert.equal(result.status, "unsubscribed");
+    for (const topicCode of ["daily_horoscope", "weekly_horoscope", "monthly_horoscope", "yearly_horoscope", "marketing", "engagement"] as const) {
+      const result = await gateway.send(account, { topicCode, subject: "Hello", text: "Hello", html: "<p>Hello</p>", transactional: true });
+      assert.equal(result.status, "unsubscribed");
+    }
     assert.equal(provider.sent.length, 0);
 
     const transactional = await gateway.send(account, renderTransactionalEmailTemplate("account_deletion"));
     assert.equal(transactional.status, "sent");
     assert.equal(provider.sent.length, 0);
+  });
+
+  it("bases unsubscribe bypass on gateway topic policy instead of message.transactional", async () => {
+    const auditLogs: EmailAuditLogEntry[] = [];
+    const gateway = makeGateway(new SandboxEmailProvider(), auditLogs);
+    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+    markEmailUnsubscribed(account);
+
+    const allowed = await gateway.send(account, { topicCode: "system", subject: "Security", text: "Security", html: "<p>Security</p>", transactional: false });
+    assert.equal(allowed.status, "sent");
+    assert.equal(auditLogs.at(-1)?.metadata.transactional, "true");
+
+    const suppressed = await gateway.send(account, { topicCode: "marketing", subject: "Offer", text: "Offer", html: "<p>Offer</p>", transactional: true });
+    assert.equal(suppressed.status, "unsubscribed");
+    assert.equal(auditLogs.at(-1)?.metadata.transactional, "false");
   });
 
   it("suppresses bounced and complained email accounts", async () => {
@@ -57,11 +80,11 @@ describe("email gateway", () => {
 
   it("verifies fresh email token and preserves account binding", () => {
     const account = createEmailChannelAccount({ userId: "user_a", email: "USER@Example.Test" });
-    const token = createEmailVerificationToken(account, "verification-secret");
+    const token = createEmailVerificationToken(account, "verification-secret", new Date("2026-05-03T10:00:00.000Z"));
 
     assert.equal(verifyEmailToken(account, `${token}.extra`, "verification-secret"), false);
     assert.equal(verifyEmailToken(account, token, "wrong-secret"), false);
-    assert.equal(verifyEmailToken(account, token, "verification-secret"), true);
+    assert.equal(verifyEmailToken(account, token, "verification-secret", new Date("2026-05-03T10:05:00.000Z")), true);
     assert.equal(account.verified, true);
     assert.ok(account.verifiedAt);
   });
@@ -69,29 +92,25 @@ describe("email gateway", () => {
   it("rejects expired, malformed, and future-issued verification tokens", () => {
     const account = createEmailChannelAccount({ userId: "user_a", email: "user@example.test" });
     const secret = "verification-secret";
-    const freshToken = createEmailVerificationToken(account, secret);
-    const [payload, signature] = freshToken.split(".");
-    assert.ok(payload && signature);
+    const freshToken = createEmailVerificationToken(account, secret, new Date("2026-05-03T10:00:00.000Z"));
 
-    const expiredPayload = Buffer.from(JSON.stringify({ userId: account.userId, email: account.email, issuedAt: "2026-05-01T09:00:00.000Z" }), "utf8").toString("base64url");
-    const expiredSig = createHmac("sha256", secret).update(expiredPayload).digest("base64url");
-    const expiredToken = `${expiredPayload}.${expiredSig}`;
+    const expiredToken = signVerificationToken({ userId: account.userId, email: account.email, issuedAt: "2026-05-01T09:00:00.000Z" }, secret);
     account.verificationTokenHash = createHmac("sha256", secret).update(expiredToken).digest("base64url");
-    assert.equal(verifyEmailToken(account, expiredToken, secret), false);
+    assert.equal(verifyEmailToken(account, expiredToken, secret, new Date("2026-05-03T10:00:00.000Z")), false);
 
-    const malformedPayload = Buffer.from(JSON.stringify({ userId: account.userId, email: account.email, issuedAt: "not-a-date" }), "utf8").toString("base64url");
-    const malformedSig = createHmac("sha256", secret).update(malformedPayload).digest("base64url");
-    const malformedToken = `${malformedPayload}.${malformedSig}`;
+    const missingIssuedAtToken = signVerificationToken({ userId: account.userId, email: account.email }, secret);
+    account.verificationTokenHash = createHmac("sha256", secret).update(missingIssuedAtToken).digest("base64url");
+    assert.equal(verifyEmailToken(account, missingIssuedAtToken, secret, new Date("2026-05-03T10:00:00.000Z")), false);
+
+    const malformedToken = signVerificationToken({ userId: account.userId, email: account.email, issuedAt: "not-a-date" }, secret);
     account.verificationTokenHash = createHmac("sha256", secret).update(malformedToken).digest("base64url");
-    assert.equal(verifyEmailToken(account, malformedToken, secret), false);
+    assert.equal(verifyEmailToken(account, malformedToken, secret, new Date("2026-05-03T10:00:00.000Z")), false);
 
-    const futurePayload = Buffer.from(JSON.stringify({ userId: account.userId, email: account.email, issuedAt: "2026-05-03T11:00:00.000Z" }), "utf8").toString("base64url");
-    const futureSig = createHmac("sha256", secret).update(futurePayload).digest("base64url");
-    const futureToken = `${futurePayload}.${futureSig}`;
+    const futureToken = signVerificationToken({ userId: account.userId, email: account.email, issuedAt: "2026-05-03T10:10:01.000Z" }, secret);
     account.verificationTokenHash = createHmac("sha256", secret).update(futureToken).digest("base64url");
-    assert.equal(verifyEmailToken(account, futureToken, secret), false);
+    assert.equal(verifyEmailToken(account, futureToken, secret, new Date("2026-05-03T10:00:00.000Z")), false);
     account.verificationTokenHash = createHmac("sha256", secret).update(freshToken).digest("base64url");
-    assert.equal(verifyEmailToken(account, freshToken, secret), true);
+    assert.equal(verifyEmailToken(account, freshToken, secret, new Date("2026-05-03T10:05:00.000Z")), true);
   });
 
   it("never performs real network sends in sandbox tests", async () => {
@@ -207,5 +226,12 @@ describe("email gateway", () => {
 
     assert.equal(logsA[0]?.targetId, logsB[0]?.targetId);
     assert.notEqual(logsA[0]?.targetId, logsC[0]?.targetId);
+  });
+
+  it("fails closed when audit hash secret is missing", () => {
+    assert.throws(
+      () => new EmailGateway({ provider: new SandboxEmailProvider(), fromEmail: "noreply@example.test", sandboxMode: true, auditHashSecret: "" }),
+      /EMAIL_AUDIT_HASH_SECRET is required/,
+    );
   });
 });

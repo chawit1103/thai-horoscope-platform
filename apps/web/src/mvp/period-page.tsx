@@ -1,0 +1,57 @@
+import { cookies } from "next/headers";
+import Link from "next/link";
+import { bootstrapDemoFlow, getEntitledHoroscope, getMockMvpState, type PeriodType } from "./mock-flow";
+
+export async function HoroscopePage({ periodType }: { periodType: PeriodType }) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("mock-session-id")?.value;
+  const userId = cookieStore.get("mock-user-id")?.value;
+  if (!sessionId || !userId) {
+    return (
+      <section className="page">
+        <p className="eyebrow">Mock session required</p>
+        <h1>เริ่มต้น onboarding ก่อนดูดวง</h1>
+        <p className="lead">เพื่อแยกข้อมูลรายผู้ใช้ในโหมดพัฒนา กรุณากรอกข้อมูลที่หน้าเริ่มต้นก่อน</p>
+        <Link className="button-link" href="/">
+          ไปหน้า onboarding
+        </Link>
+      </section>
+    );
+  }
+  bootstrapDemoFlow(sessionId, userId);
+  const state = getMockMvpState(sessionId);
+  const result = getEntitledHoroscope(periodType, { sessionId, userId });
+  const currentPlan = state.userPlans[userId] ?? "free";
+
+  if (!result) {
+    return (
+      <section className="page">
+        <p className="eyebrow">Entitlement</p>
+        <h1>แพ็กเกจปัจจุบันยังไม่เปิดอ่านหน้านี้</h1>
+        <p className="lead">แผน {currentPlan} เปิดอ่าน: daily สำหรับ free, daily/weekly สำหรับ basic, และครบทุกช่วงสำหรับ premium</p>
+        <Link className="button-link" href="/today">
+          กลับไปดูวันนี้
+        </Link>
+      </section>
+    );
+  }
+
+  return (
+    <article className="page">
+      <p className="eyebrow">Mock horoscope · {result.status}</p>
+      <h1>{result.content_json.title}</h1>
+      <p className="lead">{result.content_json.summary}</p>
+      <section className="meta-grid">
+        <div className="panel"><span className="muted">Plan</span><strong>{currentPlan}</strong></div>
+        <div className="panel"><span className="muted">Chart snapshot</span><strong>{result.chartSnapshotId}</strong></div>
+        <div className="panel"><span className="muted">Rule hits</span><strong>{result.rule_hits_json.length}</strong></div>
+      </section>
+      <section className="grid">
+        {result.content_json.sections.map((section) => (
+          <article className="panel" key={section.heading}><h2>{section.heading}</h2><p>{section.body}</p></article>
+        ))}
+      </section>
+      <p className="disclaimer">{result.content_json.disclaimer}</p>
+    </article>
+  );
+}

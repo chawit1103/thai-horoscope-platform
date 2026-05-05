@@ -139,6 +139,16 @@ line: optional short notification
 - Never log channel access token.
 - Use Flex Message for rich horoscope preview where appropriate.
 
+Current PR14 LINE environment:
+
+```text
+LINE_CHANNEL_SECRET=               # LINE Messaging API channel secret, never committed
+LINE_CHANNEL_ACCESS_TOKEN=         # LINE Messaging API channel access token, never committed
+LINE_AUDIT_HASH_SECRET=            # runtime HMAC secret for non-PII LINE audit target IDs
+```
+
+Tests must use sandbox mode or injected providers and must never send real LINE messages. LINE delivery logs must avoid raw LINE user IDs, webhook bodies, channel secrets, access tokens, authorization headers, and provider credentials.
+
 ## Email gateway requirements
 
 - Support sandbox mode for development.

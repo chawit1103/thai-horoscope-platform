@@ -1,0 +1,176 @@
+import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
+import { describe, it } from "node:test";
+import { POST } from "../app/api/line/webhook/route";
+import { HttpLineProvider, LineGateway, SandboxLineProvider, applyLineInboundEvent, createLineChannelAccount, normalizeLineWebhook, renderLineHoroscopePreviewFlex, sanitizeLineLogMetadata, verifyLineWebhookSignature, type LineAuditLogEntry, type LineProvider } from "../src/mvp/line-gateway";
+
+const testNow = new Date("2026-05-04T09:00:00.000Z");
+const testChannelSecret = "test-line-channel-secret";
+const testAuditSecret = "test-line-audit-secret";
+const testLineUserId = "U1234567890abcdef";
+
+const signLineBody = (body:string, secret = testChannelSecret) => createHmac("sha256", secret).update(body).digest("base64");
+const signedLineHeaders = (body:string, secret = testChannelSecret) => new Headers({ "x-line-signature": signLineBody(body, secret) });
+const makeGateway = (provider:LineProvider = new SandboxLineProvider({ channelSecret:testChannelSecret }), auditLogs:LineAuditLogEntry[] = []) =>
+  new LineGateway({ provider, sandboxMode:true, auditHashSecret:testAuditSecret, auditLogs });
+
+describe("line gateway", () => {
+  it("rejects invalid or missing LINE webhook signatures", () => {
+    const body = JSON.stringify({ events:[] });
+
+    assert.equal(verifyLineWebhookSignature(new Headers({ "x-line-signature":"bad" }), body, testChannelSecret), false);
+    assert.equal(verifyLineWebhookSignature(new Headers(), body, testChannelSecret), false);
+    assert.equal(verifyLineWebhookSignature(signedLineHeaders(body), body, ""), false);
+  });
+
+  it("accepts valid LINE webhook signatures", () => {
+    const body = JSON.stringify({ events:[] });
+
+    assert.equal(verifyLineWebhookSignature(signedLineHeaders(body), body, testChannelSecret), true);
+  });
+
+  it("LINE webhook endpoint rejects invalid signatures and accepts valid signatures", async () => {
+    const body = JSON.stringify({ events:[{ type:"follow", webhookEventId:"evt_1", source:{ type:"user", userId:testLineUserId }, timestamp:testNow.getTime() }] });
+    const previousSecret = process.env.LINE_CHANNEL_SECRET;
+    const previousToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    process.env.LINE_CHANNEL_SECRET = testChannelSecret;
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-line-access-token";
+    try {
+      const invalid = await POST(new Request("https://example.test/api/line/webhook", { method:"POST", headers:new Headers({ "x-line-signature":"bad" }), body }));
+      assert.equal(invalid.status, 401);
+
+      const valid = await POST(new Request("https://example.test/api/line/webhook", { method:"POST", headers:signedLineHeaders(body), body }));
+      assert.equal(valid.status, 200);
+      assert.deepEqual(await valid.json(), { ok:true, eventCount:1 });
+    } finally {
+      if (previousSecret === undefined) delete process.env.LINE_CHANNEL_SECRET;
+      else process.env.LINE_CHANNEL_SECRET = previousSecret;
+      if (previousToken === undefined) delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+      else process.env.LINE_CHANNEL_ACCESS_TOKEN = previousToken;
+    }
+  });
+
+  it("normalizes LINE follow message postback and unfollow events without raw user IDs", () => {
+    const normalized = normalizeLineWebhook({
+      events:[
+        { type:"follow", webhookEventId:"evt_follow", source:{ type:"user", userId:testLineUserId }, replyToken:"reply_1", timestamp:testNow.getTime() },
+        { type:"message", webhookEventId:"evt_msg", source:{ type:"user", userId:testLineUserId }, message:{ type:"text", text:"hi" }, timestamp:testNow.getTime() },
+        { type:"postback", webhookEventId:"evt_postback", source:{ type:"user", userId:testLineUserId }, postback:{ data:"period=daily" }, timestamp:testNow.getTime() },
+        { type:"unfollow", webhookEventId:"evt_unfollow", source:{ type:"user", userId:testLineUserId }, timestamp:testNow.getTime() },
+      ],
+    }, testChannelSecret, testNow);
+
+    assert.deepEqual(normalized.map((event)=>event.type), ["follow", "message", "postback", "unfollow"]);
+    assert.equal(normalized[0]?.providerEventId, "evt_follow");
+    assert.equal(normalized[1]?.messageType, "text");
+    assert.equal(normalized[2]?.postbackData, "period=daily");
+    assert.equal(JSON.stringify(normalized).includes(testLineUserId), false);
+  });
+
+  it("unfollow marks a matching LINE channel account inactive", () => {
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+    const [event] = normalizeLineWebhook({ events:[{ type:"unfollow", source:{ userId:testLineUserId }, timestamp:testNow.getTime() }] }, testChannelSecret, testNow);
+
+    assert.equal(event?.type, "unfollow");
+    assert.equal(applyLineInboundEvent(account, event!, testChannelSecret, new Date("2026-05-04T09:01:00.000Z")), "applied");
+    assert.equal(account.active, false);
+    assert.equal(account.blocked, true);
+    assert.equal(account.followed, false);
+  });
+
+  it("ignores inbound events that do not match the LINE channel account", () => {
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+    const [event] = normalizeLineWebhook({ events:[{ type:"unfollow", source:{ userId:"Uother" }, timestamp:testNow.getTime() }] }, testChannelSecret, testNow);
+
+    assert.equal(applyLineInboundEvent(account, event!, testChannelSecret, new Date("2026-05-04T09:01:00.000Z")), "ignored");
+    assert.equal(account.active, true);
+    assert.equal(account.blocked, false);
+  });
+
+  it("suppresses inactive and blocked LINE channel accounts", async () => {
+    const provider = new SandboxLineProvider();
+    const gateway = makeGateway(provider);
+    const inactive = { ...createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow }), active:false };
+    const blocked = { ...createLineChannelAccount({ userId:"user_b", lineUserId:"Ublocked", now:testNow }), blocked:true };
+
+    assert.equal((await gateway.send(inactive, { topicCode:"daily_horoscope", title:"Daily", body:"Preview", ctaUrl:"https://example.test/today" })).status, "blocked");
+    assert.equal((await gateway.send(blocked, { topicCode:"daily_horoscope", title:"Daily", body:"Preview", ctaUrl:"https://example.test/today" })).status, "blocked");
+    assert.equal(provider.sent.length, 0);
+  });
+
+  it("does not call the configured provider in LINE sandbox mode", async () => {
+    let pushCalls = 0;
+    const provider: LineProvider = {
+      async push() {
+        pushCalls += 1;
+        throw new Error("network call should not happen");
+      },
+    };
+    const gateway = new LineGateway({ provider, sandboxMode:true, auditHashSecret:testAuditSecret });
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+
+    const result = await gateway.send(account, { topicCode:"daily_horoscope", title:"Daily", body:"Preview", ctaUrl:"https://example.test/today", periodKey:"2026-05-04" });
+    assert.equal(result.status, "sent");
+    assert.equal(pushCalls, 0);
+  });
+
+  it("does not make real LINE API calls in tests", async () => {
+    const provider = new SandboxLineProvider();
+    const gateway = makeGateway(provider);
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+
+    await gateway.send(account, { topicCode:"daily_horoscope", title:"Daily", body:"Preview", ctaUrl:"https://example.test/today", periodKey:"2026-05-04" });
+
+    assert.equal(provider.networkSendCount, 0);
+    assert.equal(provider.sent.length, 0);
+  });
+
+  it("sends through HttpLineProvider only when sandbox is disabled and fetcher is injected", async () => {
+    let fetchCalls = 0;
+    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", channelSecret:testChannelSecret, fetcher:async () => {
+      fetchCalls += 1;
+      return new Response(null, { status:200, headers:{ "x-line-request-id":"line_request_1" } });
+    } });
+    const gateway = new LineGateway({ provider, sandboxMode:false, auditHashSecret:testAuditSecret });
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+
+    const result = await gateway.send(account, { topicCode:"daily_horoscope", title:"Daily", body:"Preview", ctaUrl:"https://example.test/today", periodKey:"2026-05-04" });
+
+    assert.equal(result.status, "sent");
+    assert.equal(result.providerMessageId, "line_request_1");
+    assert.equal(fetchCalls, 1);
+  });
+
+  it("builds a LINE Flex Message horoscope preview with CTA link", () => {
+    const flex = renderLineHoroscopePreviewFlex({ topicCode:"daily_horoscope", title:"Daily horoscope", body:"Preview text", ctaUrl:"https://example.test/today" });
+
+    assert.equal(flex.type, "flex");
+    assert.equal(flex.altText, "Daily horoscope");
+    assert.equal(JSON.stringify(flex.contents).includes("https://example.test/today"), true);
+  });
+
+  it("does not include LINE user IDs or secrets in unsafe logs", async () => {
+    const auditLogs: LineAuditLogEntry[] = [];
+    const provider = new SandboxLineProvider();
+    const gateway = makeGateway(provider, auditLogs);
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+
+    await gateway.send(account, { topicCode:"daily_horoscope", title:"Daily", body:"Sensitive preview body", ctaUrl:"https://example.test/today", periodKey:"2026-05-04" });
+
+    const serialized = JSON.stringify(auditLogs);
+    assert.equal(serialized.includes(testLineUserId), false);
+    assert.equal(serialized.includes("Sensitive preview body"), false);
+    assert.deepEqual(sanitizeLineLogMetadata({ lineUserId:testLineUserId, channelAccessToken:"secret-token", rawPayload:"body", topicCode:"daily_horoscope" }), { topicCode:"daily_horoscope" });
+  });
+
+  it("prevents duplicate LINE sends for the same account topic and period key", async () => {
+    const gateway = makeGateway();
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+    const message = { topicCode:"daily_horoscope", title:"Daily", body:"Preview", ctaUrl:"https://example.test/today", periodKey:"2026-05-04" };
+
+    assert.equal((await gateway.send(account, message)).status, "sent");
+    const duplicate = await gateway.send(account, message);
+    assert.equal(duplicate.status, "blocked");
+    assert.equal(duplicate.errorCode, "duplicate_line_send");
+  });
+});

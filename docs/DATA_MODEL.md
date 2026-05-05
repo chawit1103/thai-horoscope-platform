@@ -177,6 +177,8 @@ status
 current_period_start
 current_period_end
 cancel_at_period_end
+canceled_at
+expired_at
 payment_provider
 provider_customer_id
 metadata_json

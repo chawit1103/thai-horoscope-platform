@@ -53,6 +53,24 @@ canceled
 expired
 ```
 
+PR15 lifecycle behavior:
+
+- `active` grants plan entitlement only during `current_period_start <= now < current_period_end`.
+- `trialing` grants plan entitlement until `current_period_end`.
+- `past_due` does not grant entitlement in this MVP; no grace period is implemented yet.
+- `canceled` with `cancel_at_period_end = true` grants entitlement until `current_period_end`.
+- immediate `canceled` and `expired` subscriptions do not grant entitlement.
+
+Subscription period fields:
+
+```text
+current_period_start
+current_period_end
+cancel_at_period_end
+canceled_at
+expired_at
+```
+
 ## Payment provider abstraction
 
 ```ts
@@ -139,6 +157,19 @@ Admin should be able to:
 ## MVP payment approach
 
 Start with `mock` provider in development.
+
+PR15 mock webhook event types:
+
+```text
+subscription.created
+subscription.renewed
+subscription.renewal_failed
+subscription.canceled
+subscription.expired
+subscription.reactivated
+```
+
+The PR15 mock webhook processor is idempotent by provider event id, audits every applied state change, ignores invalid or stale transitions safely, and can invoke sandboxed notification hooks without sending real email.
 
 Then implement real provider only after:
 

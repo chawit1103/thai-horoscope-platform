@@ -292,6 +292,55 @@ describe("mock mvp flow", () => {
     assert.equal(JSON.stringify(exported).includes("Phuket"), false);
   });
 
+
+
+  it("deleting a birth profile cascades queued outbound and delivery artifacts", () => {
+    const context = { sessionId: "s1", userId: "user_a" };
+    const profile = saveBirthProfile(birthInput, context);
+    const chart = storeChartSnapshot(callMockAstroCalc(profile), "s1");
+    const draft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+    approveDraft(draft.id, "admin", "s1");
+    const message = queueMockOutboundMessage(draft.id, "s1");
+    recordMockDeliveryAttempt(message.id, "s1");
+
+    deleteBirthProfile(context, profile.id);
+
+    const state = getMockMvpState("s1");
+    assert.equal(state.outboundMessages.some((outbound) => outbound.id === message.id), false);
+    assert.equal(state.deliveryAttempts.some((attempt) => attempt.outboundMessageId === message.id), false);
+  });
+
+  it("export excludes active queued delivery artifacts for deleted birth data", () => {
+    const context = { sessionId: "s1", userId: "user_a" };
+    const profile = saveBirthProfile(birthInput, context);
+    const chart = storeChartSnapshot(callMockAstroCalc(profile), "s1");
+    const draft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+    approveDraft(draft.id, "admin", "s1");
+    const message = queueMockOutboundMessage(draft.id, "s1");
+    recordMockDeliveryAttempt(message.id, "s1");
+
+    deleteBirthProfile(context, profile.id);
+
+    const exported = exportUserData(context);
+    assert.equal(exported.outboundMessages.length, 0);
+    assert.equal(exported.deliveryAttempts.length, 0);
+  });
+
+  it("allocates monotonic non-reused birth profile IDs after deletion", () => {
+    const context = { sessionId: "s1", userId: "user_a" };
+    const profileA = saveBirthProfile(birthInput, context);
+    const profileB = saveBirthProfile({ ...birthInput, birthPlaceText: "Phuket" }, context);
+
+    deleteBirthProfile(context, profileA.id);
+
+    const profileC = saveBirthProfile({ ...birthInput, birthPlaceText: "Chiang Rai" }, context);
+    assert.notEqual(profileC.id, profileA.id);
+    assert.notEqual(profileC.id, profileB.id);
+    assert.equal(getMockMvpState("s1").deletedBirthProfileIds[profileA.id] !== undefined, true);
+
+    const chartC = generateChartSnapshotForBirthProfile(profileC, context);
+    assert.equal(chartC.birthProfileId, profileC.id);
+  });
   it("deleting a birth profile prevents future chart generation", () => {
     const context = { sessionId: "s1", userId: "user_a" };
     const profile = saveBirthProfile(birthInput, context);

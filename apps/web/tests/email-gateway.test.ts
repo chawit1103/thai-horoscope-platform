@@ -190,6 +190,31 @@ describe("email gateway", () => {
     assert.equal(fetchCalls, 0);
   });
 
+  it("fails closed for default webhook verification", async () => {
+    const body = JSON.stringify({ type: "bounce", email: "user@example.test" });
+    const providerWithoutVerifier: EmailProvider = {
+      async send() {
+        throw new Error("send should not be called");
+      },
+    };
+    const defaultGateway = new EmailGateway({ provider: providerWithoutVerifier, fromEmail: "noreply@example.test", sandboxMode: true, auditHashSecret: "test-audit-secret" });
+    const sandboxProvider = new SandboxEmailProvider();
+    const sandboxGateway = new EmailGateway({ provider: sandboxProvider, fromEmail: "noreply@example.test", sandboxMode: true, auditHashSecret: "test-audit-secret" });
+
+    assert.equal(await defaultGateway.verifyWebhook(new Headers(), body), false);
+    assert.equal(await sandboxProvider.verifyWebhook(new Headers(), body), false);
+    assert.equal(await sandboxGateway.verifyWebhook(new Headers(), body), false);
+  });
+
+  it("verifies sandbox webhooks only when explicitly signed with a sandbox secret", async () => {
+    const body = JSON.stringify({ type: "unsubscribe", email: "user@example.test" });
+    const secret = "test-sandbox-webhook-secret";
+    const provider = new SandboxEmailProvider({ webhookSecret: secret });
+
+    assert.equal(await provider.verifyWebhook(signedWebhookHeaders(body, secret), body), true);
+    assert.equal(await provider.verifyWebhook(signedWebhookHeaders(body, "wrong-secret"), body), false);
+  });
+
   it("verifies signed HttpEmailProvider webhooks", async () => {
     const body = JSON.stringify({ type: "bounce", email: "user@example.test" });
     const secret = "test-webhook-secret";
@@ -198,6 +223,22 @@ describe("email gateway", () => {
     assert.equal(await provider.verifyWebhook(signedWebhookHeaders(body, secret), body), true);
     assert.equal(await provider.verifyWebhook(signedWebhookHeaders(body, "wrong-secret"), body), false);
     assert.equal(await provider.verifyWebhook(new Headers({ "x-email-timestamp": String(Date.now()) }), body), false);
+    assert.equal(await provider.verifyWebhook(new Headers({ "x-email-signature": "missing_timestamp" }), body), false);
+    assert.equal(await provider.verifyWebhook(new Headers({ "x-email-timestamp": "not-a-number", "x-email-signature": "invalid" }), body), false);
+  });
+
+  it("uses EMAIL_WEBHOOK_SECRET for HttpEmailProvider verification when no explicit secret is configured", async () => {
+    const body = JSON.stringify({ type: "bounce", email: "user@example.test" });
+    const previousSecret = process.env.EMAIL_WEBHOOK_SECRET;
+    process.env.EMAIL_WEBHOOK_SECRET = "test-env-webhook-secret";
+    try {
+      const provider = new HttpEmailProvider({ endpoint: "https://email-provider.test/send", apiKey: "test-key" });
+      assert.equal(await provider.verifyWebhook(signedWebhookHeaders(body, "test-env-webhook-secret"), body), true);
+      assert.equal(await provider.verifyWebhook(signedWebhookHeaders(body, "wrong-secret"), body), false);
+    } finally {
+      if (previousSecret === undefined) delete process.env.EMAIL_WEBHOOK_SECRET;
+      else process.env.EMAIL_WEBHOOK_SECRET = previousSecret;
+    }
   });
 
   it("fails closed for missing or stale HttpEmailProvider webhook verification", async () => {
@@ -312,6 +353,13 @@ describe("email gateway", () => {
     assert.equal(serializedLogs.includes("sensitive@example.test"), false);
     assert.equal(serializedLogs.includes("Account security notice"), false);
     assert.equal(JSON.stringify(sanitizeEmailLogMetadata({ apiKey: "secret-key", email: "sensitive@example.test", topicCode: "system" })).includes("secret-key"), false);
+    const sanitized = sanitizeEmailLogMetadata({
+      authorizationHeader: "Bearer provider-token",
+      providerCredentials: "credential-value",
+      webhookBody: JSON.stringify({ email: "sensitive@example.test" }),
+      topicCode: "system",
+    });
+    assert.deepEqual(sanitized, { topicCode: "system" });
   });
 
   it("normalizes bounce complaint and unsubscribe webhook skeleton events", async () => {

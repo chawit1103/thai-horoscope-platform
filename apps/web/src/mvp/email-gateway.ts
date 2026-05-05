@@ -23,13 +23,15 @@ export class SandboxEmailProvider implements EmailProvider {
   readonly sent: EmailProviderRequest[] = [];
   networkSendCount = 0;
 
+  constructor(private readonly config:{ webhookSecret?:string } = {}) {}
+
   async send(request: EmailProviderRequest): Promise<EmailProviderResult> {
     this.sent.push(structuredClone(request));
     return { providerMessageId: `sandbox_${this.sent.length}` };
   }
 
-  async verifyWebhook(): Promise<boolean> {
-    return true;
+  async verifyWebhook(headers:Headers, body:string):Promise<boolean> {
+    return verifySignedEmailWebhook(headers, body, this.config.webhookSecret);
   }
 
   async normalizeWebhook(body: unknown): Promise<EmailWebhookEvent[]> {
@@ -188,13 +190,21 @@ export function renderTransactionalEmailTemplate(template:TransactionalEmailTemp
 }
 
 export function sanitizeEmailLogMetadata(metadata:Record<string,string>):Record<string,string> {
-  const blocked = new Set(["email","to","from","subject","body","html","text","apiKey","authorization","secret","token"]);
-  return Object.fromEntries(Object.entries(metadata).filter(([key,value]) => !blocked.has(key) && !value.includes("@") && !value.toLowerCase().includes("secret")));
+  return Object.fromEntries(Object.entries(metadata).filter(([key,value]) => !isSensitiveLogKey(key) && !isSensitiveLogValue(value)));
 }
 
 function stableEmailTarget(email:string, secret:string):string { return `email_${hmac(email.toLowerCase(), secret).slice(0, 16)}`; }
 function isGatewayTransactionalTopic(topicCode:EmailTopicCode):boolean { return TRANSACTIONAL_TOPIC_CODES.has(topicCode); }
 function readPositiveIntegerEnv(name:string, fallback:number):number { const raw=process.env[name]; if(!raw) return fallback; const parsed=Number(raw); return Number.isSafeInteger(parsed)&&parsed>0 ? parsed : fallback; }
+function isSensitiveLogKey(key:string):boolean {
+  const normalized = key.toLowerCase();
+  const exactBlocked = new Set(["email","to","from","subject","body","html","text"]);
+  return exactBlocked.has(normalized) || ["apikey","authorization","secret","token","credential","webhook"].some((blocked)=>normalized.includes(blocked));
+}
+function isSensitiveLogValue(value:string):boolean {
+  const normalized = value.toLowerCase();
+  return value.includes("@") || normalized.includes("secret") || normalized.includes("bearer ") || normalized.includes("authorization");
+}
 function verifySignedEmailWebhook(headers:Headers, body:string, secret:string|undefined):boolean {
   if (!secret?.trim()) return false;
   const timestamp = headers.get("x-email-timestamp");

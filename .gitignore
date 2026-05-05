@@ -16,3 +16,6 @@ __pycache__/
 .venv/
 venv/
 *.pyc
+
+# Local Codex app configuration
+.codex/

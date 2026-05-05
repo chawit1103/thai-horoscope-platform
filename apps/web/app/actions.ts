@@ -3,9 +3,10 @@
 import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { approveDraft, callMockAstroCalc, generateHoroscopeResult, getMockPeriodKey, queueMockOutboundMessage, recordMockDeliveryAttempt, saveBirthProfile, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
+import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, authorizeAdminRoute, recordAdminSessionStartedWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken } from "../src/mvp/admin-auth";
+import { callMockAstroCalc, generateHoroscopeResult, getMockPeriodKey, recordAdminAudit, saveBirthProfile, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
 
-const MOCK_ADMIN_COOKIE_NAME = "mock-admin-session";
+type AdminRole = "admin";
 
 async function getOrCreateSessionContext(): Promise<{ sessionId: string; userId: string }> {
   const c = await cookies();
@@ -34,26 +35,47 @@ async function requireSessionContext(): Promise<{ sessionId: string; userId: str
   return { sessionId, userId };
 }
 
-export async function startMockAdminSessionAction(formData: FormData): Promise<void> {
-  if (process.env.NODE_ENV === "production") throw new Error("Production auth is reserved for PR11.");
+export async function startDevMockAdminSessionAction(formData: FormData): Promise<void> {
   const token = String(formData.get("adminToken") ?? "").trim();
-  const cookieValue = startMockAdminSessionForToken(token, process.env.MOCK_ADMIN_TOKEN);
-  if (!cookieValue) throw new Error("Invalid admin token.");
+  const cookieValue = startDevMockAdminSessionForToken({
+    token,
+    expectedToken: process.env.MOCK_ADMIN_TOKEN,
+    sessionSecret: process.env.ADMIN_SESSION_SECRET,
+    isProduction: process.env.NODE_ENV === "production",
+  });
   const c = await cookies();
-  c.set(MOCK_ADMIN_COOKIE_NAME, cookieValue, { httpOnly: true, sameSite: "lax", path: "/" });
+  if (!cookieValue) {
+    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", `admin_sign_in_${crypto.randomUUID()}`, { reason: "invalid_admin_token", path: "/admin/sign-in" });
+    throw new Error("Unauthorized admin sign-in.");
+  }
+
+  recordAdminSessionStartedWithAdminCookie({
+    sessionCookie: cookieValue,
+    sessionSecret: process.env.ADMIN_SESSION_SECRET,
+  });
+
+  c.set(ADMIN_COOKIE_NAME, cookieValue, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+  });
   redirect("/admin");
 }
 
-export function startMockAdminSessionForToken(token: string, expectedToken?: string): string | undefined {
-  if (!expectedToken) return undefined;
-  if (token !== expectedToken) return undefined;
-  return createHash("sha256").update(`mock-admin:${expectedToken}`).digest("hex");
-}
-
-export function validateMockAdminSession(input: { sessionCookie?: string; expectedToken?: string; isProduction: boolean }): boolean {
-  if (input.isProduction) return false;
-  const expected = input.expectedToken ? createHash("sha256").update(`mock-admin:${input.expectedToken}`).digest("hex") : "";
-  return Boolean(expected && input.sessionCookie && input.sessionCookie === expected);
+export async function requireAdminSession(path = "/admin"): Promise<{ actorId: string; role: AdminRole; sessionId: string }> {
+  const c = await cookies();
+  const auth = authorizeAdminRoute({
+    path,
+    sessionCookie: c.get(ADMIN_COOKIE_NAME)?.value,
+    sessionSecret: process.env.ADMIN_SESSION_SECRET,
+  });
+  if (!auth.ok) {
+    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", `admin_route_${crypto.randomUUID()}`, { reason: auth.reason, path });
+    redirect(auth.redirectTo);
+  }
+  const sessionId = c.get("mock-session-id")?.value ?? "admin-security";
+  return { actorId: auth.actorId, role: auth.role, sessionId };
 }
 
 export async function saveOnboardingAction(formData: FormData): Promise<void> {
@@ -67,28 +89,26 @@ export async function saveOnboardingAction(formData: FormData): Promise<void> {
   redirect("/today");
 }
 
-export function approveAndQueueAuthorized(input: {sessionId:string; resultId:string; actorId?:string; isProduction:boolean; sessionRole?:string;}): void {
-  if (input.isProduction) throw new Error("Development admin guard is disabled in production. Production auth is reserved for PR11.");
-  if (input.sessionRole !== "admin") throw new Error("Unauthorized: missing admin session cookie.");
-  const approved = approveDraft(input.resultId, input.actorId ?? "dev_admin_mock", input.sessionId);
-  const message = queueMockOutboundMessage(approved.id, input.sessionId);
-  recordMockDeliveryAttempt(message.id, input.sessionId);
-}
-
 export async function approveAndQueueAction(formData: FormData): Promise<void> {
   const c = await cookies();
   const { sessionId } = await requireSessionContext();
-  const isAuthorizedAdmin = validateMockAdminSession({
-    isProduction: process.env.NODE_ENV === "production",
-    sessionCookie: c.get(MOCK_ADMIN_COOKIE_NAME)?.value,
-    expectedToken: process.env.MOCK_ADMIN_TOKEN,
-  });
-  approveAndQueueAuthorized({
+  approveAndQueueWithAdminCookie({
     sessionId,
     resultId: String(formData.get("resultId") ?? ""),
-    actorId: String(formData.get("actorId") ?? "dev_admin_mock"),
-    isProduction: process.env.NODE_ENV === "production",
-    sessionRole: isAuthorizedAdmin ? "admin" : undefined,
+    sessionCookie: c.get(ADMIN_COOKIE_NAME)?.value,
+    sessionSecret: process.env.ADMIN_SESSION_SECRET,
+  });
+  redirect("/admin");
+}
+
+export async function rejectDraftAction(formData: FormData): Promise<void> {
+  const c = await cookies();
+  const { sessionId } = await requireSessionContext();
+  rejectDraftWithAdminCookie({
+    sessionId,
+    resultId: String(formData.get("resultId") ?? ""),
+    sessionCookie: c.get(ADMIN_COOKIE_NAME)?.value,
+    sessionSecret: process.env.ADMIN_SESSION_SECRET,
   });
   redirect("/admin");
 }

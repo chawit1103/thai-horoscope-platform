@@ -111,6 +111,15 @@ system
 
 Admin actions must be audited.
 
+Current MVP admin access:
+
+- `/admin` must only render for a server-verified session carrying `role=admin`.
+- Admin sessions are signed with `ADMIN_SESSION_SECRET` and stored in an HttpOnly, SameSite=Lax cookie.
+- The mock admin token is checked against `MOCK_ADMIN_TOKEN` on the server only; it must never be rendered into HTML or hidden inputs.
+- Mock admin sign-in is development-only and must fail closed in production.
+- Production must configure `ADMIN_SESSION_SECRET`; missing or invalid sessions fail closed.
+- Do not authorize production admins from a hardcoded email address.
+
 ## Audit logs
 
 Audit these events:
@@ -123,6 +132,8 @@ Audit these events:
 - notification resend
 - account deletion
 - calculation profile changes
+
+Audit log metadata must not include direct PII, birth date/time/place, email, phone, horoscope body text, or derived birth-data hashes.
 
 ## Data retention
 

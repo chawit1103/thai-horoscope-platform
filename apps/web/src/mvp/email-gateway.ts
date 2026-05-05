@@ -13,6 +13,9 @@ export interface EmailWebhookEvent { type:EmailWebhookEventType; email:string; p
 export interface EmailDeliveryResult { status:EmailDeliveryStatus; providerMessageId?:string; errorCode?:string; raw?:unknown; }
 export interface EmailAuditLogEntry { action:string; targetId:string; metadata:Record<string,string>; createdAt:string; }
 type TransactionalEmailTemplate = "email_verification"|"account_security"|"data_export"|"account_deletion"|"payment_receipt";
+const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const EMAIL_VERIFICATION_TOKEN_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const TRANSACTIONAL_TOPIC_CODES = new Set<EmailTopicCode>(["email_verification", "account_security", "account_deletion", "data_export", "payment_receipt"]);
 
 export class SandboxEmailProvider implements EmailProvider {
   readonly sent: EmailProviderRequest[] = [];
@@ -50,13 +53,22 @@ export class HttpEmailProvider implements EmailProvider {
 export class EmailGateway {
   readonly channel = "email" as const;
 
-  constructor(private readonly config:{ provider:EmailProvider; fromEmail:string; sandboxMode:boolean; auditLogs?:EmailAuditLogEntry[] }) {}
+  constructor(private readonly config:{ provider:EmailProvider; fromEmail:string; sandboxMode:boolean; auditHashSecret:string; auditLogs?:EmailAuditLogEntry[] }) {
+    if (!config.auditHashSecret.trim()) throw new Error("EMAIL_AUDIT_HASH_SECRET is required.");
+  }
 
   async send(channelAccount:EmailChannelAccount, message:EmailMessage):Promise<EmailDeliveryResult> {
     if (!channelAccount.verified && message.topicCode !== "email_verification") return this.block("blocked", "email_not_verified", channelAccount, message);
     if (channelAccount.bounced) return this.block("bounced", "email_bounced", channelAccount, message);
     if (channelAccount.complained) return this.block("complained", "email_complained", channelAccount, message);
-    if (channelAccount.unsubscribed && !message.transactional) return this.block("unsubscribed", "email_unsubscribed", channelAccount, message);
+    const isTransactional = TRANSACTIONAL_TOPIC_CODES.has(message.topicCode);
+    if (channelAccount.unsubscribed && !isTransactional) return this.block("unsubscribed", "email_unsubscribed", channelAccount, message);
+
+    if (this.config.sandboxMode) {
+      const providerMessageId = `sandbox_${Date.now()}`;
+      this.audit("email_delivery_sent", channelAccount, message, providerMessageId);
+      return { status: "sent", providerMessageId, raw: { sandbox: true, delivery: "mock" } };
+    }
 
     const response = await this.config.provider.send({
       to: channelAccount.email,
@@ -64,7 +76,7 @@ export class EmailGateway {
       subject: message.subject,
       text: message.text,
       html: message.html,
-      headers: { "x-topic-code": message.topicCode, "x-transactional": String(message.transactional) },
+      headers: { "x-topic-code": message.topicCode, "x-transactional": String(isTransactional) },
     });
     this.audit("email_delivery_sent", channelAccount, message, response.providerMessageId);
     return { status: "sent", providerMessageId: response.providerMessageId, raw: this.config.sandboxMode ? { sandbox: true } : undefined };
@@ -86,7 +98,7 @@ export class EmailGateway {
   private audit(action:string, account:EmailChannelAccount, message:EmailMessage, providerMessageId?:string, errorCode?:string):void {
     this.config.auditLogs?.push({
       action,
-      targetId: stableEmailTarget(account.email),
+      targetId: stableEmailTarget(account.email, this.config.auditHashSecret),
       createdAt: new Date("2026-05-03T10:00:00.000Z").toISOString(),
       metadata: sanitizeEmailLogMetadata({ topicCode: message.topicCode, transactional: String(message.transactional), providerMessageId: providerMessageId ?? "", errorCode: errorCode ?? "", email: account.email, subject: message.subject }),
     });
@@ -111,12 +123,18 @@ export function verifyEmailToken(account:EmailChannelAccount, token:string, secr
   const [payload, signature] = parts;
   if (!constantTimeEqual(signature, hmac(payload, secret))) return false;
   if (account.verificationTokenHash !== hmac(token, secret)) return false;
-  let parsed:{ userId:string; email:string };
+  let parsed:{ userId:string; email:string; issuedAt:string };
   try {
-    parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { userId:string; email:string };
+    parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { userId:string; email:string; issuedAt:string };
   } catch {
     return false;
   }
+  if (typeof parsed.issuedAt !== "string") return false;
+  const issuedAtMs = Date.parse(parsed.issuedAt);
+  if (!Number.isFinite(issuedAtMs)) return false;
+  const nowMs = now.getTime();
+  if (issuedAtMs > nowMs + EMAIL_VERIFICATION_TOKEN_MAX_FUTURE_SKEW_MS) return false;
+  if (nowMs - issuedAtMs > EMAIL_VERIFICATION_TOKEN_TTL_MS) return false;
   if (parsed.userId !== account.userId || parsed.email !== account.email) return false;
   account.verified = true;
   account.verifiedAt = now.toISOString();
@@ -152,7 +170,7 @@ export function sanitizeEmailLogMetadata(metadata:Record<string,string>):Record<
   return Object.fromEntries(Object.entries(metadata).filter(([key,value]) => !blocked.has(key) && !value.includes("@") && !value.toLowerCase().includes("secret")));
 }
 
-function stableEmailTarget(email:string):string { return `email_${hmac(email.toLowerCase(), "mock_email_audit").slice(0, 16)}`; }
+function stableEmailTarget(email:string, secret:string):string { return `email_${hmac(email.toLowerCase(), secret).slice(0, 16)}`; }
 function hmac(value:string, secret:string):string { return createHmac("sha256", secret).update(value).digest("base64url"); }
 function constantTimeEqual(a:string,b:string):boolean { const left=Buffer.from(a); const right=Buffer.from(b); return left.length===right.length && timingSafeEqual(left,right); }
 function escapeHtml(value:string):string { return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }

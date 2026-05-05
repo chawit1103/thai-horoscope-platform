@@ -5,8 +5,12 @@ export async function POST(request: Request): Promise<Response> {
   const provider = new HttpLineProvider({
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET,
-    userIdHashSecret: process.env.LINE_CHANNEL_SECRET,
+    userIdHashSecret: process.env.LINE_AUDIT_HASH_SECRET,
   });
+
+  if (!process.env.LINE_AUDIT_HASH_SECRET?.trim()) {
+    return Response.json({ ok:false, error:"LINE_AUDIT_HASH_SECRET is required." }, { status:500 });
+  }
 
   if (!(await provider.verifyWebhook(request.headers, body))) {
     return Response.json({ ok:false }, { status:401 });

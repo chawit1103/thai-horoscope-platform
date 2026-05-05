@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type LineInboundEventType = "follow"|"unfollow"|"message"|"postback";
 export type LineDeliveryStatus = "sent"|"failed"|"blocked";
-export type LineMessage = { topicCode:string; title:string; body:string; ctaUrl?:string; imageUrl?:string; periodKey?:string; };
+export type LineMessage = { topicCode:string; title:string; body:string; ctaUrl?:string; imageUrl?:string; periodKey?:string; idempotencyKey?:string; };
 export type LinePushMessage = LineTextMessage | LineFlexMessage;
 export interface LineTextMessage { type:"text"; text:string; }
 export interface LineFlexMessage { type:"flex"; altText:string; contents:Record<string,unknown>; }
@@ -43,7 +43,7 @@ export class HttpLineProvider implements LineProvider {
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(this.config.pushEndpoint ?? "https://api.line.me/v2/bot/message/push", {
       method:"POST",
-      headers:{"authorization":`Bearer ${token}`,"content-type":"application/json"},
+      headers:{ authorization:`Bearer ${token}`, "content-type":"application/json", ...(request.retryKey ? { "x-line-retry-key":request.retryKey } : {}) },
       body:JSON.stringify({to:request.to,messages:request.messages}),
     });
     if (!response.ok) throw new Error(`LINE provider failed with status ${response.status}.`);
@@ -55,7 +55,7 @@ export class HttpLineProvider implements LineProvider {
   }
 
   async normalizeWebhook(body:unknown):Promise<LineInboundEvent[]> {
-    return normalizeLineWebhook(body, this.config.userIdHashSecret ?? process.env.LINE_CHANNEL_SECRET ?? "");
+    return normalizeLineWebhook(body, this.config.userIdHashSecret ?? process.env.LINE_AUDIT_HASH_SECRET ?? "");
   }
 }
 
@@ -175,7 +175,14 @@ function normalizeLineEvent(event:unknown, index:number, userIdHashSecret:string
   }];
 }
 
-function lineRetryKey(account:LineChannelAccount, message:LineMessage, hashSecret:string):string { return [account.userId, stableLineTarget(account.lineUserId, hashSecret), message.topicCode, message.periodKey ?? message.title].join(":"); }
+function lineRetryKey(account:LineChannelAccount, message:LineMessage, hashSecret:string):string {
+  const periodTopics = new Set(["daily_horoscope","weekly_horoscope","monthly_horoscope","yearly_horoscope"]);
+  const requiresPeriodKey = periodTopics.has(message.topicCode);
+  if (requiresPeriodKey && !message.periodKey?.trim()) throw new Error(`periodKey is required for topic ${message.topicCode}.`);
+  const dedupeIdentifier = message.periodKey?.trim() || message.idempotencyKey?.trim();
+  if (!dedupeIdentifier) throw new Error("idempotencyKey is required when periodKey is not provided.");
+  return [account.userId, stableLineTarget(account.lineUserId, hashSecret), message.topicCode, dedupeIdentifier].join(":");
+}
 function stableLineTarget(value:string, secret:string):string { return `line_${createHmac("sha256", secret).update(value.trim()).digest("base64url").slice(0,16)}`; }
 function isSensitiveLineLogKey(key:string):boolean { const normalized=key.toLowerCase(); return ["lineuserid","userids","userid","channelaccesstoken","secret","token","authorization","body","raw","payload"].some((blocked)=>normalized.includes(blocked)); }
 function isSensitiveLineLogValue(value:string):boolean { const normalized=value.toLowerCase(); return /\bU[A-Za-z0-9]{8,}\b/.test(value) || normalized.includes("bearer ") || normalized.includes("secret") || normalized.includes("token"); }

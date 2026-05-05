@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 export type LineInboundEventType = "follow"|"unfollow"|"message"|"postback";
 export type LineDeliveryStatus = "sent"|"failed"|"blocked";
@@ -46,6 +46,15 @@ export class HttpLineProvider implements LineProvider {
       headers:{ authorization:`Bearer ${token}`, "content-type":"application/json", ...(request.retryKey ? { "x-line-retry-key":request.retryKey } : {}) },
       body:JSON.stringify({to:request.to,messages:request.messages}),
     });
+    if (response.status === 409) {
+      if (request.retryKey?.trim()) {
+        return {
+          providerMessageId: response.headers.get("x-line-request-id") ?? undefined,
+          raw:{ accepted:true, idempotentConflict:true, status:409 },
+        };
+      }
+      throw new Error("LINE provider failed with status 409 without retry key.");
+    }
     if (!response.ok) throw new Error(`LINE provider failed with status ${response.status}.`);
     return { providerMessageId: response.headers.get("x-line-request-id") ?? undefined };
   }
@@ -181,7 +190,16 @@ function lineRetryKey(account:LineChannelAccount, message:LineMessage, hashSecre
   if (requiresPeriodKey && !message.periodKey?.trim()) throw new Error(`periodKey is required for topic ${message.topicCode}.`);
   if (!requiresPeriodKey && !message.idempotencyKey?.trim()) throw new Error(`idempotencyKey is required for non-period topic ${message.topicCode}.`);
   const dedupeIdentifier = requiresPeriodKey ? message.periodKey!.trim() : message.idempotencyKey!.trim();
-  return [account.userId, stableLineTarget(account.lineUserId, hashSecret), message.topicCode, dedupeIdentifier].join(":");
+  const logicalDedupeKey = [account.userId, stableLineTarget(account.lineUserId, hashSecret), message.topicCode, dedupeIdentifier].join(":");
+  return stableLineRetryUuid(logicalDedupeKey);
+}
+function stableLineRetryUuid(input:string):string {
+  const namespace = "line-retry-key:v1";
+  const bytes = createHash("sha1").update(`${namespace}:${input}`).digest();
+  const uuid = Buffer.from(bytes.subarray(0, 16));
+  uuid[6] = (uuid[6]! & 0x0f) | 0x50;
+  uuid[8] = (uuid[8]! & 0x3f) | 0x80;
+  return `${uuid.subarray(0, 4).toString("hex")}-${uuid.subarray(4, 6).toString("hex")}-${uuid.subarray(6, 8).toString("hex")}-${uuid.subarray(8, 10).toString("hex")}-${uuid.subarray(10, 16).toString("hex")}`;
 }
 function stableLineTarget(value:string, secret:string):string { return `line_${createHmac("sha256", secret).update(value.trim()).digest("base64url").slice(0,16)}`; }
 function isSensitiveLineLogKey(key:string):boolean { const normalized=key.toLowerCase(); return ["lineuserid","userids","userid","channelaccesstoken","secret","token","authorization","body","raw","payload"].some((blocked)=>normalized.includes(blocked)); }

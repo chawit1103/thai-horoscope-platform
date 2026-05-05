@@ -157,7 +157,42 @@ describe("line gateway", () => {
     assert.equal(result.status, "sent");
     assert.equal(result.providerMessageId, "line_request_1");
     assert.equal(fetchCalls, 1);
-    assert.equal(retryHeader.length > 0, true);
+    assert.match(retryHeader, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    assert.equal(retryHeader.includes("user_a:"), false);
+  });
+
+  it("uses stable UUID LINE retry keys for the same logical message and different UUIDs for different ids", async () => {
+    const seenHeaders:string[] = [];
+    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async (_url, init) => {
+      seenHeaders.push(new Headers(init?.headers).get("x-line-retry-key") ?? "");
+      return new Response(null, { status:200 });
+    } });
+    const gateway = new LineGateway({ provider, sandboxMode:false, auditHashSecret:testAuditSecret });
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+
+    await gateway.send(account, { topicCode:"daily_horoscope", title:"Daily", body:"Preview", periodKey:"2026-05-04" });
+    await gateway.send(account, { topicCode:"daily_horoscope", title:"Daily", body:"Preview", periodKey:"2026-05-05" });
+    await gateway.send(createLineChannelAccount({ userId:"user_b", lineUserId:"U9876543210", now:testNow }), { topicCode:"system_announcement", title:"Notice", body:"Body", idempotencyKey:"evt_01" });
+
+    assert.equal(seenHeaders[0] !== seenHeaders[1], true);
+    assert.equal(seenHeaders[1] !== seenHeaders[2], true);
+    for (const header of seenHeaders) assert.match(header, /^[0-9a-f-]{36}$/i);
+  });
+
+  it("treats LINE 409 with retry key as accepted idempotent success and still fails unsafe cases", async () => {
+    const okProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:200, headers:{ "x-line-request-id":"ok_1" } }) });
+    const okResult = await okProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"ok" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" });
+    assert.equal(okResult.providerMessageId, "ok_1");
+
+    const retryConflictProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:409, headers:{ "x-line-request-id":"conflict_1" } }) });
+    const retryConflictResult = await retryConflictProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" });
+    assert.equal(retryConflictResult.providerMessageId, "conflict_1");
+    assert.deepEqual(retryConflictResult.raw, { accepted:true, idempotentConflict:true, status:409 });
+
+    await assert.rejects(retryConflictProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }] }), /without retry key/);
+
+    const failProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:500 }) });
+    await assert.rejects(failProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"fail" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" }), /status 500/);
   });
 
   it("builds a LINE Flex Message horoscope preview with CTA link", () => {

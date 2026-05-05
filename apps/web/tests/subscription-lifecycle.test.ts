@@ -234,4 +234,35 @@ describe("subscription lifecycle", () => {
     assert.equal(expiredFailed.status, "rejected_terminal");
     assert.equal(expiredFailed.subscription?.status, "expired");
   });
+
+  it("ignores stale renewal_failed from previous period and keeps entitlement", async () => {
+    const created = await createSubscription({ subscriptionId: "sub_stale_fail", planCode: "premium" });
+    const renewed = await processMockSubscriptionWebhook(event({ id: "evt_stale_fail_renew", type: "subscription.renewed", subscriptionId: created.id, userId: created.userId, currentPeriodStart: periodEnd, currentPeriodEnd: renewedPeriodEnd, occurredAt: "2026-06-01T00:00:01.000Z" }));
+    assert.equal(renewed.status, "applied");
+
+    const staleFailed = await processMockSubscriptionWebhook(event({ id: "evt_stale_fail", type: "subscription.renewal_failed", subscriptionId: created.id, userId: created.userId, currentPeriodStart: periodStart, currentPeriodEnd: periodEnd, occurredAt: "2026-05-20T00:00:00.000Z" }));
+    assert.equal(staleFailed.status, "ignored_retryable");
+    assert.equal(staleFailed.reason, "ignored_stale");
+    assert.equal(staleFailed.subscription?.status, "active");
+    assert.equal(canAccessPeriod({ subscription: staleFailed.subscription, periodType: "monthly", now: new Date("2026-06-10T00:00:00.000Z") }), true);
+  });
+
+  it("ignores stale canceled and expired events after reactivation/renewal", async () => {
+    const created = await createSubscription({ subscriptionId: "sub_stale_terminal", planCode: "basic" });
+    await processMockSubscriptionWebhook(event({ id: "evt_term_cancel", type: "subscription.canceled", subscriptionId: created.id, userId: created.userId, occurredAt: "2026-05-10T00:00:00.000Z" }));
+    const reactivated = await processMockSubscriptionWebhook(event({ id: "evt_term_reactivate", type: "subscription.reactivated", subscriptionId: created.id, userId: created.userId, currentPeriodStart: periodEnd, currentPeriodEnd: renewedPeriodEnd, occurredAt: "2026-06-01T00:00:00.000Z" }));
+    assert.equal(reactivated.status, "applied");
+    assert.equal(reactivated.subscription?.status, "active");
+
+    const staleCanceled = await processMockSubscriptionWebhook(event({ id: "evt_term_stale_cancel", type: "subscription.canceled", subscriptionId: created.id, userId: created.userId, occurredAt: "2026-05-15T00:00:00.000Z" }));
+    assert.equal(staleCanceled.status, "ignored_retryable");
+    assert.equal(staleCanceled.reason, "ignored_stale");
+    assert.equal(staleCanceled.subscription?.status, "active");
+
+    const staleExpired = await processMockSubscriptionWebhook(event({ id: "evt_term_stale_expired", type: "subscription.expired", subscriptionId: created.id, userId: created.userId, occurredAt: "2026-05-16T00:00:00.000Z" }));
+    assert.equal(staleExpired.status, "ignored_retryable");
+    assert.equal(staleExpired.reason, "ignored_stale");
+    assert.equal(staleExpired.subscription?.status, "active");
+    assert.equal(canAccessPeriod({ subscription: staleExpired.subscription, periodType: "weekly", now: new Date("2026-06-10T00:00:00.000Z") }), true);
+  });
 });

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { isDevMockAdminLoginEnabled, startDevMockAdminSessionAction } from "../../actions";
+import { isDevMockAdminLoginEnabled } from "../../../src/mvp/admin-auth";
+import { startDevMockAdminSessionAction } from "../../actions";
 
 export default function AdminSignInPage() {
   if (!isDevMockAdminLoginEnabled({ isProduction: process.env.NODE_ENV === "production" })) {

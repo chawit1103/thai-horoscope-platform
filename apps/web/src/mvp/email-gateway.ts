@@ -110,14 +110,14 @@ export function createEmailChannelAccount(input:{ userId:string; email:string; n
 }
 
 export function createEmailVerificationToken(account:EmailChannelAccount, secret:string):string {
-  const issuedAt = "2026-05-03T10:01:00.000Z";
+  const issuedAt = new Date().toISOString();
   const payload = Buffer.from(JSON.stringify({ userId: account.userId, email: account.email, issuedAt }), "utf8").toString("base64url");
   const signature = hmac(payload, secret);
   account.verificationTokenHash = hmac(`${payload}.${signature}`, secret);
   return `${payload}.${signature}`;
 }
 
-export function verifyEmailToken(account:EmailChannelAccount, token:string, secret:string, now=new Date("2026-05-03T10:02:00.000Z")):boolean {
+export function verifyEmailToken(account:EmailChannelAccount, token:string, secret:string, now=new Date()):boolean {
   const parts = token.split(".");
   if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
   const [payload, signature] = parts;

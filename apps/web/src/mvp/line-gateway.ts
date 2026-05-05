@@ -40,6 +40,7 @@ export class HttpLineProvider implements LineProvider {
   async push(request:LineProviderPushRequest):Promise<LineProviderPushResult> {
     const token = this.config.channelAccessToken ?? process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token?.trim()) throw new Error("LINE_CHANNEL_ACCESS_TOKEN is required.");
+    if (request.retryKey && !isUuid(request.retryKey)) throw new Error("LINE retryKey must be a valid UUID.");
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(this.config.pushEndpoint ?? "https://api.line.me/v2/bot/message/push", {
       method:"POST",
@@ -49,7 +50,7 @@ export class HttpLineProvider implements LineProvider {
     if (response.status === 409) {
       if (request.retryKey?.trim()) {
         return {
-          providerMessageId: response.headers.get("x-line-request-id") ?? undefined,
+          providerMessageId: response.headers.get("x-line-accepted-request-id") ?? response.headers.get("x-line-request-id") ?? undefined,
           raw:{ accepted:true, idempotentConflict:true, status:409 },
         };
       }
@@ -200,6 +201,9 @@ function stableLineRetryUuid(input:string):string {
   uuid[6] = (uuid[6]! & 0x0f) | 0x50;
   uuid[8] = (uuid[8]! & 0x3f) | 0x80;
   return `${uuid.subarray(0, 4).toString("hex")}-${uuid.subarray(4, 6).toString("hex")}-${uuid.subarray(6, 8).toString("hex")}-${uuid.subarray(8, 10).toString("hex")}-${uuid.subarray(10, 16).toString("hex")}`;
+}
+function isUuid(value:string):boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
 }
 function stableLineTarget(value:string, secret:string):string { return `line_${createHmac("sha256", secret).update(value.trim()).digest("base64url").slice(0,16)}`; }
 function isSensitiveLineLogKey(key:string):boolean { const normalized=key.toLowerCase(); return ["lineuserid","userids","userid","channelaccesstoken","secret","token","authorization","body","raw","payload"].some((blocked)=>normalized.includes(blocked)); }

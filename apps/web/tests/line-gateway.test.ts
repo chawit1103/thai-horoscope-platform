@@ -184,15 +184,34 @@ describe("line gateway", () => {
     const okResult = await okProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"ok" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" });
     assert.equal(okResult.providerMessageId, "ok_1");
 
-    const retryConflictProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:409, headers:{ "x-line-request-id":"conflict_1" } }) });
+    const retryConflictProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:409, headers:{ "x-line-request-id":"conflict_1", "x-line-accepted-request-id":"accepted_1" } }) });
     const retryConflictResult = await retryConflictProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" });
-    assert.equal(retryConflictResult.providerMessageId, "conflict_1");
+    assert.equal(retryConflictResult.providerMessageId, "accepted_1");
     assert.deepEqual(retryConflictResult.raw, { accepted:true, idempotentConflict:true, status:409 });
 
+    const retryConflictFallbackProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:409, headers:{ "x-line-request-id":"conflict_fallback_1" } }) });
+    const retryConflictFallbackResult = await retryConflictFallbackProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" });
+    assert.equal(retryConflictFallbackResult.providerMessageId, "conflict_fallback_1");
+
     await assert.rejects(retryConflictProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }] }), /without retry key/);
+    await assert.rejects(retryConflictProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }], retryKey:"not-a-uuid" }), /valid UUID/);
 
     const failProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:500 }) });
     await assert.rejects(failProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"fail" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" }), /status 500/);
+  });
+
+  it("forwards valid retry keys and keeps behavior unchanged when retry key is missing", async () => {
+    let forwardedRetryHeader:string|null = null;
+    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async (_url, init) => {
+      forwardedRetryHeader = new Headers(init?.headers).get("x-line-retry-key");
+      return new Response(null, { status:200, headers:{ "x-line-request-id":"ok_no_retry" } });
+    } });
+    await provider.push({ to:testLineUserId, messages:[{ type:"text", text:"hello" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" });
+    assert.equal(forwardedRetryHeader, "3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90");
+
+    forwardedRetryHeader = "unexpected";
+    await provider.push({ to:testLineUserId, messages:[{ type:"text", text:"hello-no-retry" }] });
+    assert.equal(forwardedRetryHeader, null);
   });
 
   it("builds a LINE Flex Message horoscope preview with CTA link", () => {

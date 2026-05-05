@@ -54,6 +54,11 @@ export function validateAdminSession(input: { sessionCookie?: string; sessionSec
   return { ok: true, actorId: session.actorId, role: session.role };
 }
 
+export function getAdminAuditPartition(input: { actorId: string; sessionCookie: string }): string {
+  const sessionHash = createHash("sha256").update(input.sessionCookie).digest("hex").slice(0, 16);
+  return `admin:${input.actorId}:${sessionHash}`;
+}
+
 export function authorizeAdminRoute(input: { path: string; sessionCookie?: string; sessionSecret?: string; now?: Date }): AdminRouteAccess {
   const auth = validateAdminSession({
     sessionCookie: input.sessionCookie,
@@ -71,10 +76,11 @@ export function approveAndQueueWithAdminCookie(input: { sessionId: string; resul
     throw new Error("Unauthorized: admin role is required.");
   }
 
+  const adminAuditPartition = getAdminAuditPartition({ actorId: auth.actorId, sessionCookie: input.sessionCookie! });
   const approved = approveDraft(input.resultId, auth.actorId, input.sessionId);
-  recordAdminAudit(input.sessionId, auth.actorId, "admin_content_approved", approved.id, { role: auth.role, periodType: approved.periodType });
+  recordAdminAudit(adminAuditPartition, auth.actorId, "admin_content_approved", approved.id, { role: auth.role, periodType: approved.periodType });
   const message = queueMockOutboundMessage(approved.id, input.sessionId);
-  recordAdminAudit(input.sessionId, auth.actorId, "admin_outbound_queued", message.id, { role: auth.role, resultId: approved.id });
+  recordAdminAudit(adminAuditPartition, auth.actorId, "admin_outbound_queued", message.id, { role: auth.role, resultId: approved.id });
   recordMockDeliveryAttempt(message.id, input.sessionId);
 }
 
@@ -85,8 +91,9 @@ export function rejectDraftWithAdminCookie(input: { sessionId: string; resultId:
     throw new Error("Unauthorized: admin role is required.");
   }
 
+  const adminAuditPartition = getAdminAuditPartition({ actorId: auth.actorId, sessionCookie: input.sessionCookie! });
   const rejected = rejectDraft(input.resultId, auth.actorId, input.sessionId);
-  recordAdminAudit(input.sessionId, auth.actorId, "admin_content_rejected", rejected.id, { role: auth.role, periodType: rejected.periodType });
+  recordAdminAudit(adminAuditPartition, auth.actorId, "admin_content_rejected", rejected.id, { role: auth.role, periodType: rejected.periodType });
 }
 
 function signAdminSession(session: AdminSession, secret: string): string {

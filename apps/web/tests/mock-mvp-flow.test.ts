@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { approveAndQueueWithAdminCookie, authorizeAdminRoute, createAdminSessionCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, validateAdminSession } from "../src/mvp/admin-auth";
+import { approveAndQueueWithAdminCookie, authorizeAdminRoute, createAdminSessionCookie, getAdminAuditPartition, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, validateAdminSession } from "../src/mvp/admin-auth";
 import { approveDraft, callMockAstroCalc, generateHoroscopeResult, getMockMvpState, queueMockOutboundMessage, recordMockDeliveryAttempt, resetMockMvpState, saveBirthProfile, storeChartSnapshot } from "../src/mvp/mock-flow";
 
 const birthInput = { birthDate: "1992-08-15", birthTime: "07:30", birthTimeUnknown: false, birthPlaceText: "Bangkok", timezone: "Asia/Bangkok", consentBirthData: true };
@@ -62,10 +62,13 @@ describe("mock mvp flow", () => {
     const adminCookie = createAdminSessionCookie({ actorId: "admin_actor", role: "admin", sessionSecret: "session-secret" });
     approveAndQueueWithAdminCookie({ sessionId: "s1", resultId: draft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
     const after = getMockMvpState("s1");
+    const adminAuditState = getMockMvpState(getAdminAuditPartition({ actorId: "admin_actor", sessionCookie: adminCookie }));
     assert.equal(after.outboundMessages.length, 1);
     assert.equal(after.deliveryAttempts.length, 1);
-    assert.equal(after.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 1);
-    assert.equal(after.auditLogs.filter((entry) => entry.action === "admin_outbound_queued").length, 1);
+    assert.equal(after.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 0);
+    assert.equal(after.auditLogs.filter((entry) => entry.action === "admin_outbound_queued").length, 0);
+    assert.equal(adminAuditState.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 1);
+    assert.equal(adminAuditState.auditLogs.filter((entry) => entry.action === "admin_outbound_queued").length, 1);
   });
 
   it("blocks unauthenticated admin page access", () => {
@@ -148,9 +151,41 @@ describe("mock mvp flow", () => {
     rejectDraftWithAdminCookie({ sessionId: "s1", resultId: rejectedDraft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
 
     const state = getMockMvpState("s1");
-    assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 1);
-    assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_outbound_queued").length, 1);
-    assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_content_rejected").length, 1);
+    const adminAuditState = getMockMvpState(getAdminAuditPartition({ actorId: "admin_actor", sessionCookie: adminCookie }));
+    assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 0);
+    assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_outbound_queued").length, 0);
+    assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_content_rejected").length, 0);
+    assert.equal(adminAuditState.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 1);
+    assert.equal(adminAuditState.auditLogs.filter((entry) => entry.action === "admin_outbound_queued").length, 1);
+    assert.equal(adminAuditState.auditLogs.filter((entry) => entry.action === "admin_content_rejected").length, 1);
+  });
+
+  it("keeps privileged admin audits in a trusted admin partition when mock session id is forged", () => {
+    const victimProfile = saveBirthProfile(birthInput, { sessionId: "victim-session", userId: "victim_user" });
+    storeChartSnapshot(callMockAstroCalc(victimProfile), "victim-session");
+    const targetProfile = saveBirthProfile({ ...birthInput, birthPlaceText: "Chiang Rai" }, { sessionId: "target-session", userId: "target_user" });
+    const targetChart = storeChartSnapshot(callMockAstroCalc(targetProfile), "target-session");
+    const approvedDraft = generateHoroscopeResult({ chartSnapshot: targetChart, periodType: "daily", periodKey: "2026-05-03", sessionId: "target-session" });
+    const rejectedDraft = generateHoroscopeResult({ chartSnapshot: targetChart, periodType: "weekly", periodKey: "2026-W18", sessionId: "target-session" });
+    const adminCookie = createAdminSessionCookie({ actorId: "admin_actor", role: "admin", sessionSecret: "session-secret" });
+    const adminAuditPartition = getAdminAuditPartition({ actorId: "admin_actor", sessionCookie: adminCookie });
+
+    approveAndQueueWithAdminCookie({ sessionId: "target-session", resultId: approvedDraft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
+    rejectDraftWithAdminCookie({ sessionId: "target-session", resultId: rejectedDraft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
+
+    const targetState = getMockMvpState("target-session");
+    const victimState = getMockMvpState("victim-session");
+    const adminAuditState = getMockMvpState(adminAuditPartition);
+
+    assert.equal(targetState.outboundMessages.length, 1);
+    assert.equal(targetState.deliveryAttempts.length, 1);
+    assert.equal(victimState.auditLogs.filter((entry) => entry.action.startsWith("admin_")).length, 0);
+    assert.equal(targetState.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 0);
+    assert.equal(targetState.auditLogs.filter((entry) => entry.action === "admin_outbound_queued").length, 0);
+    assert.equal(targetState.auditLogs.filter((entry) => entry.action === "admin_content_rejected").length, 0);
+    assert.equal(adminAuditState.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 1);
+    assert.equal(adminAuditState.auditLogs.filter((entry) => entry.action === "admin_outbound_queued").length, 1);
+    assert.equal(adminAuditState.auditLogs.filter((entry) => entry.action === "admin_content_rejected").length, 1);
   });
 
   it("disables the development-only mock guard in production", () => {

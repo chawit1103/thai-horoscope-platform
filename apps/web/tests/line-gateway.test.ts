@@ -200,6 +200,22 @@ describe("line gateway", () => {
     await assert.rejects(failProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"fail" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" }), /status 500/);
   });
 
+
+
+  it("rejects empty, whitespace, and invalid retry keys before calling fetcher", async () => {
+    let fetchCalls = 0;
+    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => {
+      fetchCalls += 1;
+      return new Response(null, { status:200 });
+    } });
+
+    await assert.rejects(provider.push({ to:testLineUserId, messages:[{ type:"text", text:"bad-empty" }], retryKey:"" }), /valid UUID/);
+    await assert.rejects(provider.push({ to:testLineUserId, messages:[{ type:"text", text:"bad-space" }], retryKey:"   " }), /valid UUID/);
+    await assert.rejects(provider.push({ to:testLineUserId, messages:[{ type:"text", text:"bad-format" }], retryKey:"not-a-uuid" }), /valid UUID/);
+
+    assert.equal(fetchCalls, 0);
+  });
+
   it("forwards valid retry keys and keeps behavior unchanged when retry key is missing", async () => {
     let forwardedRetryHeader:string|null = null;
     const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async (_url, init) => {

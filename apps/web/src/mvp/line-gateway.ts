@@ -40,7 +40,9 @@ export class HttpLineProvider implements LineProvider {
   async push(request:LineProviderPushRequest):Promise<LineProviderPushResult> {
     const token = this.config.channelAccessToken ?? process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token?.trim()) throw new Error("LINE_CHANNEL_ACCESS_TOKEN is required.");
-    if (request.retryKey && !isUuid(request.retryKey)) throw new Error("LINE retryKey must be a valid UUID.");
+    if (request.retryKey !== undefined) {
+      if (!request.retryKey.trim() || !isUuid(request.retryKey)) throw new Error("LINE retryKey must be a valid UUID.");
+    }
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(this.config.pushEndpoint ?? "https://api.line.me/v2/bot/message/push", {
       method:"POST",

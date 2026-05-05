@@ -21,7 +21,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/weekly">สัปดาห์</Link>
             <Link href="/monthly">เดือน</Link>
             <Link href="/yearly">ปี</Link>
-            <Link href="/admin">Admin</Link>
           </nav>
         </header>
         <main>{children}</main>

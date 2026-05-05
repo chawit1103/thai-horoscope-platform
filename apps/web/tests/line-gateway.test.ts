@@ -201,10 +201,11 @@ describe("line gateway", () => {
     }
   });
 
-  it("never uses title as dedupe key and allows non-period messages with explicit idempotencyKey", async () => {
+  it("never uses title or periodKey as dedupe key for non-period topics", async () => {
     const gateway = makeGateway();
     const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
     await assert.rejects(gateway.send(account, { topicCode:"system_announcement", title:"Daily", body:"Preview" }), /idempotencyKey is required/);
+    await assert.rejects(gateway.send(account, { topicCode:"system_announcement", title:"Daily", body:"Preview", periodKey:"2026-05" }), /idempotencyKey is required/);
     const first = await gateway.send(account, { topicCode:"system_announcement", title:"Daily", body:"Preview", idempotencyKey:"evt_001" });
     const second = await gateway.send(account, { topicCode:"system_announcement", title:"Daily", body:"Preview", idempotencyKey:"evt_001" });
     assert.equal(first.status, "sent");

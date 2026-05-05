@@ -179,8 +179,8 @@ function lineRetryKey(account:LineChannelAccount, message:LineMessage, hashSecre
   const periodTopics = new Set(["daily_horoscope","weekly_horoscope","monthly_horoscope","yearly_horoscope"]);
   const requiresPeriodKey = periodTopics.has(message.topicCode);
   if (requiresPeriodKey && !message.periodKey?.trim()) throw new Error(`periodKey is required for topic ${message.topicCode}.`);
-  const dedupeIdentifier = message.periodKey?.trim() || message.idempotencyKey?.trim();
-  if (!dedupeIdentifier) throw new Error("idempotencyKey is required when periodKey is not provided.");
+  if (!requiresPeriodKey && !message.idempotencyKey?.trim()) throw new Error(`idempotencyKey is required for non-period topic ${message.topicCode}.`);
+  const dedupeIdentifier = requiresPeriodKey ? message.periodKey!.trim() : message.idempotencyKey!.trim();
   return [account.userId, stableLineTarget(account.lineUserId, hashSecret), message.topicCode, dedupeIdentifier].join(":");
 }
 function stableLineTarget(value:string, secret:string):string { return `line_${createHmac("sha256", secret).update(value.trim()).digest("base64url").slice(0,16)}`; }

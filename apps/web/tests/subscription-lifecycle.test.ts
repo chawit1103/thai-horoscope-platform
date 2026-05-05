@@ -19,7 +19,7 @@ const event = (input: Partial<MockSubscriptionWebhookEvent> & Pick<MockSubscript
 
 const createSubscription = async (overrides: Partial<MockSubscriptionWebhookEvent> = {}) => {
   const result = await processMockSubscriptionWebhook(event({ id: "evt_created", type: "subscription.created", subscriptionId: "sub_1", userId: "user_a", ...overrides }));
-  assert.equal(result.status, "processed");
+  assert.equal(result.status, "applied");
   assert.ok(result.subscription);
   return result.subscription;
 };
@@ -47,7 +47,7 @@ describe("subscription lifecycle", () => {
     const subscription = await createSubscription();
     const expired = await processMockSubscriptionWebhook(event({ id: "evt_expired", type: "subscription.expired", subscriptionId: subscription.id, userId: subscription.userId, occurredAt: "2026-06-01T00:00:01.000Z" }));
 
-    assert.equal(expired.status, "processed");
+    assert.equal(expired.status, "applied");
     assert.equal(expired.subscription?.status, "expired");
     assert.equal(canAccessPeriod({ subscription: expired.subscription, periodType: "daily", now: insidePeriod }), false);
     assert.ok(expired.subscription?.expiredAt);
@@ -76,7 +76,7 @@ describe("subscription lifecycle", () => {
     const subscription = await createSubscription({ planCode: "basic" });
     const renewed = await processMockSubscriptionWebhook(event({ id: "evt_renewed", type: "subscription.renewed", subscriptionId: subscription.id, userId: subscription.userId, currentPeriodStart: periodEnd, currentPeriodEnd: renewedPeriodEnd, occurredAt: "2026-06-01T00:00:01.000Z" }));
 
-    assert.equal(renewed.status, "processed");
+    assert.equal(renewed.status, "applied");
     assert.equal(renewed.subscription?.status, "active");
     assert.equal(renewed.subscription?.currentPeriodEnd, renewedPeriodEnd);
     assert.equal(canAccessPeriod({ subscription: renewed.subscription, periodType: "weekly", now: new Date("2026-06-15T00:00:00.000Z") }), true);
@@ -95,7 +95,7 @@ describe("subscription lifecycle", () => {
     const duplicate = await processMockSubscriptionWebhook(event({ id: "evt_once", type: "subscription.renewed", subscriptionId: "sub_idem", userId: "user_a", currentPeriodEnd: renewedPeriodEnd }));
     const state = getMockSubscriptionState();
 
-    assert.equal(first.status, "processed");
+    assert.equal(first.status, "applied");
     assert.equal(duplicate.status, "duplicate");
     assert.equal(state.subscriptions.length, 1);
     assert.equal(state.subscriptions[0]?.currentPeriodEnd, periodEnd);
@@ -107,9 +107,9 @@ describe("subscription lifecycle", () => {
     const staleRenewal = await processMockSubscriptionWebhook(event({ id: "evt_stale", type: "subscription.renewed", subscriptionId: subscription.id, userId: subscription.userId, currentPeriodStart: periodStart, currentPeriodEnd: "2026-05-15T00:00:00.000Z" }));
     const missingExisting = await processMockSubscriptionWebhook(event({ id: "evt_missing", type: "subscription.renewed", subscriptionId: "sub_missing", userId: "user_a", currentPeriodEnd: renewedPeriodEnd }));
 
-    assert.equal(staleRenewal.status, "ignored");
-    assert.equal(staleRenewal.reason, "invalid_transition");
-    assert.equal(missingExisting.status, "ignored");
+    assert.equal(staleRenewal.status, "rejected_terminal");
+    assert.equal(staleRenewal.reason, "stale_period");
+    assert.equal(missingExisting.status, "ignored_retryable");
     assert.equal(getMockSubscriptionState().subscriptions.find((item) => item.id === subscription.id)?.currentPeriodEnd, periodEnd);
   });
 
@@ -126,12 +126,12 @@ describe("subscription lifecycle", () => {
   it("webhook processing rejects mismatched users and unsafe revival by renewal", async () => {
     const subscription = await createSubscription();
     const mismatchedUser = await processMockSubscriptionWebhook(event({ id: "evt_wrong_user", type: "subscription.renewed", subscriptionId: subscription.id, userId: "attacker_user", currentPeriodStart: periodEnd, currentPeriodEnd: renewedPeriodEnd }));
-    assert.equal(mismatchedUser.status, "ignored");
+    assert.equal(mismatchedUser.status, "rejected_terminal");
     assert.equal(getMockSubscriptionState().subscriptions[0]?.currentPeriodEnd, periodEnd);
 
     await processMockSubscriptionWebhook(event({ id: "evt_cancel_for_renewal", type: "subscription.canceled", subscriptionId: subscription.id, userId: subscription.userId, cancelAtPeriodEnd: false }));
     const unsafeRenewal = await processMockSubscriptionWebhook(event({ id: "evt_unsafe_renewal", type: "subscription.renewed", subscriptionId: subscription.id, userId: subscription.userId, currentPeriodStart: periodEnd, currentPeriodEnd: renewedPeriodEnd }));
-    assert.equal(unsafeRenewal.status, "ignored");
+    assert.equal(unsafeRenewal.status, "rejected_terminal");
     assert.equal(getMockSubscriptionState().subscriptions[0]?.status, "canceled");
   });
 
@@ -184,6 +184,54 @@ describe("subscription lifecycle", () => {
     const reactivated = await processMockSubscriptionWebhook(event({ id: "evt_reactivated", type: "subscription.reactivated", subscriptionId: subscription.id, userId: subscription.userId, currentPeriodStart: "2026-05-20T00:00:00.000Z", currentPeriodEnd: renewedPeriodEnd }));
 
     assert.equal(reactivated.subscription?.status, "active");
+    assert.equal(reactivated.subscription?.planCode, subscription.planCode);
     assert.equal(canAccessPeriod({ subscription: reactivated.subscription, periodType: "monthly", now: new Date("2026-06-01T00:00:00.000Z") }), true);
+  });
+
+  it("reactivation is rejected for active trialing and past_due subscriptions", async () => {
+    const active = await createSubscription({ subscriptionId: "sub_active", planCode: "basic", status: "active" });
+    const activeReactivate = await processMockSubscriptionWebhook(event({ id: "evt_reactivate_active", type: "subscription.reactivated", subscriptionId: active.id, userId: active.userId, planCode: "premium", currentPeriodStart: "2026-05-20T00:00:00.000Z", currentPeriodEnd: renewedPeriodEnd }));
+    assert.equal(activeReactivate.status, "rejected_terminal");
+    assert.equal(activeReactivate.subscription?.planCode, "basic");
+
+    const trial = await createSubscription({ id: "evt_trial_reactivate", subscriptionId: "sub_trial", status: "trialing", planCode: "basic" });
+    const trialReactivate = await processMockSubscriptionWebhook(event({ id: "evt_reactivate_trial", type: "subscription.reactivated", subscriptionId: trial.id, userId: trial.userId, planCode: "premium", currentPeriodStart: "2026-05-20T00:00:00.000Z", currentPeriodEnd: renewedPeriodEnd }));
+    assert.equal(trialReactivate.status, "rejected_terminal");
+    assert.equal(trialReactivate.subscription?.planCode, "basic");
+
+    const pastDue = await processMockSubscriptionWebhook(event({ id: "evt_make_past_due", type: "subscription.renewal_failed", subscriptionId: active.id, userId: active.userId }));
+    assert.equal(pastDue.subscription?.status, "past_due");
+    const pastDueReactivate = await processMockSubscriptionWebhook(event({ id: "evt_reactivate_past_due", type: "subscription.reactivated", subscriptionId: active.id, userId: active.userId, planCode: "premium", currentPeriodStart: "2026-05-20T00:00:00.000Z", currentPeriodEnd: renewedPeriodEnd }));
+    assert.equal(pastDueReactivate.status, "rejected_terminal");
+    assert.equal(pastDueReactivate.subscription?.planCode, "basic");
+    assert.equal(canAccessPeriod({ subscription: pastDueReactivate.subscription, periodType: "monthly", now: insidePeriod }), false);
+  });
+
+  it("out-of-order renewal remains retryable and can apply after created", async () => {
+    const renewalEvent = event({ id: "evt_ooo_renewal", type: "subscription.renewed", subscriptionId: "sub_ooo", userId: "user_ooo", currentPeriodStart: periodEnd, currentPeriodEnd: renewedPeriodEnd });
+    const beforeCreate = await processMockSubscriptionWebhook(renewalEvent);
+    assert.equal(beforeCreate.status, "ignored_retryable");
+    assert.equal(getMockSubscriptionState().processedWebhookEventIds.includes("evt_ooo_renewal"), false);
+
+    const created = await processMockSubscriptionWebhook(event({ id: "evt_ooo_created", type: "subscription.created", subscriptionId: "sub_ooo", userId: "user_ooo", planCode: "basic" }));
+    assert.equal(created.status, "applied");
+    const replayRenewal = await processMockSubscriptionWebhook(renewalEvent);
+    assert.equal(replayRenewal.status, "applied");
+    const duplicateReplay = await processMockSubscriptionWebhook(renewalEvent);
+    assert.equal(duplicateReplay.status, "duplicate");
+  });
+
+  it("renewal_failed does not revive canceled or expired subscriptions", async () => {
+    const canceled = await createSubscription({ subscriptionId: "sub_cancel_guard", planCode: "basic" });
+    await processMockSubscriptionWebhook(event({ id: "evt_cancel_guard", type: "subscription.canceled", subscriptionId: canceled.id, userId: canceled.userId, cancelAtPeriodEnd: false }));
+    const canceledFailed = await processMockSubscriptionWebhook(event({ id: "evt_fail_canceled", type: "subscription.renewal_failed", subscriptionId: canceled.id, userId: canceled.userId }));
+    assert.equal(canceledFailed.status, "rejected_terminal");
+    assert.equal(canceledFailed.subscription?.status, "canceled");
+
+    const expired = await createSubscription({ id: "evt_expire_source", subscriptionId: "sub_expired_guard", planCode: "basic" });
+    await processMockSubscriptionWebhook(event({ id: "evt_expire_guard", type: "subscription.expired", subscriptionId: expired.id, userId: expired.userId }));
+    const expiredFailed = await processMockSubscriptionWebhook(event({ id: "evt_fail_expired", type: "subscription.renewal_failed", subscriptionId: expired.id, userId: expired.userId }));
+    assert.equal(expiredFailed.status, "rejected_terminal");
+    assert.equal(expiredFailed.subscription?.status, "expired");
   });
 });

@@ -7,7 +7,7 @@ export type MockSubscriptionWebhookEventType = "subscription.created"|"subscript
 export interface SubscriptionRecord { id:string; userId:string; planCode:PlanCode; status:SubscriptionStatus; currentPeriodStart:string; currentPeriodEnd:string; cancelAtPeriodEnd:boolean; canceledAt?:string; expiredAt?:string; updatedAt:string; }
 export interface SubscriptionAuditLogEntry { action:"subscription_status_changed"|"subscription_webhook_ignored"; targetId:string; createdAt:string; metadata:Record<string,string>; }
 export interface MockSubscriptionWebhookEvent { id:string; type:MockSubscriptionWebhookEventType; subscriptionId:string; userId:string; planCode?:PlanCode; status?:Extract<SubscriptionStatus,"trialing"|"active">; currentPeriodStart?:string; currentPeriodEnd?:string; cancelAtPeriodEnd?:boolean; occurredAt?:string; }
-export interface SubscriptionWebhookResult { status:"processed"|"duplicate"|"ignored"; reason?:string; subscription?:SubscriptionRecord; notification?:EmailDeliveryResult; }
+export interface SubscriptionWebhookResult { status:"applied"|"duplicate"|"ignored_retryable"|"rejected_terminal"; reason?:string; subscription?:SubscriptionRecord; notification?:EmailDeliveryResult; }
 export interface MockSubscriptionState { subscriptions:SubscriptionRecord[]; processedWebhookEventIds:string[]; auditLogs:SubscriptionAuditLogEntry[]; notificationResults:EmailDeliveryResult[]; }
 export interface SubscriptionNotificationHook { emailGateway:EmailGateway; emailAccount:EmailChannelAccount; }
 
@@ -39,45 +39,50 @@ export async function processMockSubscriptionWebhook(event:MockSubscriptionWebho
   const now = parseEventDate(event.occurredAt) ?? new Date();
   const existing = findSubscription(event.subscriptionId);
   const next = buildNextSubscription(existing, event, now);
-  if (!next) {
-    state.processedWebhookEventIds.push(event.id);
-    writeSubscriptionAudit("subscription_webhook_ignored", event.subscriptionId, now, { eventType:event.type, reason:"invalid_transition" });
-    return { status:"ignored", reason:"invalid_transition", subscription:existing ? structuredClone(existing) : undefined };
+  if (!next.subscription) {
+    if (next.status === "rejected_terminal") state.processedWebhookEventIds.push(event.id);
+    writeSubscriptionAudit("subscription_webhook_ignored", event.subscriptionId, now, { eventType:event.type, reason:next.reason });
+    return { status:next.status, reason:next.reason, subscription:existing ? structuredClone(existing) : undefined };
   }
-  upsertSubscription(next);
+  upsertSubscription(next.subscription);
   state.processedWebhookEventIds.push(event.id);
-  writeSubscriptionAudit("subscription_status_changed", next.id, now, { eventType:event.type, status:next.status, planCode:next.planCode });
-  const notification = notificationHook ? await sendSubscriptionNotification(notificationHook, next, event) : undefined;
+  writeSubscriptionAudit("subscription_status_changed", next.subscription.id, now, { eventType:event.type, status:next.subscription.status, planCode:next.subscription.planCode });
+  const notification = notificationHook ? await sendSubscriptionNotification(notificationHook, next.subscription, event) : undefined;
   if (notification) state.notificationResults.push(notification);
-  return { status:"processed", subscription:structuredClone(next), notification };
+  return { status:"applied", subscription:structuredClone(next.subscription), notification };
 }
 
-function buildNextSubscription(existing:SubscriptionRecord|undefined, event:MockSubscriptionWebhookEvent, now:Date):SubscriptionRecord|undefined {
+function buildNextSubscription(existing:SubscriptionRecord|undefined, event:MockSubscriptionWebhookEvent, now:Date):{status:"applied"; subscription:SubscriptionRecord}|{status:"ignored_retryable"|"rejected_terminal"; reason:string; subscription?:undefined} {
   const start = event.currentPeriodStart ?? existing?.currentPeriodStart;
   const end = event.currentPeriodEnd ?? existing?.currentPeriodEnd;
-  if (!start || !end || !validPeriod(start, end)) return undefined;
-  if (event.type !== "subscription.created" && !existing) return undefined;
+  if (!start || !end || !validPeriod(start, end)) return { status:"rejected_terminal", reason:"invalid_period" };
+  if (event.type !== "subscription.created" && !existing) return { status:"ignored_retryable", reason:"missing_prerequisite_subscription" };
   if (event.type === "subscription.created") {
-    if (existing) return undefined;
+    if (existing) return { status:"rejected_terminal", reason:"already_exists" };
     const status = event.status ?? "active";
-    return baseSubscription(event, status, start, end, now);
+    return { status:"applied", subscription:baseSubscription(event, status, start, end, now) };
   }
-  if (!existing || existing.userId !== event.userId || existing.status === "expired" && event.type !== "subscription.reactivated") return undefined;
+  if (!existing || existing.userId !== event.userId || existing.status === "expired" && event.type !== "subscription.reactivated") return { status:"rejected_terminal", reason:"invalid_transition" };
   if (event.type === "subscription.renewed") {
-    if (existing.status === "canceled" && !existing.cancelAtPeriodEnd) return undefined;
-    if (Date.parse(end) <= Date.parse(existing.currentPeriodEnd)) return undefined;
-    return { ...existing, status:"active", currentPeriodStart:start, currentPeriodEnd:end, cancelAtPeriodEnd:false, canceledAt:undefined, expiredAt:undefined, updatedAt:now.toISOString() };
+    if (existing.status === "canceled" && !existing.cancelAtPeriodEnd) return { status:"rejected_terminal", reason:"invalid_transition" };
+    if (Date.parse(end) <= Date.parse(existing.currentPeriodEnd)) return { status:"rejected_terminal", reason:"stale_period" };
+    return { status:"applied", subscription:{ ...existing, status:"active", currentPeriodStart:start, currentPeriodEnd:end, cancelAtPeriodEnd:false, canceledAt:undefined, expiredAt:undefined, updatedAt:now.toISOString() } };
   }
-  if (event.type === "subscription.renewal_failed") return { ...existing, status:"past_due", cancelAtPeriodEnd:false, updatedAt:now.toISOString() };
+  if (event.type === "subscription.renewal_failed") {
+    if (existing.status !== "active" && existing.status !== "trialing") return { status:"rejected_terminal", reason:"invalid_transition" };
+    return { status:"applied", subscription:{ ...existing, status:"past_due", cancelAtPeriodEnd:false, updatedAt:now.toISOString() } };
+  }
   if (event.type === "subscription.canceled") {
     const cancelAtPeriodEnd = event.cancelAtPeriodEnd ?? false;
-    return { ...existing, status:"canceled", cancelAtPeriodEnd, canceledAt:now.toISOString(), updatedAt:now.toISOString() };
+    return { status:"applied", subscription:{ ...existing, status:"canceled", cancelAtPeriodEnd, canceledAt:now.toISOString(), updatedAt:now.toISOString() } };
   }
-  if (event.type === "subscription.expired") return { ...existing, status:"expired", cancelAtPeriodEnd:false, expiredAt:now.toISOString(), updatedAt:now.toISOString() };
+  if (event.type === "subscription.expired") return { status:"applied", subscription:{ ...existing, status:"expired", cancelAtPeriodEnd:false, expiredAt:now.toISOString(), updatedAt:now.toISOString() } };
   if (event.type === "subscription.reactivated") {
-    if (!event.currentPeriodStart || !event.currentPeriodEnd) return undefined;
-    return { ...existing, status:"active", planCode:event.planCode ?? existing.planCode, currentPeriodStart:start, currentPeriodEnd:end, cancelAtPeriodEnd:false, canceledAt:undefined, expiredAt:undefined, updatedAt:now.toISOString() };
+    if (!event.currentPeriodStart || !event.currentPeriodEnd) return { status:"rejected_terminal", reason:"invalid_period" };
+    if (existing.status !== "canceled" && existing.status !== "expired") return { status:"rejected_terminal", reason:"invalid_transition" };
+    return { status:"applied", subscription:{ ...existing, status:"active", planCode:existing.planCode, currentPeriodStart:start, currentPeriodEnd:end, cancelAtPeriodEnd:false, canceledAt:undefined, expiredAt:undefined, updatedAt:now.toISOString() } };
   }
+  return { status:"rejected_terminal", reason:"invalid_transition" };
 }
 
 function baseSubscription(event:MockSubscriptionWebhookEvent, status:Extract<SubscriptionStatus,"trialing"|"active">, start:string, end:string, now:Date):SubscriptionRecord {

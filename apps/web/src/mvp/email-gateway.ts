@@ -9,12 +9,14 @@ export interface EmailMessage { topicCode:EmailTopicCode; subject:string; text:s
 export interface EmailProviderRequest { to:string; from:string; subject:string; text:string; html:string; headers:Record<string,string>; }
 export interface EmailProviderResult { providerMessageId?:string; raw?:unknown; }
 export interface EmailProvider { send(request:EmailProviderRequest):Promise<EmailProviderResult>; verifyWebhook?(headers:Headers, body:string):Promise<boolean>; normalizeWebhook?(body:unknown):Promise<EmailWebhookEvent[]>; }
-export interface EmailWebhookEvent { type:EmailWebhookEventType; email:string; providerMessageId?:string; reason?:string; }
+export interface EmailWebhookEvent { type:EmailWebhookEventType; email?:string; providerMessageId?:string; reason?:string; }
 export interface EmailDeliveryResult { status:EmailDeliveryStatus; providerMessageId?:string; errorCode?:string; raw?:unknown; }
 export interface EmailAuditLogEntry { action:string; targetId:string; metadata:Record<string,string>; createdAt:string; }
+export interface EmailWebhookApplyResult { status:"applied"|"ignored"; reason?: "email_missing"|"email_mismatch"; }
 type TransactionalEmailTemplate = "email_verification"|"account_security"|"data_export"|"account_deletion"|"payment_receipt";
 export const EMAIL_VERIFICATION_TOKEN_TTL_MS = readPositiveIntegerEnv("EMAIL_VERIFICATION_TOKEN_TTL_MS", 24 * 60 * 60 * 1000);
 const EMAIL_VERIFICATION_TOKEN_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const EMAIL_WEBHOOK_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
 const TRANSACTIONAL_TOPIC_CODES = new Set<EmailTopicCode>(["email_verification", "account_security", "account_deletion", "data_export", "payment_receipt", "system"]);
 
 export class SandboxEmailProvider implements EmailProvider {
@@ -36,7 +38,7 @@ export class SandboxEmailProvider implements EmailProvider {
 }
 
 export class HttpEmailProvider implements EmailProvider {
-  constructor(private readonly config:{ endpoint:string; apiKey:string; fetcher?:typeof fetch }) {}
+  constructor(private readonly config:{ endpoint:string; apiKey:string; webhookSecret?:string; fetcher?:typeof fetch }) {}
 
   async send(request: EmailProviderRequest): Promise<EmailProviderResult> {
     const fetcher = this.config.fetcher ?? fetch;
@@ -47,6 +49,11 @@ export class HttpEmailProvider implements EmailProvider {
     });
     if (!response.ok) throw new Error(`Email provider failed with status ${response.status}.`);
     return { providerMessageId: response.headers.get("x-provider-message-id") ?? undefined };
+  }
+
+  async verifyWebhook(headers:Headers, body:string):Promise<boolean> {
+    const secret = this.config.webhookSecret ?? process.env.EMAIL_WEBHOOK_SECRET;
+    return verifySignedEmailWebhook(headers, body, secret);
   }
 }
 
@@ -148,14 +155,24 @@ export function verifyEmailToken(account:EmailChannelAccount, token:string, secr
 }
 
 export function markEmailUnsubscribed(account:EmailChannelAccount, now=new Date()):void { account.unsubscribed=true; account.updatedAt=now.toISOString(); }
-export function applyEmailWebhookEvent(account:EmailChannelAccount, event:EmailWebhookEvent, now=new Date()):void { if(event.type==="bounce") account.bounced=true; if(event.type==="complaint") account.complained=true; if(event.type==="unsubscribe") account.unsubscribed=true; account.updatedAt=now.toISOString(); }
+export function applyEmailWebhookEvent(account:EmailChannelAccount, event:EmailWebhookEvent, now=new Date()):EmailWebhookApplyResult {
+  const accountEmail = normalizeEmail(account.email);
+  const eventEmail = typeof event.email === "string" ? normalizeEmail(event.email) : "";
+  if (!eventEmail) return { status:"ignored", reason:"email_missing" };
+  if (eventEmail !== accountEmail) return { status:"ignored", reason:"email_mismatch" };
+  if(event.type==="bounce") account.bounced=true;
+  if(event.type==="complaint") account.complained=true;
+  if(event.type==="unsubscribe") account.unsubscribed=true;
+  account.updatedAt=now.toISOString();
+  return { status:"applied" };
+}
 
 export function normalizeEmailProviderWebhook(body:unknown):EmailWebhookEvent[] {
   if (!body || typeof body !== "object") return [];
   const event = body as { type?:unknown; email?:unknown; providerMessageId?:unknown; reason?:unknown };
   if (event.type !== "bounce" && event.type !== "complaint" && event.type !== "unsubscribe") return [];
-  if (typeof event.email !== "string") return [];
-  return [{ type:event.type, email:event.email.toLowerCase(), providerMessageId:typeof event.providerMessageId==="string"?event.providerMessageId:undefined, reason:typeof event.reason==="string"?event.reason:undefined }];
+  if (typeof event.email !== "string" || !normalizeEmail(event.email)) return [];
+  return [{ type:event.type, email:normalizeEmail(event.email), providerMessageId:typeof event.providerMessageId==="string"?event.providerMessageId:undefined, reason:typeof event.reason==="string"?event.reason:undefined }];
 }
 
 export function renderTransactionalEmailTemplate(template:TransactionalEmailTemplate, input:{ actionUrl?:string; receiptId?:string } = {}):EmailMessage {
@@ -178,6 +195,18 @@ export function sanitizeEmailLogMetadata(metadata:Record<string,string>):Record<
 function stableEmailTarget(email:string, secret:string):string { return `email_${hmac(email.toLowerCase(), secret).slice(0, 16)}`; }
 function isGatewayTransactionalTopic(topicCode:EmailTopicCode):boolean { return TRANSACTIONAL_TOPIC_CODES.has(topicCode); }
 function readPositiveIntegerEnv(name:string, fallback:number):number { const raw=process.env[name]; if(!raw) return fallback; const parsed=Number(raw); return Number.isSafeInteger(parsed)&&parsed>0 ? parsed : fallback; }
+function verifySignedEmailWebhook(headers:Headers, body:string, secret:string|undefined):boolean {
+  if (!secret?.trim()) return false;
+  const timestamp = headers.get("x-email-timestamp");
+  const signature = headers.get("x-email-signature");
+  if (!timestamp || !signature) return false;
+  const timestampMs = Number(timestamp);
+  if (!Number.isSafeInteger(timestampMs)) return false;
+  const nowMs = Date.now();
+  if (Math.abs(nowMs - timestampMs) > EMAIL_WEBHOOK_TIMESTAMP_TOLERANCE_MS) return false;
+  return constantTimeEqual(signature, hmac(`${timestamp}.${body}`, secret));
+}
 function hmac(value:string, secret:string):string { return createHmac("sha256", secret).update(value).digest("base64url"); }
 function constantTimeEqual(a:string,b:string):boolean { const left=Buffer.from(a); const right=Buffer.from(b); return left.length===right.length && timingSafeEqual(left,right); }
+function normalizeEmail(email:string):string { return email.trim().toLowerCase(); }
 function escapeHtml(value:string):string { return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }

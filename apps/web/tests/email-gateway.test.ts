@@ -15,6 +15,11 @@ const signVerificationToken = (payload: Record<string, string>, secret: string) 
   return `${encodedPayload}.${signature}`;
 };
 
+const signedWebhookHeaders = (body: string, secret: string, timestamp = Date.now()) => {
+  const signature = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("base64url");
+  return new Headers({ "x-email-timestamp": String(timestamp), "x-email-signature": signature });
+};
+
 describe("email gateway", () => {
   it("routes only to verified email accounts", async () => {
     const provider = new SandboxEmailProvider();
@@ -79,6 +84,35 @@ describe("email gateway", () => {
     assert.equal((await gateway.send(bounced, renderTransactionalEmailTemplate("data_export"))).status, "bounced");
     assert.equal((await gateway.send(complained, renderTransactionalEmailTemplate("data_export"))).status, "complained");
     assert.equal(provider.sent.length, 0);
+  });
+
+  it("applies webhook account updates only when event email matches", () => {
+    const updatedAt = new Date("2026-05-03T10:04:00.000Z");
+    const bounced = { ...createTestEmailAccount({ userId: "user_a", email: " User@Example.Test " }), verified: true };
+    const complained = { ...createTestEmailAccount({ userId: "user_b", email: "complaint@example.test" }), verified: true };
+    const unsubscribed = { ...createTestEmailAccount({ userId: "user_c", email: "unsubscribe@example.test" }), verified: true };
+
+    assert.deepEqual(applyEmailWebhookEvent(bounced, { type: "bounce", email: " user@example.test " }, updatedAt), { status: "applied" });
+    assert.equal(bounced.bounced, true);
+    assert.equal(bounced.updatedAt, updatedAt.toISOString());
+
+    assert.deepEqual(applyEmailWebhookEvent(complained, { type: "complaint", email: "COMPLAINT@example.test" }, updatedAt), { status: "applied" });
+    assert.equal(complained.complained, true);
+
+    assert.deepEqual(applyEmailWebhookEvent(unsubscribed, { type: "unsubscribe", email: "unsubscribe@example.test" }, updatedAt), { status: "applied" });
+    assert.equal(unsubscribed.unsubscribed, true);
+  });
+
+  it("ignores webhook account updates for missing or mismatched emails", () => {
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+
+    assert.deepEqual(applyEmailWebhookEvent(account, { type: "bounce" }, new Date("2026-05-03T10:04:00.000Z")), { status: "ignored", reason: "email_missing" });
+    assert.equal(account.bounced, false);
+    assert.equal(account.updatedAt, testNow.toISOString());
+
+    assert.deepEqual(applyEmailWebhookEvent(account, { type: "complaint", email: "other@example.test" }, new Date("2026-05-03T10:05:00.000Z")), { status: "ignored", reason: "email_mismatch" });
+    assert.equal(account.complained, false);
+    assert.equal(account.updatedAt, testNow.toISOString());
   });
 
   it("verifies fresh email token and preserves account binding", () => {
@@ -154,6 +188,38 @@ describe("email gateway", () => {
     const result = await gateway.send(account, renderTransactionalEmailTemplate("email_verification", { actionUrl: "https://example.test/verify" }));
     assert.equal(result.status, "sent");
     assert.equal(fetchCalls, 0);
+  });
+
+  it("verifies signed HttpEmailProvider webhooks", async () => {
+    const body = JSON.stringify({ type: "bounce", email: "user@example.test" });
+    const secret = "test-webhook-secret";
+    const provider = new HttpEmailProvider({ endpoint: "https://email-provider.test/send", apiKey: "test-key", webhookSecret: secret });
+
+    assert.equal(await provider.verifyWebhook(signedWebhookHeaders(body, secret), body), true);
+    assert.equal(await provider.verifyWebhook(signedWebhookHeaders(body, "wrong-secret"), body), false);
+    assert.equal(await provider.verifyWebhook(new Headers({ "x-email-timestamp": String(Date.now()) }), body), false);
+  });
+
+  it("fails closed for missing or stale HttpEmailProvider webhook verification", async () => {
+    const body = JSON.stringify({ type: "unsubscribe", email: "user@example.test" });
+    const provider = new HttpEmailProvider({ endpoint: "https://email-provider.test/send", apiKey: "test-key", webhookSecret: " " });
+    const configured = new HttpEmailProvider({ endpoint: "https://email-provider.test/send", apiKey: "test-key", webhookSecret: "test-webhook-secret" });
+    const staleTimestamp = Date.now() - 10 * 60 * 1000;
+    const futureTimestamp = Date.now() + 10 * 60 * 1000;
+
+    assert.equal(await provider.verifyWebhook(signedWebhookHeaders(body, "test-webhook-secret"), body), false);
+    assert.equal(await configured.verifyWebhook(signedWebhookHeaders(body, "test-webhook-secret", staleTimestamp), body), false);
+    assert.equal(await configured.verifyWebhook(signedWebhookHeaders(body, "test-webhook-secret", futureTimestamp), body), false);
+  });
+
+  it("delegates EmailGateway webhook verification to configured HttpEmailProvider", async () => {
+    const body = JSON.stringify({ type: "complaint", email: "user@example.test" });
+    const secret = "test-webhook-secret";
+    const provider = new HttpEmailProvider({ endpoint: "https://email-provider.test/send", apiKey: "test-key", webhookSecret: secret });
+    const gateway = new EmailGateway({ provider, fromEmail: "noreply@example.test", sandboxMode: false, auditHashSecret: "test-audit-secret" });
+
+    assert.equal(await gateway.verifyWebhook(signedWebhookHeaders(body, secret), body), true);
+    assert.equal(await gateway.verifyWebhook(signedWebhookHeaders(body, "wrong-secret"), body), false);
   });
 
 

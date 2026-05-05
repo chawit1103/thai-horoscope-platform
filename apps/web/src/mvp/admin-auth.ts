@@ -84,6 +84,17 @@ export function approveAndQueueWithAdminCookie(input: { sessionId: string; resul
   recordMockDeliveryAttempt(message.id, input.sessionId);
 }
 
+export function recordAdminSessionStartedWithAdminCookie(input: { sessionCookie?: string; sessionSecret?: string }): void {
+  const auth = validateAdminSession({ sessionCookie: input.sessionCookie, sessionSecret: input.sessionSecret });
+  if (!auth.ok) {
+    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", "admin_session", { reason: auth.reason, path: "/admin/sign-in" });
+    throw new Error("Unauthorized: admin role is required.");
+  }
+
+  const adminAuditPartition = getAdminAuditPartition({ actorId: auth.actorId, sessionCookie: input.sessionCookie! });
+  recordAdminAudit(adminAuditPartition, auth.actorId, "admin_session_started", "admin_session", { role: auth.role });
+}
+
 export function rejectDraftWithAdminCookie(input: { sessionId: string; resultId: string; sessionCookie?: string; sessionSecret?: string }): void {
   const auth = validateAdminSession({ sessionCookie: input.sessionCookie, sessionSecret: input.sessionSecret });
   if (!auth.ok) {

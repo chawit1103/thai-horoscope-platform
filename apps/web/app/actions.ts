@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, authorizeAdminRoute, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken, validateAdminSession } from "../src/mvp/admin-auth";
+import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, authorizeAdminRoute, recordAdminSessionStartedWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken } from "../src/mvp/admin-auth";
 import { callMockAstroCalc, generateHoroscopeResult, getMockPeriodKey, recordAdminAudit, saveBirthProfile, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
 
 type AdminRole = "admin";
@@ -49,11 +49,10 @@ export async function startDevMockAdminSessionAction(formData: FormData): Promis
     throw new Error("Unauthorized admin sign-in.");
   }
 
-  const adminSession = validateAdminSession({ sessionCookie: cookieValue, sessionSecret: process.env.ADMIN_SESSION_SECRET });
-  if (adminSession.ok) {
-    const sessionId = c.get("mock-session-id")?.value ?? "admin-security";
-    recordAdminAudit(sessionId, adminSession.actorId, "admin_session_started", "admin_session", { role: adminSession.role });
-  }
+  recordAdminSessionStartedWithAdminCookie({
+    sessionCookie: cookieValue,
+    sessionSecret: process.env.ADMIN_SESSION_SECRET,
+  });
 
   c.set(ADMIN_COOKIE_NAME, cookieValue, {
     httpOnly: true,

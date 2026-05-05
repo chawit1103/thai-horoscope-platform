@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { approveAndQueueWithAdminCookie, authorizeAdminRoute, createAdminSessionCookie, getAdminAuditPartition, recordAdminSessionStartedWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, validateAdminSession } from "../src/mvp/admin-auth";
+import { approveAndQueueWithAdminCookie, authorizeAdminRoute, createAdminSessionCookie, DENIED_ADMIN_ACTION_AUDIT_TARGET_ID, getAdminAuditPartition, recordAdminSessionStartedWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, validateAdminSession } from "../src/mvp/admin-auth";
 import { approveDraft, callMockAstroCalc, generateHoroscopeResult, getMockMvpState, queueMockOutboundMessage, recordMockDeliveryAttempt, resetMockMvpState, saveBirthProfile, storeChartSnapshot } from "../src/mvp/mock-flow";
 
 const birthInput = { birthDate: "1992-08-15", birthTime: "07:30", birthTimeUnknown: false, birthPlaceText: "Bangkok", timezone: "Asia/Bangkok", consentBirthData: true };
@@ -253,7 +253,10 @@ describe("mock mvp flow", () => {
     const victimState = getMockMvpState("victim-session");
     const securityState = getMockMvpState(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID);
     assert.equal(victimState.auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 0);
-    assert.equal(securityState.auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 1);
+    const deniedEntries = securityState.auditLogs.filter((entry) => entry.action === "admin_access_denied");
+    assert.equal(deniedEntries.length, 1);
+    assert.equal(deniedEntries[0]?.targetId, DENIED_ADMIN_ACTION_AUDIT_TARGET_ID);
+    assert.equal(deniedEntries[0]?.targetId.includes("forged_result"), false);
   });
 
   it("keeps admin audit metadata free of PII and derived birth hashes", () => {

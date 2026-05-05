@@ -3,6 +3,7 @@ import { approveDraft, queueMockOutboundMessage, recordAdminAudit, recordMockDel
 
 export const ADMIN_COOKIE_NAME = "admin-session";
 export const UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID = "__admin_security__";
+export const DENIED_ADMIN_ACTION_AUDIT_TARGET_ID = "denied_admin_action";
 
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
@@ -74,7 +75,7 @@ export function authorizeAdminRoute(input: { path: string; sessionCookie?: strin
 export function approveAndQueueWithAdminCookie(input: { sessionId: string; resultId: string; sessionCookie?: string; sessionSecret?: string }): void {
   const auth = validateAdminSession({ sessionCookie: input.sessionCookie, sessionSecret: input.sessionSecret });
   if (!auth.ok) {
-    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", input.resultId || "missing_result", { reason: auth.reason, path: "/admin/approve" });
+    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", DENIED_ADMIN_ACTION_AUDIT_TARGET_ID, { reason: auth.reason, path: "/admin/approve" });
     throw new Error("Unauthorized: admin role is required.");
   }
 
@@ -100,7 +101,7 @@ export function recordAdminSessionStartedWithAdminCookie(input: { sessionCookie?
 export function rejectDraftWithAdminCookie(input: { sessionId: string; resultId: string; sessionCookie?: string; sessionSecret?: string }): void {
   const auth = validateAdminSession({ sessionCookie: input.sessionCookie, sessionSecret: input.sessionSecret });
   if (!auth.ok) {
-    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", input.resultId || "missing_result", { reason: auth.reason, path: "/admin/reject" });
+    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", DENIED_ADMIN_ACTION_AUDIT_TARGET_ID, { reason: auth.reason, path: "/admin/reject" });
     throw new Error("Unauthorized: admin role is required.");
   }
 

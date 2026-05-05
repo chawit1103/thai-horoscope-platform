@@ -134,6 +134,40 @@ describe("email gateway", () => {
     assert.equal(fetchCalls, 0);
   });
 
+
+
+  it("returns failed result and audits when provider send throws", async () => {
+    const auditLogs: EmailAuditLogEntry[] = [];
+    const provider: EmailProvider = {
+      async send() {
+        throw new Error("provider down");
+      },
+    };
+    const gateway = new EmailGateway({ provider, fromEmail: "noreply@example.test", sandboxMode: false, auditHashSecret: "test-audit-secret", auditLogs });
+    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+
+    const result = await gateway.send(account, renderTransactionalEmailTemplate("account_security"));
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.errorCode, "email_provider_failed");
+    assert.equal(auditLogs.at(-1)?.action, "email_delivery_failed");
+  });
+
+  it("uses runtime timestamps for audit log entries", async () => {
+    const provider = new SandboxEmailProvider();
+    const auditLogs: EmailAuditLogEntry[] = [];
+    const gateway = makeGateway(provider, auditLogs);
+    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+    const before = Date.now();
+
+    await gateway.send(account, renderTransactionalEmailTemplate("account_security"));
+
+    const createdAtMs = Date.parse(auditLogs[0]?.createdAt ?? "");
+    const after = Date.now();
+    assert.ok(Number.isFinite(createdAtMs));
+    assert.ok(createdAtMs >= before && createdAtMs <= after);
+  });
+
   it("does not include PII or secrets in email audit logs", async () => {
     const provider = new SandboxEmailProvider();
     const auditLogs: EmailAuditLogEntry[] = [];

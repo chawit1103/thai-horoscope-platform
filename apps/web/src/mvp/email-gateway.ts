@@ -70,16 +70,22 @@ export class EmailGateway {
       return { status: "sent", providerMessageId, raw: { sandbox: true, delivery: "mock" } };
     }
 
-    const response = await this.config.provider.send({
-      to: channelAccount.email,
-      from: this.config.fromEmail,
-      subject: message.subject,
-      text: message.text,
-      html: message.html,
-      headers: { "x-topic-code": message.topicCode, "x-transactional": String(isTransactional) },
-    });
-    this.audit("email_delivery_sent", channelAccount, message, response.providerMessageId);
-    return { status: "sent", providerMessageId: response.providerMessageId, raw: this.config.sandboxMode ? { sandbox: true } : undefined };
+    try {
+      const response = await this.config.provider.send({
+        to: channelAccount.email,
+        from: this.config.fromEmail,
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
+        headers: { "x-topic-code": message.topicCode, "x-transactional": String(isTransactional) },
+      });
+      this.audit("email_delivery_sent", channelAccount, message, response.providerMessageId);
+      return { status: "sent", providerMessageId: response.providerMessageId };
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "provider_send_failed";
+      this.audit("email_delivery_failed", channelAccount, message, undefined, "email_provider_failed");
+      return { status: "failed", errorCode: "email_provider_failed", raw: { message: messageText } };
+    }
   }
 
   async verifyWebhook(headers:Headers, body:string):Promise<boolean> {
@@ -99,7 +105,7 @@ export class EmailGateway {
     this.config.auditLogs?.push({
       action,
       targetId: stableEmailTarget(account.email, this.config.auditHashSecret),
-      createdAt: new Date("2026-05-03T10:00:00.000Z").toISOString(),
+      createdAt: new Date().toISOString(),
       metadata: sanitizeEmailLogMetadata({ topicCode: message.topicCode, transactional: String(message.transactional), providerMessageId: providerMessageId ?? "", errorCode: errorCode ?? "", email: account.email, subject: message.subject }),
     });
   }

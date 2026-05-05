@@ -62,8 +62,10 @@ function buildNextSubscription(existing:SubscriptionRecord|undefined, event:Mock
     const status = event.status ?? "active";
     return { status:"applied", subscription:baseSubscription(event, status, start, end, now) };
   }
+  const orderTimestamp = getOrderTimestamp(event);
+  if (!orderTimestamp) return { status:"rejected_terminal", reason:"missing_event_time" };
   if (!existing || existing.userId !== event.userId || existing.status === "expired" && event.type !== "subscription.reactivated") return { status:"rejected_terminal", reason:"invalid_transition" };
-  if (isStaleSubscriptionEvent(existing, event, now)) return { status:"ignored_retryable", reason:"ignored_stale" };
+  if (isStaleSubscriptionEvent(existing, event, orderTimestamp)) return { status:"ignored_retryable", reason:"ignored_stale" };
   if (event.type === "subscription.renewed") {
     if (existing.status === "canceled" && !existing.cancelAtPeriodEnd) return { status:"rejected_terminal", reason:"invalid_transition" };
     if (Date.parse(end) <= Date.parse(existing.currentPeriodEnd)) return { status:"rejected_terminal", reason:"stale_period" };
@@ -71,7 +73,7 @@ function buildNextSubscription(existing:SubscriptionRecord|undefined, event:Mock
   }
   if (event.type === "subscription.renewal_failed") {
     if (existing.status !== "active" && existing.status !== "trialing") return { status:"rejected_terminal", reason:"invalid_transition" };
-    if (isStaleRenewalFailedEvent(existing, event)) return { status:"ignored_retryable", reason:"ignored_stale" };
+    if (isStaleRenewalFailedEvent(existing, event, orderTimestamp)) return { status:"ignored_retryable", reason:"ignored_stale" };
     return { status:"applied", subscription:{ ...existing, status:"past_due", cancelAtPeriodEnd:false, updatedAt:now.toISOString() } };
   }
   if (event.type === "subscription.canceled") {
@@ -100,17 +102,17 @@ function findSubscription(subscriptionId:string):SubscriptionRecord|undefined { 
 function upsertSubscription(subscription:SubscriptionRecord):void { const index=state.subscriptions.findIndex((existing)=>existing.id===subscription.id); if(index>=0) state.subscriptions[index]=subscription; else state.subscriptions.push(subscription); }
 function validPeriod(start:string,end:string):boolean { const startMs=Date.parse(start); const endMs=Date.parse(end); return Number.isFinite(startMs)&&Number.isFinite(endMs)&&endMs>startMs; }
 function parseEventDate(value:string|undefined):Date|undefined { if(!value) return undefined; const ms=Date.parse(value); return Number.isFinite(ms) ? new Date(ms) : undefined; }
-function isStaleSubscriptionEvent(existing:SubscriptionRecord, event:MockSubscriptionWebhookEvent, now:Date):boolean {
-  const eventMs = (parseEventDate(event.occurredAt) ?? now).getTime();
+function getOrderTimestamp(event:MockSubscriptionWebhookEvent):Date|undefined { return parseEventDate(event.occurredAt); }
+function isStaleSubscriptionEvent(existing:SubscriptionRecord, event:MockSubscriptionWebhookEvent, eventTimestamp:Date):boolean {
+  const eventMs = eventTimestamp.getTime();
   const updatedMs = Date.parse(existing.updatedAt);
   if (Number.isFinite(updatedMs) && eventMs < updatedMs) return true;
-  if (event.type === "subscription.canceled" || event.type === "subscription.expired") {
-    const currentPeriodStartMs = Date.parse(existing.currentPeriodStart);
-    if (Number.isFinite(currentPeriodStartMs) && eventMs < currentPeriodStartMs) return true;
-  }
   return false;
 }
-function isStaleRenewalFailedEvent(existing:SubscriptionRecord, event:MockSubscriptionWebhookEvent):boolean {
+function isStaleRenewalFailedEvent(existing:SubscriptionRecord, event:MockSubscriptionWebhookEvent, eventTimestamp:Date):boolean {
+  const eventMs = eventTimestamp.getTime();
+  const updatedMs = Date.parse(existing.updatedAt);
+  if (Number.isFinite(updatedMs) && eventMs < updatedMs) return true;
   const failedStart = event.currentPeriodStart ? Date.parse(event.currentPeriodStart) : Number.NaN;
   const failedEnd = event.currentPeriodEnd ? Date.parse(event.currentPeriodEnd) : Number.NaN;
   const currentStart = Date.parse(existing.currentPeriodStart);

@@ -265,4 +265,30 @@ describe("subscription lifecycle", () => {
     assert.equal(staleExpired.subscription?.status, "active");
     assert.equal(canAccessPeriod({ subscription: staleExpired.subscription, periodType: "weekly", now: new Date("2026-06-10T00:00:00.000Z") }), true);
   });
+
+  it("allows valid pre-period cancellation and prevents future entitlement", async () => {
+    const futureStart = "2026-06-01T00:00:00.000Z";
+    const futureEnd = "2026-07-01T00:00:00.000Z";
+    const created = await createSubscription({ subscriptionId: "sub_pre_period_cancel", currentPeriodStart: futureStart, currentPeriodEnd: futureEnd, occurredAt: "2026-05-20T00:00:00.000Z" });
+    const canceled = await processMockSubscriptionWebhook(event({ id: "evt_pre_period_cancel", type: "subscription.canceled", subscriptionId: created.id, userId: created.userId, cancelAtPeriodEnd: false, currentPeriodStart: futureStart, currentPeriodEnd: futureEnd, occurredAt: "2026-05-25T00:00:00.000Z" }));
+    assert.equal(canceled.status, "applied");
+    assert.equal(canceled.subscription?.status, "canceled");
+    assert.equal(canAccessPeriod({ subscription: canceled.subscription, periodType: "daily", now: new Date("2026-06-10T00:00:00.000Z") }), false);
+  });
+
+  it("rejects order-sensitive events without valid occurredAt", async () => {
+    const created = await createSubscription({ subscriptionId: "sub_missing_time" });
+    const canceledNoTime = await processMockSubscriptionWebhook(event({ id: "evt_cancel_no_time", type: "subscription.canceled", subscriptionId: created.id, userId: created.userId, occurredAt: undefined }));
+    assert.equal(canceledNoTime.status, "rejected_terminal");
+    assert.equal(canceledNoTime.reason, "missing_event_time");
+    assert.equal(canceledNoTime.subscription?.status, "active");
+
+    const expiredInvalidTime = await processMockSubscriptionWebhook(event({ id: "evt_expire_bad_time", type: "subscription.expired", subscriptionId: created.id, userId: created.userId, occurredAt: "not-a-date" }));
+    assert.equal(expiredInvalidTime.status, "rejected_terminal");
+    assert.equal(expiredInvalidTime.reason, "missing_event_time");
+
+    const renewalFailedNoTime = await processMockSubscriptionWebhook(event({ id: "evt_failed_no_time", type: "subscription.renewal_failed", subscriptionId: created.id, userId: created.userId, occurredAt: undefined }));
+    assert.equal(renewalFailedNoTime.status, "rejected_terminal");
+    assert.equal(renewalFailedNoTime.reason, "missing_event_time");
+  });
 });

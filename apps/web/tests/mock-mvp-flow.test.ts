@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { approveAndQueueWithAdminCookie, authorizeAdminRoute, createAdminSessionCookie, DENIED_ADMIN_ACTION_AUDIT_TARGET_ID, getAdminAuditPartition, recordAdminSessionStartedWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, validateAdminSession } from "../src/mvp/admin-auth";
-import { approveDraft, callMockAstroCalc, generateHoroscopeResult, getMockMvpState, queueMockOutboundMessage, recordMockDeliveryAttempt, resetMockMvpState, saveBirthProfile, storeChartSnapshot } from "../src/mvp/mock-flow";
+import { approveDraft, callMockAstroCalc, deleteBirthProfile, exportUserData, generateChartSnapshotForBirthProfile, generateHoroscopeResult, getMockMvpState, queueMockOutboundMessage, recordMockDeliveryAttempt, requestAccountDeletion, resetMockMvpState, saveBirthProfile, storeChartSnapshot, unsubscribeNotifications } from "../src/mvp/mock-flow";
 
 const birthInput = { birthDate: "1992-08-15", birthTime: "07:30", birthTimeUnknown: false, birthPlaceText: "Bangkok", timezone: "Asia/Bangkok", consentBirthData: true };
 const adminPartitionForCookie = (sessionCookie: string): string => {
@@ -270,6 +270,67 @@ describe("mock mvp flow", () => {
     assert.equal(serializedAudit.includes(birthInput.birthPlaceText), false);
     assert.equal(serializedAudit.includes(birthInput.timezone), false);
     assert.equal(state.auditLogs.some((entry) => "calculationHash" in entry.metadata), false);
+  });
+
+  it("exports expected user data only for the current user", () => {
+    const userA = { sessionId: "s1", userId: "user_a" };
+    const userB = { sessionId: "s1", userId: "user_b" };
+    const profileA = saveBirthProfile(birthInput, userA);
+    const profileB = saveBirthProfile({ ...birthInput, birthPlaceText: "Phuket" }, userB);
+    const chartA = storeChartSnapshot(callMockAstroCalc(profileA), "s1");
+    storeChartSnapshot(callMockAstroCalc(profileB), "s1");
+    const draftA = generateHoroscopeResult({ chartSnapshot: chartA, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+    approveDraft(draftA.id, "admin", "s1");
+    queueMockOutboundMessage(draftA.id, "s1");
+
+    const exported = exportUserData(userA);
+    assert.deepEqual(new Set(exported.birthProfiles.map((profile) => profile.userId)), new Set(["user_a"]));
+    assert.deepEqual(new Set(exported.chartSnapshots.map((chart) => chart.userId)), new Set(["user_a"]));
+    assert.deepEqual(new Set(exported.horoscopeResults.map((result) => result.userId)), new Set(["user_a"]));
+    assert.deepEqual(new Set(exported.outboundMessages.map((message) => message.userId)), new Set(["user_a"]));
+    assert.equal(JSON.stringify(exported).includes("user_b"), false);
+    assert.equal(JSON.stringify(exported).includes("Phuket"), false);
+  });
+
+  it("deleting a birth profile prevents future chart generation", () => {
+    const context = { sessionId: "s1", userId: "user_a" };
+    const profile = saveBirthProfile(birthInput, context);
+    deleteBirthProfile(context, profile.id);
+    assert.throws(() => generateChartSnapshotForBirthProfile(profile, context), /deleted|not found/);
+    assert.equal(getMockMvpState("s1").birthProfiles.length, 0);
+  });
+
+  it("excludes deleted or deactivated users from notifications", () => {
+    const context = { sessionId: "s1", userId: "user_a" };
+    const profile = saveBirthProfile(birthInput, context);
+    const chart = storeChartSnapshot(callMockAstroCalc(profile), "s1");
+    const draft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+    approveDraft(draft.id, "admin", "s1");
+    requestAccountDeletion(context);
+
+    assert.throws(() => queueMockOutboundMessage(draft.id, "s1"), /deactivated/);
+    assert.equal(getMockMvpState("s1").outboundMessages.length, 0);
+  });
+
+  it("unsubscribe disables delivery", () => {
+    const context = { sessionId: "s1", userId: "user_a" };
+    const profile = saveBirthProfile(birthInput, context);
+    const chart = storeChartSnapshot(callMockAstroCalc(profile), "s1");
+    const draft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+    approveDraft(draft.id, "admin", "s1");
+    unsubscribeNotifications(context, "daily_horoscope");
+
+    assert.throws(() => queueMockOutboundMessage(draft.id, "s1"), /disabled/);
+    assert.equal(getMockMvpState("s1").outboundMessages.length, 0);
+  });
+
+  it("account deletion request is audited without PII", () => {
+    const context = { sessionId: "s1", userId: "user_a" };
+    requestAccountDeletion(context);
+    const state = getMockMvpState("s1");
+    assert.equal(state.accountDeletionRequests.length, 1);
+    assert.equal(state.auditLogs.filter((entry) => entry.action === "account_deletion_requested").length, 1);
+    assert.equal(JSON.stringify(state.auditLogs).includes("user_a"), false);
   });
 
   it("isolates state by session", () => {

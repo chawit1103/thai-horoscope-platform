@@ -341,6 +341,54 @@ describe("mock mvp flow", () => {
     const chartC = generateChartSnapshotForBirthProfile(profileC, context);
     assert.equal(chartC.birthProfileId, profileC.id);
   });
+
+
+  it("deleting one profile does not remove another profile artifacts when result IDs collide", () => {
+    const context = { sessionId: "s1", userId: "user_a" };
+    const profileA = saveBirthProfile(birthInput, context);
+    const profileB = saveBirthProfile({ ...birthInput, birthPlaceText: "Phuket" }, context);
+
+    const chartA = storeChartSnapshot(callMockAstroCalc(profileA), "s1");
+    const chartB = storeChartSnapshot(callMockAstroCalc(profileB), "s1");
+
+    const resultA = generateHoroscopeResult({ chartSnapshot: chartA, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+    const resultB = generateHoroscopeResult({ chartSnapshot: chartB, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+
+    assert.notEqual(resultA.id, resultB.id);
+    assert.notEqual(resultA.chartSnapshotId, resultB.chartSnapshotId);
+
+    approveDraft(resultA.id, "admin", "s1");
+    approveDraft(resultB.id, "admin", "s1");
+
+    const outboundA = queueMockOutboundMessage(resultA.id, "s1");
+    const outboundB = queueMockOutboundMessage(resultB.id, "s1");
+    recordMockDeliveryAttempt(outboundA.id, "s1");
+    recordMockDeliveryAttempt(outboundB.id, "s1");
+
+    deleteBirthProfile(context, profileA.id);
+
+    const state = getMockMvpState("s1");
+    assert.equal(state.chartSnapshots.some((chart) => chart.id === chartA.id), false);
+    assert.equal(state.horoscopeResults.some((result) => result.chartSnapshotId === chartA.id), false);
+    assert.equal(state.outboundMessages.some((outbound) => outbound.id === outboundA.id), false);
+    assert.equal(state.deliveryAttempts.some((attempt) => attempt.outboundMessageId === outboundA.id), false);
+
+    assert.equal(state.chartSnapshots.some((chart) => chart.id === chartB.id), true);
+    assert.equal(state.horoscopeResults.some((result) => result.chartSnapshotId === chartB.id), true);
+    assert.equal(state.outboundMessages.some((outbound) => outbound.id === outboundB.id), true);
+    assert.equal(state.deliveryAttempts.some((attempt) => attempt.outboundMessageId === outboundB.id), true);
+
+    const exported = exportUserData(context);
+    assert.equal(exported.chartSnapshots.some((chart) => chart.id === chartA.id), false);
+    assert.equal(exported.horoscopeResults.some((result) => result.chartSnapshotId === chartA.id), false);
+    assert.equal(exported.outboundMessages.some((outbound) => outbound.id === outboundA.id), false);
+    assert.equal(exported.deliveryAttempts.some((attempt) => attempt.outboundMessageId === outboundA.id), false);
+
+    assert.equal(exported.chartSnapshots.some((chart) => chart.id === chartB.id), true);
+    assert.equal(exported.horoscopeResults.some((result) => result.chartSnapshotId === chartB.id), true);
+    assert.equal(exported.outboundMessages.some((outbound) => outbound.id === outboundB.id), true);
+    assert.equal(exported.deliveryAttempts.some((attempt) => attempt.outboundMessageId === outboundB.id), true);
+  });
   it("deleting a birth profile prevents future chart generation", () => {
     const context = { sessionId: "s1", userId: "user_a" };
     const profile = saveBirthProfile(birthInput, context);

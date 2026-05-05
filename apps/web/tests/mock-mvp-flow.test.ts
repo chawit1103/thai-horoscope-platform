@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { approveAndQueueAuthorized, authorizeAdminRoute, createAdminSessionCookie, rejectDraftAuthorized, startDevMockAdminSessionForToken, validateAdminSession } from "../app/actions";
+import { approveAndQueueWithAdminCookie, authorizeAdminRoute, createAdminSessionCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, validateAdminSession } from "../src/mvp/admin-auth";
 import { approveDraft, callMockAstroCalc, generateHoroscopeResult, getMockMvpState, queueMockOutboundMessage, recordMockDeliveryAttempt, resetMockMvpState, saveBirthProfile, storeChartSnapshot } from "../src/mvp/mock-flow";
 
 const birthInput = { birthDate: "1992-08-15", birthTime: "07:30", birthTimeUnknown: false, birthPlaceText: "Bangkok", timezone: "Asia/Bangkok", consentBirthData: true };
@@ -39,8 +39,9 @@ describe("mock mvp flow", () => {
     const chart = storeChartSnapshot(callMockAstroCalc(profile), "s1");
     const draft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
 
-    assert.throws(() => approveAndQueueAuthorized({ sessionId: "s1", resultId: draft.id }), /Unauthorized/);
-    assert.throws(() => approveAndQueueAuthorized({ sessionId: "s1", resultId: draft.id, adminSession: { actorId: "reader", role: "reader" } }), /Unauthorized/);
+    assert.throws(() => approveAndQueueWithAdminCookie({ sessionId: "s1", resultId: draft.id, sessionSecret: "session-secret" }), /Unauthorized/);
+    const readerCookie = createAdminSessionCookie({ actorId: "reader", role: "reader", sessionSecret: "session-secret" });
+    assert.throws(() => approveAndQueueWithAdminCookie({ sessionId: "s1", resultId: draft.id, sessionCookie: readerCookie, sessionSecret: "session-secret" }), /Unauthorized/);
 
     const before = getMockMvpState("s1");
     assert.equal(before.outboundMessages.length, 0);
@@ -48,16 +49,18 @@ describe("mock mvp flow", () => {
     assert.equal(before.auditLogs.filter((entry) => entry.action === "draft_approved").length, 0);
 
     try {
-      approveAndQueueAuthorized({ sessionId: "s1", resultId: draft.id });
+      approveAndQueueWithAdminCookie({ sessionId: "s1", resultId: draft.id, sessionSecret: "session-secret" });
     } catch {}
     const afterUnauthorized = getMockMvpState("s1");
     assert.equal(afterUnauthorized.horoscopeResults.find((r) => r.id === draft.id)?.status, "draft");
     assert.equal(afterUnauthorized.outboundMessages.length, 0);
     assert.equal(afterUnauthorized.deliveryAttempts.length, 0);
     assert.equal(afterUnauthorized.auditLogs.filter((entry) => entry.action === "draft_approved").length, 0);
-    assert.equal(afterUnauthorized.auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 3);
+    assert.equal(afterUnauthorized.auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 0);
+    assert.equal(getMockMvpState(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID).auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 3);
 
-    approveAndQueueAuthorized({ sessionId: "s1", resultId: draft.id, adminSession: { actorId: "admin_actor", role: "admin" } });
+    const adminCookie = createAdminSessionCookie({ actorId: "admin_actor", role: "admin", sessionSecret: "session-secret" });
+    approveAndQueueWithAdminCookie({ sessionId: "s1", resultId: draft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
     const after = getMockMvpState("s1");
     assert.equal(after.outboundMessages.length, 1);
     assert.equal(after.deliveryAttempts.length, 1);
@@ -102,14 +105,36 @@ describe("mock mvp flow", () => {
     const chart = storeChartSnapshot(callMockAstroCalc(profile), "s1");
     const draft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
 
-    assert.throws(() => approveAndQueueAuthorized({ sessionId: "s1", resultId: draft.id, adminSession: { actorId: "user_actor", role: "user" } }), /Unauthorized/);
-    assert.throws(() => rejectDraftAuthorized({ sessionId: "s1", resultId: draft.id, adminSession: { actorId: "user_actor", role: "user" } }), /Unauthorized/);
+    const userCookie = createAdminSessionCookie({ actorId: "user_actor", role: "user", sessionSecret: "session-secret" });
+    assert.throws(() => approveAndQueueWithAdminCookie({ sessionId: "s1", resultId: draft.id, sessionCookie: userCookie, sessionSecret: "session-secret" }), /Unauthorized/);
+    assert.throws(() => rejectDraftWithAdminCookie({ sessionId: "s1", resultId: draft.id, sessionCookie: userCookie, sessionSecret: "session-secret" }), /Unauthorized/);
 
     const state = getMockMvpState("s1");
     assert.equal(state.horoscopeResults.find((result) => result.id === draft.id)?.status, "draft");
     assert.equal(state.outboundMessages.length, 0);
     assert.equal(state.deliveryAttempts.length, 0);
-    assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 2);
+    assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 0);
+    assert.equal(getMockMvpState(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID).auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 2);
+  });
+
+  it("ignores forged caller-provided adminSession values for admin mutations", () => {
+    const profile = saveBirthProfile(birthInput, { sessionId: "victim-session", userId: "user_a" });
+    const chart = storeChartSnapshot(callMockAstroCalc(profile), "victim-session");
+    const draft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "victim-session" });
+
+    assert.throws(
+      () => approveAndQueueWithAdminCookie({ sessionId: "victim-session", resultId: draft.id, sessionSecret: "session-secret", adminSession: { actorId: "attacker", role: "admin" } } as Parameters<typeof approveAndQueueWithAdminCookie>[0]),
+      /Unauthorized/,
+    );
+    assert.throws(
+      () => rejectDraftWithAdminCookie({ sessionId: "victim-session", resultId: draft.id, sessionSecret: "session-secret", adminSession: { actorId: "attacker", role: "admin" } } as Parameters<typeof rejectDraftWithAdminCookie>[0]),
+      /Unauthorized/,
+    );
+
+    const state = getMockMvpState("victim-session");
+    assert.equal(state.horoscopeResults.find((result) => result.id === draft.id)?.status, "draft");
+    assert.equal(state.outboundMessages.length, 0);
+    assert.equal(state.deliveryAttempts.length, 0);
   });
 
   it("records audit logs for admin approve, reject, and queue actions", () => {
@@ -118,8 +143,9 @@ describe("mock mvp flow", () => {
     const approvedDraft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
     const rejectedDraft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "weekly", periodKey: "2026-W18", sessionId: "s1" });
 
-    approveAndQueueAuthorized({ sessionId: "s1", resultId: approvedDraft.id, adminSession: { actorId: "admin_actor", role: "admin" } });
-    rejectDraftAuthorized({ sessionId: "s1", resultId: rejectedDraft.id, adminSession: { actorId: "admin_actor", role: "admin" } });
+    const adminCookie = createAdminSessionCookie({ actorId: "admin_actor", role: "admin", sessionSecret: "session-secret" });
+    approveAndQueueWithAdminCookie({ sessionId: "s1", resultId: approvedDraft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
+    rejectDraftWithAdminCookie({ sessionId: "s1", resultId: rejectedDraft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
 
     const state = getMockMvpState("s1");
     assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 1);
@@ -135,6 +161,19 @@ describe("mock mvp flow", () => {
       isProduction: true,
     });
     assert.equal(sessionCookie, undefined);
+  });
+
+  it("keeps denied-admin audits out of forged user session partitions", () => {
+    saveBirthProfile(birthInput, { sessionId: "victim-session", userId: "user_a" });
+    assert.throws(
+      () => approveAndQueueWithAdminCookie({ sessionId: "victim-session", resultId: "forged_result", sessionSecret: "session-secret" }),
+      /Unauthorized/,
+    );
+
+    const victimState = getMockMvpState("victim-session");
+    const securityState = getMockMvpState(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID);
+    assert.equal(victimState.auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 0);
+    assert.equal(securityState.auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 1);
   });
 
   it("keeps admin audit metadata free of PII and derived birth hashes", () => {

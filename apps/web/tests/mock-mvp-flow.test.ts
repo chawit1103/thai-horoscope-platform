@@ -349,6 +349,58 @@ describe("mock mvp flow", () => {
     assert.equal(getMockMvpState("s1").birthProfiles.length, 0);
   });
 
+
+  it("keeps outbound message IDs monotonic after deletion cleanup", () => {
+    const userA = { sessionId: "s1", userId: "user_a" };
+    const userB = { sessionId: "s1", userId: "user_b" };
+
+    const profileA = saveBirthProfile(birthInput, userA);
+    const profileB = saveBirthProfile({ ...birthInput, birthPlaceText: "Phuket" }, userB);
+
+    const chartA = storeChartSnapshot(callMockAstroCalc(profileA), "s1");
+    const chartB = storeChartSnapshot(callMockAstroCalc(profileB), "s1");
+
+    const draftA = generateHoroscopeResult({ chartSnapshot: chartA, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+    const draftB = generateHoroscopeResult({ chartSnapshot: chartB, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+
+    approveDraft(draftA.id, "admin", "s1");
+    approveDraft(draftB.id, "admin", "s1");
+
+    const outboundA = queueMockOutboundMessage(draftA.id, "s1");
+    const outboundB = queueMockOutboundMessage(draftB.id, "s1");
+
+    deleteBirthProfile(userA, profileA.id);
+
+    const outboundBAgain = queueMockOutboundMessage(draftB.id, "s1");
+    assert.equal(outboundBAgain.id, outboundB.id);
+
+    const profileB2 = saveBirthProfile({ ...birthInput, birthPlaceText: "Chiang Rai" }, userB);
+    const chartB2 = storeChartSnapshot(callMockAstroCalc(profileB2), "s1");
+    const draftB2 = generateHoroscopeResult({ chartSnapshot: chartB2, periodType: "weekly", periodKey: "2026-W18", sessionId: "s1" });
+    approveDraft(draftB2.id, "admin", "s1");
+
+    const outboundB2 = queueMockOutboundMessage(draftB2.id, "s1");
+    assert.notEqual(outboundB2.id, outboundA.id);
+    assert.notEqual(outboundB2.id, outboundB.id);
+    assert.equal(outboundB2.id, "out_3");
+  });
+
+  it("requesting account deletion clears queued outbound artifacts and blocks delivery", () => {
+    const context = { sessionId: "s1", userId: "user_a" };
+    const profile = saveBirthProfile(birthInput, context);
+    const chart = storeChartSnapshot(callMockAstroCalc(profile), "s1");
+    const draft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+    approveDraft(draft.id, "admin", "s1");
+    const message = queueMockOutboundMessage(draft.id, "s1");
+
+    requestAccountDeletion(context);
+
+    const state = getMockMvpState("s1");
+    assert.equal(state.outboundMessages.some((outbound) => outbound.id === message.id), false);
+    assert.equal(state.deliveryAttempts.some((attempt) => attempt.outboundMessageId === message.id), false);
+    assert.throws(() => recordMockDeliveryAttempt(message.id, "s1"), /not found/);
+  });
+
   it("excludes deleted or deactivated users from notifications", () => {
     const context = { sessionId: "s1", userId: "user_a" };
     const profile = saveBirthProfile(birthInput, context);

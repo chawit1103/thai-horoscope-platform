@@ -6,6 +6,9 @@ import { EmailGateway, HttpEmailProvider, SandboxEmailProvider, applyEmailWebhoo
 const makeGateway = (provider: EmailProvider = new SandboxEmailProvider(), auditLogs: EmailAuditLogEntry[] = []) =>
   new EmailGateway({ provider, fromEmail: "noreply@example.test", sandboxMode: true, auditHashSecret: "test-audit-secret", auditLogs });
 
+const testNow = new Date("2026-05-03T10:00:00.000Z");
+const createTestEmailAccount = (input: { userId:string; email:string }) => createEmailChannelAccount({ ...input, now: testNow });
+
 const signVerificationToken = (payload: Record<string, string>, secret: string) => {
   const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   const signature = createHmac("sha256", secret).update(encodedPayload).digest("base64url");
@@ -16,7 +19,7 @@ describe("email gateway", () => {
   it("routes only to verified email accounts", async () => {
     const provider = new SandboxEmailProvider();
     const gateway = makeGateway(provider);
-    const account = createEmailChannelAccount({ userId: "user_a", email: "user@example.test" });
+    const account = createTestEmailAccount({ userId: "user_a", email: "user@example.test" });
     const message = renderTransactionalEmailTemplate("account_security");
 
     const blocked = await gateway.send(account, message);
@@ -36,8 +39,8 @@ describe("email gateway", () => {
   it("suppresses horoscope and marketing email after unsubscribe even if caller marks transactional", async () => {
     const provider = new SandboxEmailProvider();
     const gateway = makeGateway(provider);
-    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
-    markEmailUnsubscribed(account);
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+    markEmailUnsubscribed(account, new Date("2026-05-03T10:03:00.000Z"));
 
     for (const topicCode of ["daily_horoscope", "weekly_horoscope", "monthly_horoscope", "yearly_horoscope", "marketing", "engagement"] as const) {
       const result = await gateway.send(account, { topicCode, subject: "Hello", text: "Hello", html: "<p>Hello</p>", transactional: true });
@@ -53,8 +56,8 @@ describe("email gateway", () => {
   it("bases unsubscribe bypass on gateway topic policy instead of message.transactional", async () => {
     const auditLogs: EmailAuditLogEntry[] = [];
     const gateway = makeGateway(new SandboxEmailProvider(), auditLogs);
-    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
-    markEmailUnsubscribed(account);
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+    markEmailUnsubscribed(account, new Date("2026-05-03T10:03:00.000Z"));
 
     const allowed = await gateway.send(account, { topicCode: "system", subject: "Security", text: "Security", html: "<p>Security</p>", transactional: false });
     assert.equal(allowed.status, "sent");
@@ -68,10 +71,10 @@ describe("email gateway", () => {
   it("suppresses bounced and complained email accounts", async () => {
     const provider = new SandboxEmailProvider();
     const gateway = makeGateway(provider);
-    const bounced = { ...createEmailChannelAccount({ userId: "user_a", email: "bounce@example.test" }), verified: true };
-    const complained = { ...createEmailChannelAccount({ userId: "user_b", email: "complaint@example.test" }), verified: true };
-    applyEmailWebhookEvent(bounced, { type: "bounce", email: bounced.email });
-    applyEmailWebhookEvent(complained, { type: "complaint", email: complained.email });
+    const bounced = { ...createTestEmailAccount({ userId: "user_a", email: "bounce@example.test" }), verified: true };
+    const complained = { ...createTestEmailAccount({ userId: "user_b", email: "complaint@example.test" }), verified: true };
+    applyEmailWebhookEvent(bounced, { type: "bounce", email: bounced.email }, new Date("2026-05-03T10:04:00.000Z"));
+    applyEmailWebhookEvent(complained, { type: "complaint", email: complained.email }, new Date("2026-05-03T10:04:00.000Z"));
 
     assert.equal((await gateway.send(bounced, renderTransactionalEmailTemplate("data_export"))).status, "bounced");
     assert.equal((await gateway.send(complained, renderTransactionalEmailTemplate("data_export"))).status, "complained");
@@ -79,7 +82,7 @@ describe("email gateway", () => {
   });
 
   it("verifies fresh email token and preserves account binding", () => {
-    const account = createEmailChannelAccount({ userId: "user_a", email: "USER@Example.Test" });
+    const account = createTestEmailAccount({ userId: "user_a", email: "USER@Example.Test" });
     const token = createEmailVerificationToken(account, "verification-secret", new Date("2026-05-03T10:00:00.000Z"));
 
     assert.equal(verifyEmailToken(account, `${token}.extra`, "verification-secret"), false);
@@ -90,7 +93,7 @@ describe("email gateway", () => {
   });
 
   it("rejects expired, malformed, and future-issued verification tokens", () => {
-    const account = createEmailChannelAccount({ userId: "user_a", email: "user@example.test" });
+    const account = createTestEmailAccount({ userId: "user_a", email: "user@example.test" });
     const secret = "verification-secret";
     const freshToken = createEmailVerificationToken(account, secret, new Date("2026-05-03T10:00:00.000Z"));
 
@@ -116,7 +119,7 @@ describe("email gateway", () => {
   it("never performs real network sends in sandbox tests", async () => {
     const provider = new SandboxEmailProvider();
     const gateway = makeGateway(provider);
-    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
 
     const result = await gateway.send(account, renderTransactionalEmailTemplate("email_verification", { actionUrl: "https://example.test/verify" }));
     assert.equal(result.status, "sent");
@@ -133,7 +136,7 @@ describe("email gateway", () => {
       },
     };
     const gateway = new EmailGateway({ provider, fromEmail: "noreply@example.test", sandboxMode: true, auditHashSecret: "test-audit-secret" });
-    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
     const result = await gateway.send(account, renderTransactionalEmailTemplate("account_security"));
     assert.equal(sendCalls, 0);
     assert.equal(result.status, "sent");
@@ -147,7 +150,7 @@ describe("email gateway", () => {
       return new Response(null, { status: 200 });
     } });
     const gateway = new EmailGateway({ provider, fromEmail: "noreply@example.test", sandboxMode: true, auditHashSecret: "test-audit-secret" });
-    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
     const result = await gateway.send(account, renderTransactionalEmailTemplate("email_verification", { actionUrl: "https://example.test/verify" }));
     assert.equal(result.status, "sent");
     assert.equal(fetchCalls, 0);
@@ -163,7 +166,7 @@ describe("email gateway", () => {
       },
     };
     const gateway = new EmailGateway({ provider, fromEmail: "noreply@example.test", sandboxMode: false, auditHashSecret: "test-audit-secret", auditLogs });
-    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
 
     const result = await gateway.send(account, renderTransactionalEmailTemplate("account_security"));
 
@@ -176,7 +179,7 @@ describe("email gateway", () => {
     const provider = new SandboxEmailProvider();
     const auditLogs: EmailAuditLogEntry[] = [];
     const gateway = makeGateway(provider, auditLogs);
-    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "user@example.test" }), verified: true };
     const before = Date.now();
 
     await gateway.send(account, renderTransactionalEmailTemplate("account_security"));
@@ -187,11 +190,55 @@ describe("email gateway", () => {
     assert.ok(createdAtMs >= before && createdAtMs <= after);
   });
 
+  it("uses provided timestamps for email account state updates", () => {
+    const createdAt = new Date("2026-05-03T10:00:00.000Z");
+    const unsubscribedAt = new Date("2026-05-03T10:03:00.000Z");
+    const webhookAt = new Date("2026-05-03T10:04:00.000Z");
+    const account = createEmailChannelAccount({ userId: "user_a", email: "user@example.test", now: createdAt });
+
+    assert.equal(account.updatedAt, createdAt.toISOString());
+
+    markEmailUnsubscribed(account, unsubscribedAt);
+    assert.equal(account.unsubscribed, true);
+    assert.equal(account.updatedAt, unsubscribedAt.toISOString());
+
+    applyEmailWebhookEvent(account, { type: "bounce", email: account.email }, webhookAt);
+    assert.equal(account.bounced, true);
+    assert.equal(account.updatedAt, webhookAt.toISOString());
+  });
+
+  it("uses runtime defaults for email account state timestamps", () => {
+    const hardcodedCreateTimestamp = "2026-05-03T10:00:00.000Z";
+    const hardcodedUnsubscribeTimestamp = "2026-05-03T10:03:00.000Z";
+    const hardcodedWebhookTimestamp = "2026-05-03T10:04:00.000Z";
+
+    const beforeCreate = Date.now();
+    const account = createEmailChannelAccount({ userId: "user_a", email: "user@example.test" });
+    const afterCreate = Date.now();
+    const createdAtMs = Date.parse(account.updatedAt);
+    assert.ok(createdAtMs >= beforeCreate && createdAtMs <= afterCreate);
+    assert.notEqual(account.updatedAt, hardcodedCreateTimestamp);
+
+    const beforeUnsubscribe = Date.now();
+    markEmailUnsubscribed(account);
+    const afterUnsubscribe = Date.now();
+    const unsubscribedAtMs = Date.parse(account.updatedAt);
+    assert.ok(unsubscribedAtMs >= beforeUnsubscribe && unsubscribedAtMs <= afterUnsubscribe);
+    assert.notEqual(account.updatedAt, hardcodedUnsubscribeTimestamp);
+
+    const beforeWebhook = Date.now();
+    applyEmailWebhookEvent(account, { type: "complaint", email: account.email });
+    const afterWebhook = Date.now();
+    const webhookAtMs = Date.parse(account.updatedAt);
+    assert.ok(webhookAtMs >= beforeWebhook && webhookAtMs <= afterWebhook);
+    assert.notEqual(account.updatedAt, hardcodedWebhookTimestamp);
+  });
+
   it("does not include PII or secrets in email audit logs", async () => {
     const provider = new SandboxEmailProvider();
     const auditLogs: EmailAuditLogEntry[] = [];
     const gateway = makeGateway(provider, auditLogs);
-    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "sensitive@example.test" }), verified: true };
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "sensitive@example.test" }), verified: true };
 
     await gateway.send(account, renderTransactionalEmailTemplate("account_security"));
 
@@ -212,7 +259,7 @@ describe("email gateway", () => {
 
   it("uses runtime audit hash secret and stays stable per secret", async () => {
     const provider = new SandboxEmailProvider();
-    const account = { ...createEmailChannelAccount({ userId: "user_a", email: "sensitive@example.test" }), verified: true };
+    const account = { ...createTestEmailAccount({ userId: "user_a", email: "sensitive@example.test" }), verified: true };
     const logsA: EmailAuditLogEntry[] = [];
     const logsB: EmailAuditLogEntry[] = [];
     const logsC: EmailAuditLogEntry[] = [];

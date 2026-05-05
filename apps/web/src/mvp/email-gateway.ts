@@ -111,7 +111,7 @@ export class EmailGateway {
 }
 
 export function createEmailChannelAccount(input:{ userId:string; email:string; now?:Date }):EmailChannelAccount {
-  return { userId: input.userId, email: input.email.trim().toLowerCase(), verified:false, unsubscribed:false, bounced:false, complained:false, updatedAt:(input.now??new Date("2026-05-03T10:00:00.000Z")).toISOString() };
+  return { userId: input.userId, email: input.email.trim().toLowerCase(), verified:false, unsubscribed:false, bounced:false, complained:false, updatedAt:(input.now??new Date()).toISOString() };
 }
 
 export function createEmailVerificationToken(account:EmailChannelAccount, secret:string, issuedAtDate=new Date()):string {
@@ -147,8 +147,8 @@ export function verifyEmailToken(account:EmailChannelAccount, token:string, secr
   return true;
 }
 
-export function markEmailUnsubscribed(account:EmailChannelAccount, now=new Date("2026-05-03T10:03:00.000Z")):void { account.unsubscribed=true; account.updatedAt=now.toISOString(); }
-export function applyEmailWebhookEvent(account:EmailChannelAccount, event:EmailWebhookEvent, now=new Date("2026-05-03T10:04:00.000Z")):void { if(event.type==="bounce") account.bounced=true; if(event.type==="complaint") account.complained=true; if(event.type==="unsubscribe") account.unsubscribed=true; account.updatedAt=now.toISOString(); }
+export function markEmailUnsubscribed(account:EmailChannelAccount, now=new Date()):void { account.unsubscribed=true; account.updatedAt=now.toISOString(); }
+export function applyEmailWebhookEvent(account:EmailChannelAccount, event:EmailWebhookEvent, now=new Date()):void { if(event.type==="bounce") account.bounced=true; if(event.type==="complaint") account.complained=true; if(event.type==="unsubscribe") account.unsubscribed=true; account.updatedAt=now.toISOString(); }
 
 export function normalizeEmailProviderWebhook(body:unknown):EmailWebhookEvent[] {
   if (!body || typeof body !== "object") return [];

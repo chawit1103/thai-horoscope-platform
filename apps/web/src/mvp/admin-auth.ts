@@ -8,7 +8,8 @@ const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 type AdminRole = "admin";
 type AdminSession = { actorId: string; role: string; issuedAt: number; expiresAt: number };
-export type AdminAuthResult = { ok: true; actorId: string; role: AdminRole } | { ok: false; reason: string };
+type ParsedAdminCookie = { encodedPayload: string; signature: string; canonicalCookie: string };
+export type AdminAuthResult = { ok: true; actorId: string; role: AdminRole; issuedAt: number; expiresAt: number; signature: string; canonicalCookie: string } | { ok: false; reason: string };
 export type AdminRouteAccess = { ok: true; actorId: string; role: AdminRole } | { ok: false; reason: string; redirectTo: string };
 
 export function isDevMockAdminLoginEnabled(input: { isProduction: boolean }): boolean {
@@ -35,15 +36,15 @@ export function createAdminSessionCookie(input: { actorId: string; role: string;
 
 export function validateAdminSession(input: { sessionCookie?: string; sessionSecret?: string; now?: Date }): AdminAuthResult {
   if (!input.sessionCookie || !input.sessionSecret) return { ok: false, reason: "missing_admin_session" };
-  const [encodedPayload, signature] = input.sessionCookie.split(".");
-  if (!encodedPayload || !signature) return { ok: false, reason: "malformed_admin_session" };
+  const parsedCookie = parseAdminSessionCookie(input.sessionCookie);
+  if (!parsedCookie) return { ok: false, reason: "malformed_admin_session" };
 
-  const expectedSignature = hmac(encodedPayload, input.sessionSecret);
-  if (!constantTimeEqual(signature, expectedSignature)) return { ok: false, reason: "invalid_admin_session_signature" };
+  const expectedSignature = hmac(parsedCookie.encodedPayload, input.sessionSecret);
+  if (!constantTimeEqual(parsedCookie.signature, expectedSignature)) return { ok: false, reason: "invalid_admin_session_signature" };
 
   let session: AdminSession;
   try {
-    session = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as AdminSession;
+    session = JSON.parse(Buffer.from(parsedCookie.encodedPayload, "base64url").toString("utf8")) as AdminSession;
   } catch {
     return { ok: false, reason: "malformed_admin_session_payload" };
   }
@@ -51,11 +52,12 @@ export function validateAdminSession(input: { sessionCookie?: string; sessionSec
   if (session.role !== "admin") return { ok: false, reason: "missing_admin_role" };
   if (!session.actorId || !session.expiresAt) return { ok: false, reason: "incomplete_admin_session" };
   if (session.expiresAt <= (input.now?.getTime() ?? Date.now())) return { ok: false, reason: "expired_admin_session" };
-  return { ok: true, actorId: session.actorId, role: session.role };
+  return { ok: true, actorId: session.actorId, role: session.role, issuedAt: session.issuedAt, expiresAt: session.expiresAt, signature: parsedCookie.signature, canonicalCookie: parsedCookie.canonicalCookie };
 }
 
-export function getAdminAuditPartition(input: { actorId: string; sessionCookie: string }): string {
-  const sessionHash = createHash("sha256").update(input.sessionCookie).digest("hex").slice(0, 16);
+export function getAdminAuditPartition(input: { actorId: string; role: string; issuedAt: number; signature: string; canonicalCookie: string }): string {
+  const canonicalSession = [input.actorId, input.role, String(input.issuedAt), input.signature, input.canonicalCookie].join("|");
+  const sessionHash = createHash("sha256").update(canonicalSession).digest("hex").slice(0, 16);
   return `admin:${input.actorId}:${sessionHash}`;
 }
 
@@ -76,7 +78,7 @@ export function approveAndQueueWithAdminCookie(input: { sessionId: string; resul
     throw new Error("Unauthorized: admin role is required.");
   }
 
-  const adminAuditPartition = getAdminAuditPartition({ actorId: auth.actorId, sessionCookie: input.sessionCookie! });
+  const adminAuditPartition = getAdminAuditPartition(auth);
   const approved = approveDraft(input.resultId, auth.actorId, input.sessionId);
   recordAdminAudit(adminAuditPartition, auth.actorId, "admin_content_approved", approved.id, { role: auth.role, periodType: approved.periodType });
   const message = queueMockOutboundMessage(approved.id, input.sessionId);
@@ -91,7 +93,7 @@ export function recordAdminSessionStartedWithAdminCookie(input: { sessionCookie?
     throw new Error("Unauthorized: admin role is required.");
   }
 
-  const adminAuditPartition = getAdminAuditPartition({ actorId: auth.actorId, sessionCookie: input.sessionCookie! });
+  const adminAuditPartition = getAdminAuditPartition(auth);
   recordAdminAudit(adminAuditPartition, auth.actorId, "admin_session_started", "admin_session", { role: auth.role });
 }
 
@@ -102,7 +104,7 @@ export function rejectDraftWithAdminCookie(input: { sessionId: string; resultId:
     throw new Error("Unauthorized: admin role is required.");
   }
 
-  const adminAuditPartition = getAdminAuditPartition({ actorId: auth.actorId, sessionCookie: input.sessionCookie! });
+  const adminAuditPartition = getAdminAuditPartition(auth);
   const rejected = rejectDraft(input.resultId, auth.actorId, input.sessionId);
   recordAdminAudit(adminAuditPartition, auth.actorId, "admin_content_rejected", rejected.id, { role: auth.role, periodType: rejected.periodType });
 }
@@ -110,6 +112,14 @@ export function rejectDraftWithAdminCookie(input: { sessionId: string; resultId:
 function signAdminSession(session: AdminSession, secret: string): string {
   const encodedPayload = Buffer.from(JSON.stringify(session), "utf8").toString("base64url");
   return `${encodedPayload}.${hmac(encodedPayload, secret)}`;
+}
+
+function parseAdminSessionCookie(sessionCookie: string): ParsedAdminCookie | undefined {
+  const parts = sessionCookie.split(".");
+  if (parts.length !== 2) return undefined;
+  const [encodedPayload, signature] = parts;
+  if (!encodedPayload || !signature) return undefined;
+  return { encodedPayload, signature, canonicalCookie: `${encodedPayload}.${signature}` };
 }
 
 function hmac(value: string, secret: string): string {

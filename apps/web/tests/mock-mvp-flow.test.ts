@@ -4,6 +4,12 @@ import { approveAndQueueWithAdminCookie, authorizeAdminRoute, createAdminSession
 import { approveDraft, callMockAstroCalc, generateHoroscopeResult, getMockMvpState, queueMockOutboundMessage, recordMockDeliveryAttempt, resetMockMvpState, saveBirthProfile, storeChartSnapshot } from "../src/mvp/mock-flow";
 
 const birthInput = { birthDate: "1992-08-15", birthTime: "07:30", birthTimeUnknown: false, birthPlaceText: "Bangkok", timezone: "Asia/Bangkok", consentBirthData: true };
+const adminPartitionForCookie = (sessionCookie: string): string => {
+  const auth = validateAdminSession({ sessionCookie, sessionSecret: "session-secret" });
+  assert.equal(auth.ok, true);
+  if (!auth.ok) throw new Error("Expected valid admin session.");
+  return getAdminAuditPartition(auth);
+};
 
 describe("mock mvp flow", () => {
   beforeEach(() => resetMockMvpState("premium"));
@@ -62,7 +68,7 @@ describe("mock mvp flow", () => {
     const adminCookie = createAdminSessionCookie({ actorId: "admin_actor", role: "admin", sessionSecret: "session-secret" });
     approveAndQueueWithAdminCookie({ sessionId: "s1", resultId: draft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
     const after = getMockMvpState("s1");
-    const adminAuditState = getMockMvpState(getAdminAuditPartition({ actorId: "admin_actor", sessionCookie: adminCookie }));
+    const adminAuditState = getMockMvpState(adminPartitionForCookie(adminCookie));
     assert.equal(after.outboundMessages.length, 1);
     assert.equal(after.deliveryAttempts.length, 1);
     assert.equal(after.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 0);
@@ -101,6 +107,32 @@ describe("mock mvp flow", () => {
     assert.equal(validateAdminSession({ sessionCookie, sessionSecret: "wrong-secret" }).ok, false);
     assert.equal(startDevMockAdminSessionForToken({ token: "wrong", expectedToken: token, sessionSecret: "session-secret", isProduction: false }), undefined);
     assert.equal(startDevMockAdminSessionForToken({ token, expectedToken: token, isProduction: false }), undefined);
+  });
+
+  it("strictly rejects admin session cookies with extra dot segments", () => {
+    const sessionCookie = createAdminSessionCookie({ actorId: "admin_actor", role: "admin", sessionSecret: "session-secret" });
+    assert.equal(validateAdminSession({ sessionCookie, sessionSecret: "session-secret" }).ok, true);
+    assert.equal(validateAdminSession({ sessionCookie: `${sessionCookie}.attacker`, sessionSecret: "session-secret" }).ok, false);
+    assert.equal(validateAdminSession({ sessionCookie: `${sessionCookie}.extra.more`, sessionSecret: "session-secret" }).ok, false);
+    assert.equal(validateAdminSession({ sessionCookie: `.${sessionCookie}`, sessionSecret: "session-secret" }).ok, false);
+    assert.equal(validateAdminSession({ sessionCookie: `${sessionCookie}.`, sessionSecret: "session-secret" }).ok, false);
+  });
+
+  it("rejects suffixed admin cookies instead of shifting audit partitions", () => {
+    const profile = saveBirthProfile(birthInput, { sessionId: "s1", userId: "user_a" });
+    const chart = storeChartSnapshot(callMockAstroCalc(profile), "s1");
+    const draft = generateHoroscopeResult({ chartSnapshot: chart, periodType: "daily", periodKey: "2026-05-03", sessionId: "s1" });
+    const sessionCookie = createAdminSessionCookie({ actorId: "admin_actor", role: "admin", sessionSecret: "session-secret" });
+    const canonicalPartition = adminPartitionForCookie(sessionCookie);
+
+    assert.throws(() => approveAndQueueWithAdminCookie({ sessionId: "s1", resultId: draft.id, sessionCookie: `${sessionCookie}.attacker`, sessionSecret: "session-secret" }), /Unauthorized/);
+
+    const state = getMockMvpState("s1");
+    const adminAuditState = getMockMvpState(canonicalPartition);
+    assert.equal(state.outboundMessages.length, 0);
+    assert.equal(state.deliveryAttempts.length, 0);
+    assert.equal(adminAuditState.auditLogs.length, 0);
+    assert.equal(getMockMvpState(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID).auditLogs.filter((entry) => entry.action === "admin_access_denied").length, 1);
   });
 
   it("blocks non-admin users from admin server actions", () => {
@@ -151,7 +183,7 @@ describe("mock mvp flow", () => {
     rejectDraftWithAdminCookie({ sessionId: "s1", resultId: rejectedDraft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
 
     const state = getMockMvpState("s1");
-    const adminAuditState = getMockMvpState(getAdminAuditPartition({ actorId: "admin_actor", sessionCookie: adminCookie }));
+    const adminAuditState = getMockMvpState(adminPartitionForCookie(adminCookie));
     assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_content_approved").length, 0);
     assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_outbound_queued").length, 0);
     assert.equal(state.auditLogs.filter((entry) => entry.action === "admin_content_rejected").length, 0);
@@ -168,7 +200,7 @@ describe("mock mvp flow", () => {
     const approvedDraft = generateHoroscopeResult({ chartSnapshot: targetChart, periodType: "daily", periodKey: "2026-05-03", sessionId: "target-session" });
     const rejectedDraft = generateHoroscopeResult({ chartSnapshot: targetChart, periodType: "weekly", periodKey: "2026-W18", sessionId: "target-session" });
     const adminCookie = createAdminSessionCookie({ actorId: "admin_actor", role: "admin", sessionSecret: "session-secret" });
-    const adminAuditPartition = getAdminAuditPartition({ actorId: "admin_actor", sessionCookie: adminCookie });
+    const adminAuditPartition = adminPartitionForCookie(adminCookie);
 
     approveAndQueueWithAdminCookie({ sessionId: "target-session", resultId: approvedDraft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
     rejectDraftWithAdminCookie({ sessionId: "target-session", resultId: rejectedDraft.id, sessionCookie: adminCookie, sessionSecret: "session-secret" });
@@ -191,7 +223,7 @@ describe("mock mvp flow", () => {
   it("keeps admin session started audits in a trusted admin partition when mock session id is forged", () => {
     saveBirthProfile(birthInput, { sessionId: "victim-session", userId: "victim_user" });
     const adminCookie = createAdminSessionCookie({ actorId: "admin_actor", role: "admin", sessionSecret: "session-secret" });
-    const adminAuditPartition = getAdminAuditPartition({ actorId: "admin_actor", sessionCookie: adminCookie });
+    const adminAuditPartition = adminPartitionForCookie(adminCookie);
 
     recordAdminSessionStartedWithAdminCookie({ sessionCookie: adminCookie, sessionSecret: "session-secret" });
 

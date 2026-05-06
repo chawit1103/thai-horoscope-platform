@@ -213,6 +213,33 @@ user_id + topic_code + period_type + period_key
 
 Do not send duplicate daily horoscope messages unless explicitly requested.
 
+## PR17 scheduling foundation
+
+PR17 adds an in-process scheduler foundation for horoscope topics:
+
+```text
+daily_horoscope
+weekly_horoscope
+monthly_horoscope
+yearly_horoscope
+```
+
+Scheduling uses the user's timezone and preferred notification time. The MVP dispatch window is a small window around the preferred local time; if a job runs outside that window, the message is deferred and can be retried by a later job run. Quiet hours use the same defer policy: do not queue or send during quiet hours, and allow a later retry outside the quiet-hours window.
+
+Queue idempotency is:
+
+```text
+user_id + topic_code + period_key + channel
+```
+
+Dispatch idempotency is:
+
+```text
+outbound_message_id + channel
+```
+
+The scheduler checks active/deactivated account state, deleted birth-profile-derived horoscope artifacts, topic/channel preferences, subscription entitlement, channel unsubscribe/bounce/block state, and fallback channel policy before sending. Tests use sandbox Email and LINE gateways only.
+
 ## Observability
 
 Track:

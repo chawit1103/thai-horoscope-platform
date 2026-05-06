@@ -17,7 +17,9 @@ class AstroEngine(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def planet_positions(self, jd_ut: float, planet_names: list[str], ayanamsha: str) -> dict[str, PlanetPosition]:
+    def planet_positions(
+        self, jd_ut: float, planet_names: list[str], ayanamsha: str, node_type: str = "true_node"
+    ) -> dict[str, PlanetPosition]:
         raise NotImplementedError
 
     @abstractmethod

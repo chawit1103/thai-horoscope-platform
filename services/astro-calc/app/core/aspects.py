@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.core.math import angular_distance
+from app.core.math import angular_distance, normalize_deg
 from app.schemas import Aspect, PlanetPosition, TransitToNatalHit
 
 ASPECT_ANGLES = {
@@ -41,8 +41,18 @@ def calculate_cross_aspects(
             aspect = match_aspect(pos_a.longitude_deg, pos_b.longitude_deg, aspect_orbs_deg)
             if aspect:
                 aspect_type, orb = aspect
-                applying = pos_a.speed_longitude_deg_per_day >= pos_b.speed_longitude_deg_per_day
-                aspects.append(Aspect(body_a=f"transit_{body_a}", body_b=f"natal_{body_b}", type=aspect_type, orb_deg=orb, applying=applying))
+                applying = transit_aspect_applying(
+                    pos_a.longitude_deg, pos_b.longitude_deg, aspect_type, pos_a.speed_longitude_deg_per_day
+                )
+                aspects.append(
+                    Aspect(
+                        body_a=f"transit_{body_a}",
+                        body_b=f"natal_{body_b}",
+                        type=aspect_type,
+                        orb_deg=orb,
+                        applying=applying,
+                    )
+                )
     return aspects
 
 
@@ -58,20 +68,47 @@ def calculate_transit_to_natal_hits(
             if not aspect:
                 continue
             aspect_type, orb = aspect
-            applying = transit_position.speed_longitude_deg_per_day >= natal_position.speed_longitude_deg_per_day
+            applying = transit_aspect_applying(
+                transit_position.longitude_deg,
+                natal_position.longitude_deg,
+                aspect_type,
+                transit_position.speed_longitude_deg_per_day,
+            )
             hits.append(
                 TransitToNatalHit(
                     transit_planet=transit_planet,
                     natal_point=natal_point,
                     aspect_type=aspect_type,
                     exact_orb_deg=orb,
-                    applying_or_separating="applying" if applying else "separating",
+                    applying_or_separating=None if applying is None else "applying" if applying else "separating",
                     category_hint=category_hint(aspect_type),
                     weight_hint=weight_hint(aspect_type, orb, aspect_orbs_deg),
                     interpretation_key=f"transit.{transit_planet}.{aspect_type}.natal.{natal_point}",
                 )
             )
     return hits
+
+
+def transit_aspect_applying(
+    transit_longitude_deg: float,
+    natal_longitude_deg: float,
+    aspect_type: str,
+    transit_speed_deg_per_day: float | None,
+) -> bool | None:
+    if transit_speed_deg_per_day is None or abs(transit_speed_deg_per_day) <= 1e-9:
+        return None
+    aspect_angle = ASPECT_ANGLES[aspect_type]
+    signed_separation = signed_angular_delta(transit_longitude_deg, natal_longitude_deg)
+    residual = min(
+        (signed_angular_delta(signed_separation, aspect_angle), signed_separation - aspect_angle),
+        (signed_angular_delta(signed_separation, -aspect_angle), signed_separation + aspect_angle),
+        key=lambda candidate: abs(candidate[0]),
+    )[0]
+    return residual * transit_speed_deg_per_day < 0
+
+
+def signed_angular_delta(a: float, b: float) -> float:
+    return normalize_deg(a - b + 180) - 180
 
 
 def category_hint(aspect_type: str) -> str:

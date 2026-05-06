@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -8,11 +9,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.config import AstroRuntimeConfig
+from app.core.aspects import calculate_cross_aspects, calculate_transit_to_natal_hits
 from app.core.calculators import AstroCoreService
 from app.core.math import normalize_deg, sign_index
 from app.core.time import local_to_utc, utc_to_iso
-from app.engines.swisseph import SwissEphemerisEngine
-from app.schemas import ChartRequest, HourlyTimingRequest, SolarReturnRequest, TransitLocation, TransitRequest, TransitSnapshotRequest
+from app.main import create_service
+from app.engines.mock import MockAstroEngine
+from app.engines.swisseph import SwissEphemerisEngine, fingerprint_ephemeris_path
+from app.schemas import ChartRequest, HourlyTimingRequest, PlanetPosition, SolarReturnRequest, TransitLocation, TransitRequest, TransitSnapshotRequest
 
 
 def bangkok_request(profile: str = "TH_NIRAYANA_V1", birth_time_unknown: bool = False) -> ChartRequest:
@@ -26,6 +30,32 @@ def bangkok_request(profile: str = "TH_NIRAYANA_V1", birth_time_unknown: bool = 
         time_accuracy_minutes=5,
         birth_time_unknown=birth_time_unknown,
     )
+
+
+def planet_position(longitude_deg: float, speed_deg_per_day: float) -> PlanetPosition:
+    return PlanetPosition(
+        tropical_longitude_deg=longitude_deg,
+        ayanamsa_deg=0,
+        sidereal_longitude_deg=longitude_deg,
+        ecliptic_latitude_deg=0,
+        longitude_deg=longitude_deg,
+        latitude_deg=0,
+        speed_longitude_deg_per_day=speed_deg_per_day,
+        sign_index=sign_index(longitude_deg),
+        sign_name_en="",
+        sign_name_th="",
+        degree_in_sign=longitude_deg % 30,
+        retrograde=speed_deg_per_day < 0,
+    )
+
+
+class FakeMockEngine(MockAstroEngine):
+    name = "mock"
+
+
+class FingerprintMockEngine(MockAstroEngine):
+    def __init__(self, fingerprint: str) -> None:
+        self.ephemeris_fingerprint = fingerprint
 
 
 class AstroCoreTests(unittest.TestCase):
@@ -452,6 +482,40 @@ class AstroCoreTests(unittest.TestCase):
         self.assertFalse(no_location.solar_return_chart_snapshot.houses.reliable)
         self.assertTrue(all(planet.house_number is None for planet in no_location.solar_return_chart_snapshot.planets.values()))
 
+    def test_transit_to_natal_applying_uses_transit_motion_toward_exact_aspect(self) -> None:
+        hits = calculate_transit_to_natal_hits(
+            {"mars": planet_position(88, 1.0)},
+            {"sun": planet_position(0, 20.0)},
+            {"square": 3},
+        )
+        self.assertEqual(hits[0].applying_or_separating, "applying")
+        aspects = calculate_cross_aspects({"mars": planet_position(88, 1.0)}, {"sun": planet_position(0, 20.0)}, {"square": 3})
+        self.assertTrue(aspects[0].applying)
+
+    def test_transit_to_natal_separating_after_exact_aspect(self) -> None:
+        hits = calculate_transit_to_natal_hits(
+            {"mars": planet_position(92, 1.0)},
+            {"sun": planet_position(0, -20.0)},
+            {"square": 3},
+        )
+        self.assertEqual(hits[0].applying_or_separating, "separating")
+
+    def test_transit_to_natal_retrograde_motion_can_be_applying(self) -> None:
+        hits = calculate_transit_to_natal_hits(
+            {"mars": planet_position(92, -1.0)},
+            {"sun": planet_position(0, 20.0)},
+            {"square": 3},
+        )
+        self.assertEqual(hits[0].applying_or_separating, "applying")
+
+    def test_transit_to_natal_stationary_motion_is_unknown_and_ignores_natal_speed(self) -> None:
+        hits = calculate_transit_to_natal_hits(
+            {"mars": planet_position(88, 0.0)},
+            {"sun": planet_position(0, -20.0)},
+            {"square": 3},
+        )
+        self.assertIsNone(hits[0].applying_or_separating)
+
     def test_production_swisseph_guard_fails_closed(self) -> None:
         with self.assertRaisesRegex(PermissionError, "LICENSE_MODE_NOT_PRODUCTION_READY"):
             AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="free", ephemeris_path="/tmp").validate()
@@ -480,6 +544,58 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(engine["license_mode"], "none")
         self.assertFalse(engine["ephemeris_path_configured"])
         self.assertIn("sun", snapshot.planets)
+
+    def test_direct_swisseph_service_requires_explicit_engine(self) -> None:
+        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
+        with self.assertRaisesRegex(ValueError, "ASTRO_ENGINE_CONFIG_REQUIRES_EXPLICIT_ENGINE"):
+            AstroCoreService(config=config)
+
+    def test_create_service_swisseph_uses_factory_license_and_path_guards(self) -> None:
+        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/missing-ephe")
+        with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILE_MISSING"):
+            create_service(config)
+
+    def test_config_engine_metadata_cannot_claim_swiss_while_using_mock(self) -> None:
+        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
+        with self.assertRaisesRegex(ValueError, "ASTRO_ENGINE_CONFIG_MISMATCH"):
+            AstroCoreService(engine=FakeMockEngine(), config=config)
+
+    def test_ephemeris_fingerprint_hashes_expected_file_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first = root / "sepl_18.se1"
+            first.write_bytes(b"same name original")
+            ignored = root / "temporary-download.tmp"
+            ignored.write_bytes(b"ignored")
+            original = fingerprint_ephemeris_path(str(root))
+            first.write_bytes(b"same name changed")
+            changed_content = fingerprint_ephemeris_path(str(root))
+            self.assertNotEqual(original, changed_content)
+            first.write_bytes(b"same name changed plus size")
+            changed_size = fingerprint_ephemeris_path(str(root))
+            self.assertNotEqual(changed_content, changed_size)
+
+    def test_ephemeris_fingerprint_is_order_independent_and_supports_file_path(self) -> None:
+        with tempfile.TemporaryDirectory() as left_dir, tempfile.TemporaryDirectory() as right_dir:
+            left = Path(left_dir)
+            right = Path(right_dir)
+            (left / "semo_18.se1").write_bytes(b"moon")
+            (left / "sepl_18.se1").write_bytes(b"planet")
+            (right / "sepl_18.se1").write_bytes(b"planet")
+            (right / "semo_18.se1").write_bytes(b"moon")
+            self.assertEqual(fingerprint_ephemeris_path(str(left)), fingerprint_ephemeris_path(str(right)))
+            single = left / "single.custom"
+            single.write_bytes(b"content-v1")
+            first = fingerprint_ephemeris_path(str(single))
+            single.write_bytes(b"content-v2")
+            self.assertNotEqual(first, fingerprint_ephemeris_path(str(single)))
+
+    def test_calculation_hash_changes_when_ephemeris_fingerprint_changes(self) -> None:
+        request = bangkok_request()
+        first = AstroCoreService(engine=FingerprintMockEngine("ephe-a"), config=AstroRuntimeConfig()).calculate_natal_chart(request)
+        second = AstroCoreService(engine=FingerprintMockEngine("ephe-b"), config=AstroRuntimeConfig()).calculate_natal_chart(request)
+        self.assertNotEqual(first.ephemeris_fingerprint, second.ephemeris_fingerprint)
+        self.assertNotEqual(first.calculation_hash, second.calculation_hash)
 
     def test_no_ephemeris_binary_files_are_committed(self) -> None:
         root = Path(__file__).resolve().parents[3]
@@ -531,6 +647,34 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(positions["sun"].sign_index, 0)
         self.assertAlmostEqual((positions["rahu"].longitude_deg + 180) % 360, positions["ketu"].longitude_deg, places=6)
         self.assertEqual(len(houses.cusps_deg), 12)
+
+    def test_swisseph_adapter_honors_mean_node_profile_for_rahu_and_ketu(self) -> None:
+        fake = FakeSwe()
+        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
+        engine = SwissEphemerisEngine(config, swe_module=fake)
+        positions = engine.planet_positions(2451545.0, ["rahu", "ketu"], "lahiri", "mean_node")
+        self.assertIn(fake.MEAN_NODE, fake.calc_body_ids)
+        self.assertNotIn(fake.TRUE_NODE, fake.calc_body_ids)
+        self.assertAlmostEqual((positions["rahu"].longitude_deg + 180) % 360, positions["ketu"].longitude_deg, places=6)
+
+    def test_swisseph_adapter_honors_true_node_profile_for_rahu_and_ketu(self) -> None:
+        fake = FakeSwe()
+        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
+        engine = SwissEphemerisEngine(config, swe_module=fake)
+        positions = engine.planet_positions(2451545.0, ["rahu", "ketu"], "lahiri", "true_node")
+        self.assertIn(fake.TRUE_NODE, fake.calc_body_ids)
+        self.assertNotIn(fake.MEAN_NODE, fake.calc_body_ids)
+        self.assertAlmostEqual((positions["rahu"].longitude_deg + 180) % 360, positions["ketu"].longitude_deg, places=6)
+
+    def test_snapshot_metadata_node_type_agrees_with_swisseph_body_selection(self) -> None:
+        fake = FakeSwe()
+        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
+        engine = SwissEphemerisEngine(config, swe_module=fake)
+        snapshot = AstroCoreService(engine=engine, config=config).calculate_natal_chart(bangkok_request("TH_SIMPLE_RASI_V1"))
+        self.assertEqual(snapshot.metadata["node_type"], "mean_node")
+        self.assertEqual(snapshot.calculation_profile.node_type, "mean_node")
+        self.assertIn(fake.MEAN_NODE, fake.calc_body_ids)
+        self.assertNotIn(fake.TRUE_NODE, fake.calc_body_ids)
 
     def test_calculation_errors_and_logs_do_not_include_raw_birth_data(self) -> None:
         request = ChartRequest(
@@ -619,6 +763,7 @@ class FakeSwe(SimpleNamespace):
     NEPTUNE = 9
     PLUTO = 10
     TRUE_NODE = 7
+    MEAN_NODE = 11
     FLG_SWIEPH = 1
     FLG_SIDEREAL = 2
     FLG_SPEED = 4
@@ -628,6 +773,7 @@ class FakeSwe(SimpleNamespace):
         super().__init__()
         self.ephe_path = ""
         self.sid_mode_set = False
+        self.calc_body_ids: list[int] = []
 
     def set_ephe_path(self, path: str) -> None:
         self.ephe_path = path
@@ -639,8 +785,9 @@ class FakeSwe(SimpleNamespace):
         return 24.1
 
     def calc_ut(self, _jd_ut: float, body_id: int, _flags: int) -> tuple[list[float], int]:
+        self.calc_body_ids.append(body_id)
         longitude = 10.0 + body_id * 20.0
-        speed = -0.05 if body_id == self.TRUE_NODE else 1.0
+        speed = -0.05 if body_id in {self.TRUE_NODE, self.MEAN_NODE} else 1.0
         return [longitude, 0.0, 0.0, speed], _flags
 
     def houses_ex(self, _jd_ut: float, _lat: float, _lon: float, _house_code: bytes, _flags: int) -> tuple[list[float], list[float]]:

@@ -22,8 +22,14 @@ SWISSEPH_BODIES = {
     "uranus": "URANUS",
     "neptune": "NEPTUNE",
     "pluto": "PLUTO",
-    "rahu": "TRUE_NODE",
 }
+
+SWISSEPH_NODE_BODIES = {
+    "mean_node": "MEAN_NODE",
+    "true_node": "TRUE_NODE",
+}
+
+EXPECTED_EPHEMERIS_SUFFIXES = {".se1", ".se2", ".se3", ".sef", ".eph", ".ephe", ".bsp"}
 
 
 class SwissEphemerisEngine(AstroEngine):
@@ -45,7 +51,9 @@ class SwissEphemerisEngine(AstroEngine):
         self._set_ayanamsha(ayanamsha)
         return round(float(self._swe.get_ayanamsa_ut(jd_ut)), 8)
 
-    def planet_positions(self, jd_ut: float, planet_names: list[str], ayanamsha: str) -> dict[str, PlanetPosition]:
+    def planet_positions(
+        self, jd_ut: float, planet_names: list[str], ayanamsha: str, node_type: str = "true_node"
+    ) -> dict[str, PlanetPosition]:
         self._set_ayanamsha(ayanamsha)
         tropical_flags = self._swe.FLG_SWIEPH | self._swe.FLG_SPEED
         sidereal_flags = self._swe.FLG_SWIEPH | self._swe.FLG_SIDEREAL | self._swe.FLG_SPEED
@@ -54,7 +62,7 @@ class SwissEphemerisEngine(AstroEngine):
         for name in planet_names:
             if name == "ketu":
                 if "rahu" not in positions:
-                    positions.update(self.planet_positions(jd_ut, ["rahu"], ayanamsha))
+                    positions.update(self.planet_positions(jd_ut, ["rahu"], ayanamsha, node_type))
                 rahu = positions["rahu"]
                 tropical = normalize_deg(rahu.tropical_longitude_deg + 180)
                 sidereal = normalize_deg(rahu.sidereal_longitude_deg + 180)
@@ -73,7 +81,7 @@ class SwissEphemerisEngine(AstroEngine):
                     retrograde=rahu.retrograde,
                 )
                 continue
-            body_id = getattr(self._swe, SWISSEPH_BODIES[name])
+            body_id = self._body_id(name, node_type)
             tropical_raw, _return_flag = self._swe.calc_ut(jd_ut, body_id, tropical_flags)
             sidereal_raw, _return_flag = self._swe.calc_ut(jd_ut, body_id, sidereal_flags)
             tropical = normalize_deg(float(tropical_raw[0]))
@@ -108,6 +116,14 @@ class SwissEphemerisEngine(AstroEngine):
             reliable=True,
         )
 
+    def _body_id(self, name: str, node_type: str) -> int:
+        if name == "rahu":
+            try:
+                return int(getattr(self._swe, SWISSEPH_NODE_BODIES[node_type]))
+            except KeyError as error:
+                raise ValueError(f"Unsupported Swiss Ephemeris node_type: {node_type}") from error
+        return int(getattr(self._swe, SWISSEPH_BODIES[name]))
+
     def _set_ayanamsha(self, ayanamsha: str) -> None:
         if ayanamsha != "lahiri":
             raise ValueError(f"Unsupported Swiss Ephemeris ayanamsha: {ayanamsha}")
@@ -118,6 +134,29 @@ def fingerprint_ephemeris_path(path: str | None) -> str:
     if not path:
         return "swisseph-unset"
     root = Path(path)
-    names = sorted(item.name for item in root.glob("*") if item.is_file()) if root.exists() else [path]
-    digest = hashlib.sha256("|".join(names).encode("utf-8")).hexdigest()[:16]
-    return f"swisseph-path-{digest}"
+    if not root.exists():
+        missing_digest = hashlib.sha256(path.encode("utf-8")).hexdigest()[:16]
+        return f"swisseph-path-{missing_digest}"
+    files = [root] if root.is_file() else _expected_ephemeris_files(root)
+    aggregate_digest = hashlib.sha256()
+    for file_path in files:
+        relative_name = file_path.name if root.is_file() else file_path.relative_to(root).as_posix()
+        size = file_path.stat().st_size
+        content_digest = _sha256_file(file_path)
+        aggregate_digest.update(f"{relative_name}|{size}|{content_digest}\n".encode("utf-8"))
+    return f"swisseph-path-{aggregate_digest.hexdigest()[:16]}"
+
+
+def _expected_ephemeris_files(root: Path) -> list[Path]:
+    return sorted(
+        (item for item in root.rglob("*") if item.is_file() and item.suffix.lower() in EXPECTED_EPHEMERIS_SUFFIXES),
+        key=lambda item: item.relative_to(root).as_posix(),
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

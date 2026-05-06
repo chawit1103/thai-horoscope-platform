@@ -31,7 +31,9 @@ class MockAstroEngine(AstroEngine):
         base = 24.0 if ayanamsha == "lahiri" else 0.0
         return round(base + ((jd_ut - 2451545.0) / 36525.0) * 1.396, 8)
 
-    def planet_positions(self, jd_ut: float, planet_names: list[str], ayanamsha: str) -> dict[str, PlanetPosition]:
+    def planet_positions(
+        self, jd_ut: float, planet_names: list[str], ayanamsha: str, node_type: str = "true_node"
+    ) -> dict[str, PlanetPosition]:
         ayanamsha_deg = self.ayanamsha_deg(jd_ut, ayanamsha)
         positions: dict[str, PlanetPosition] = {}
         for index, name in enumerate(planet_names):

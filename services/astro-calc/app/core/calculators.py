@@ -59,7 +59,19 @@ class AstroCoreService:
         store: ChartSnapshotStore | None = None,
     ) -> None:
         self.config = config or AstroRuntimeConfig()
-        self.engine = engine or MockAstroEngine()
+        if engine is None:
+            if self.config.engine != "mock":
+                raise ValueError(
+                    "ASTRO_ENGINE_CONFIG_REQUIRES_EXPLICIT_ENGINE: "
+                    "direct AstroCoreService construction with non-mock config.engine requires an injected engine; use create_service()."
+                )
+            engine = MockAstroEngine()
+        if engine.name != self.config.engine:
+            raise ValueError(
+                "ASTRO_ENGINE_CONFIG_MISMATCH: "
+                f"config.engine={self.config.engine!r} cannot use injected engine {engine.name!r}."
+            )
+        self.engine = engine
         self.store = store or ChartSnapshotStore()
 
     def calculate_natal_chart(self, request: ChartRequest) -> ChartSnapshot:
@@ -381,7 +393,7 @@ class AstroCoreService:
         utc_dt = local_to_utc(datetime_local, request.timezone)
         jd_ut = round(julian_day_ut(utc_dt), 8)
         ayanamsha_value = self.engine.ayanamsha_deg(jd_ut, profile.ayanamsha)
-        planets = self.engine.planet_positions(jd_ut, profile.planets, profile.ayanamsha)
+        planets = self.engine.planet_positions(jd_ut, profile.planets, profile.ayanamsha, profile.node_type)
         houses_reliable = can_calculate_reliable_houses(request)
         houses = self.engine.houses(jd_ut, request.latitude, request.longitude, profile.house_system, houses_reliable)
         if request.birth_time_unknown:

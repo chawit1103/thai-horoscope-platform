@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from app.config import AstroRuntimeConfig
 from app.core.aspects import calculate_aspects, calculate_cross_aspects, calculate_transit_to_natal_hits
 from app.core.math import angular_distance, sign_index, stable_hash
-from app.core.profiles import get_profile
+from app.core.profiles import get_profile, validate_profile_engine_compatibility
 from app.core.storage import ChartSnapshotStore
 from app.core.time import julian_day_ut, local_to_utc, utc_to_iso
 from app.core.zodiac import degree_in_sign, sign_name_en, sign_name_th, whole_sign_house_number
@@ -388,6 +388,7 @@ class AstroCoreService:
 
     def _calculate_chart(self, request: ChartRequest) -> ChartSnapshot:
         profile = get_profile(request.calculation_profile_code)
+        validate_profile_engine_compatibility(profile, self.engine.name)
         datetime_local = resolve_datetime_local(request)
         warnings = validate_request_warnings(request, datetime_local)
         utc_dt = local_to_utc(datetime_local, request.timezone)
@@ -398,6 +399,18 @@ class AstroCoreService:
         houses = self.engine.houses(jd_ut, request.latitude, request.longitude, profile.house_system, houses_reliable)
         if request.birth_time_unknown:
             warnings.append(WarningMessage(code="UNKNOWN_BIRTH_TIME", message="Birth time is unknown; time-sensitive calculations are reduced."))
+            warnings.append(
+                WarningMessage(
+                    code="UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK",
+                    message="Supplied or missing clock time was ignored because birth time is unknown; local noon fallback was used.",
+                )
+            )
+            warnings.append(
+                WarningMessage(
+                    code="FAST_PLANET_POSITIONS_APPROXIMATE",
+                    message="Moon and other fast-moving planet positions are approximate for unknown-time births.",
+                )
+            )
             warnings.append(WarningMessage(code="UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE", message="Ascendant and houses are not reliable because birth time is unknown."))
         angles = build_angles(houses)
         planets = assign_planet_houses(planets, houses)
@@ -637,16 +650,27 @@ def group_hit_keys(hits: list[TransitToNatalHit], field: str) -> dict[str, list[
 
 
 def resolve_datetime_local(request: ChartRequest) -> str:
+    if request.birth_time_unknown:
+        birth_date = request.birth_date or _date_from_datetime_local(request.datetime_local)
+        if not birth_date:
+            raise ValueError("Either datetime_local or birth_date is required.")
+        return f"{birth_date}T12:00:00"
     if request.datetime_local:
         return request.datetime_local
     if not request.birth_date:
         raise ValueError("Either datetime_local or birth_date is required.")
-    birth_time = "12:00:00" if request.birth_time_unknown else request.birth_time
+    birth_time = request.birth_time
     if not birth_time:
         raise ValueError("birth_time is required unless birth_time_unknown is true.")
     if len(birth_time) == 5:
         birth_time = f"{birth_time}:00"
     return f"{request.birth_date}T{birth_time}"
+
+
+def _date_from_datetime_local(datetime_local: str | None) -> str | None:
+    if not datetime_local:
+        return None
+    return datetime.fromisoformat(datetime_local).date().isoformat()
 
 
 def validate_request_warnings(request: ChartRequest, datetime_local: str) -> list[WarningMessage]:

@@ -135,7 +135,7 @@ class AstroCoreTests(unittest.TestCase):
     def test_public_chart_snapshot_shape_includes_nested_engine_datetime_location_and_zodiac(self) -> None:
         snapshot = AstroCoreService(config=AstroRuntimeConfig(swisseph_license_mode="professional", ephemeris_path="/ephe")).calculate_natal_chart(
             ChartRequest(
-                calculation_profile_code="TH_NIRAYANA_SWISSEPH_V1",
+                calculation_profile_code="TH_NIRAYANA_MOCK_V1",
                 birth_date="1971-03-11",
                 birth_time="08:17",
                 timezone="Asia/Bangkok",
@@ -154,7 +154,7 @@ class AstroCoreTests(unittest.TestCase):
         assert isinstance(location, dict)
         assert isinstance(zodiac, dict)
         self.assertEqual(public["chart_type"], "natal")
-        self.assertEqual(public["calculation_profile_code"], "TH_NIRAYANA_SWISSEPH_V1")
+        self.assertEqual(public["calculation_profile_code"], "TH_NIRAYANA_MOCK_V1")
         self.assertEqual(engine["name"], "mock")
         self.assertEqual(engine["license_mode"], "professional")
         self.assertEqual(engine["ephemeris_path_configured"], True)
@@ -174,11 +174,73 @@ class AstroCoreTests(unittest.TestCase):
         snapshot = AstroCoreService().calculate_natal_chart(bangkok_request(birth_time_unknown=True))
         self.assertEqual(snapshot.houses.ascendant_deg, None)
         self.assertEqual(snapshot.houses.reliable, False)
-        self.assertEqual(snapshot.warnings[0].code, "UNKNOWN_BIRTH_TIME")
-        self.assertEqual(snapshot.warnings[1].code, "UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE")
+        warning_codes = [warning.code for warning in snapshot.warnings]
+        self.assertIn("UNKNOWN_BIRTH_TIME", warning_codes)
+        self.assertIn("UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK", warning_codes)
+        self.assertIn("FAST_PLANET_POSITIONS_APPROXIMATE", warning_codes)
+        self.assertIn("UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE", warning_codes)
         self.assertEqual(snapshot.angles.reliable, False)
         self.assertEqual(snapshot.derived_points, {})
         self.assertTrue(all(planet.house_number is None for planet in snapshot.planets.values()))
+
+
+    def test_mock_engine_rejects_swisseph_specific_profile(self) -> None:
+        with self.assertRaisesRegex(ValueError, "ASTRO_PROFILE_ENGINE_MISMATCH"):
+            AstroCoreService().calculate_natal_chart(bangkok_request("TH_NIRAYANA_SWISSEPH_V1"))
+
+    def test_mock_engine_accepts_mock_specific_profile_without_swisseph_metadata(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(bangkok_request("TH_NIRAYANA_MOCK_V1"))
+        self.assertEqual(snapshot.engine, "mock")
+        self.assertEqual(snapshot.engine_info.name, "mock")
+        self.assertEqual(snapshot.ephemeris_source, "deterministic-mock")
+        self.assertEqual(snapshot.calculation_profile_code, "TH_NIRAYANA_MOCK_V1")
+        self.assertNotEqual(snapshot.engine, "swisseph")
+        self.assertNotIn("swiss-ephemeris", snapshot.ephemeris_source)
+
+    def test_swisseph_specific_profile_requires_swisseph_license_and_path_guards(self) -> None:
+        with self.assertRaisesRegex(PermissionError, "LICENSE_MODE_NOT_PRODUCTION_READY|EPHEMERIS_FILE_MISSING"):
+            create_service(AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="none", ephemeris_path=None))
+
+        fake = FakeSwe()
+        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
+        engine = SwissEphemerisEngine(config, swe_module=fake)
+        snapshot = AstroCoreService(engine=engine, config=config).calculate_natal_chart(bangkok_request("TH_NIRAYANA_SWISSEPH_V1"))
+        self.assertEqual(snapshot.engine, "swisseph")
+        self.assertEqual(snapshot.engine_info.name, "swisseph")
+        self.assertEqual(snapshot.calculation_profile_code, "TH_NIRAYANA_SWISSEPH_V1")
+
+    def test_swisseph_engine_rejects_mock_specific_profile(self) -> None:
+        fake = FakeSwe()
+        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
+        engine = SwissEphemerisEngine(config, swe_module=fake)
+        with self.assertRaisesRegex(ValueError, "ASTRO_PROFILE_ENGINE_MISMATCH"):
+            AstroCoreService(engine=engine, config=config).calculate_natal_chart(bangkok_request("TH_NIRAYANA_MOCK_V1"))
+
+    def test_unknown_birth_time_with_datetime_local_uses_noon_not_midnight(self) -> None:
+        service = AstroCoreService()
+        midnight = service.calculate_natal_chart(replace(bangkok_request(birth_time_unknown=True), datetime_local="1990-05-12T00:00:00"))
+        noon = service.calculate_natal_chart(replace(bangkok_request(birth_time_unknown=True), datetime_local="1990-05-12T12:00:00"))
+        self.assertEqual(midnight.datetime_local, "1990-05-12T12:00:00")
+        self.assertEqual(midnight.datetime_utc, "1990-05-12T05:00:00Z")
+        self.assertEqual(midnight.calculation_hash, noon.calculation_hash)
+        warning_codes = {warning.code for warning in midnight.warnings}
+        self.assertIn("UNKNOWN_BIRTH_TIME", warning_codes)
+        self.assertIn("UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK", warning_codes)
+        self.assertIn("FAST_PLANET_POSITIONS_APPROXIMATE", warning_codes)
+
+    def test_unknown_birth_time_ignores_any_supplied_clock_time_and_hash_is_stable(self) -> None:
+        service = AstroCoreService()
+        early = service.calculate_natal_chart(replace(bangkok_request(birth_time_unknown=True), datetime_local="1990-05-12T04:15:00"))
+        late = service.calculate_natal_chart(replace(bangkok_request(birth_time_unknown=True), datetime_local="1990-05-12T23:45:00"))
+        self.assertEqual(early.datetime_local, "1990-05-12T12:00:00")
+        self.assertEqual(late.datetime_local, "1990-05-12T12:00:00")
+        self.assertEqual(early.calculation_hash, late.calculation_hash)
+        self.assertEqual(early.planets["moon"].longitude_deg, late.planets["moon"].longitude_deg)
+
+    def test_known_birth_time_still_uses_exact_datetime_local(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local="1990-05-12T04:15:00", birth_time_unknown=False))
+        self.assertEqual(snapshot.datetime_local, "1990-05-12T04:15:00")
+        self.assertEqual(snapshot.datetime_utc, "1990-05-11T21:15:00Z")
 
     def test_changing_birth_time_or_location_changes_ascendant(self) -> None:
         service = AstroCoreService()

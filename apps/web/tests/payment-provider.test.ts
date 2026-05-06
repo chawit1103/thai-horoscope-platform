@@ -360,6 +360,47 @@ describe("payment provider foundation", () => {
     assert.equal(getMockPaymentProviderState().processedWebhookEventIds.includes("mock:evt_release_failure"), false);
   });
 
+  it("keeps stale renewal_failed webhook claims idempotent on provider retry", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    await createStoredSubscription(provider, "evt_create_before_stale_fail");
+    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_renew_before_stale_fail", type:"subscription.renewed", currentPeriodStart:periodEnd, currentPeriodEnd:renewedPeriodEnd, occurredAt:"2026-06-01T00:00:01.000Z" })) });
+    const staleFailure = paymentEvent({ id:"evt_stale_renewal_failed", type:"subscription.renewal_failed", currentPeriodStart:periodStart, currentPeriodEnd:periodEnd, occurredAt:"2026-05-20T00:00:00.000Z" });
+
+    const first = await processPaymentWebhook({ provider, ...signedRequest(staleFailure) });
+    const retry = await processPaymentWebhook({ provider, ...signedRequest(staleFailure) });
+    const paymentState = getMockPaymentProviderState();
+
+    assert.equal(first.status, "ignored_stale");
+    assert.equal(first.subscriptionResult?.status, "ignored_stale");
+    assert.equal(retry.status, "duplicate");
+    assert.equal(paymentState.processedWebhookEventIds.includes("mock:evt_stale_renewal_failed"), true);
+    assert.equal(paymentState.auditLogs.filter((log) => log.action === "payment_webhook_ignored" && log.targetId === "evt_stale_renewal_failed").length, 1);
+    assert.equal(getMockSubscriptionState().auditLogs.filter((log) => log.action === "subscription_webhook_ignored" && log.targetId === "sub_test_a").length, 1);
+  });
+
+  it("keeps stale canceled and expired webhook claims idempotent on provider retry", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    await createStoredSubscription(provider, "evt_create_before_stale_terminal");
+    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_renew_before_stale_terminal", type:"subscription.renewed", currentPeriodStart:periodEnd, currentPeriodEnd:renewedPeriodEnd, occurredAt:"2026-06-01T00:00:01.000Z" })) });
+    const staleCanceled = paymentEvent({ id:"evt_stale_canceled", type:"subscription.canceled", occurredAt:"2026-05-15T00:00:00.000Z" });
+    const staleExpired = paymentEvent({ id:"evt_stale_expired", type:"subscription.expired", occurredAt:"2026-05-16T00:00:00.000Z" });
+
+    const firstCanceled = await processPaymentWebhook({ provider, ...signedRequest(staleCanceled) });
+    const retryCanceled = await processPaymentWebhook({ provider, ...signedRequest(staleCanceled) });
+    const firstExpired = await processPaymentWebhook({ provider, ...signedRequest(staleExpired) });
+    const retryExpired = await processPaymentWebhook({ provider, ...signedRequest(staleExpired) });
+    const paymentState = getMockPaymentProviderState();
+
+    assert.equal(firstCanceled.status, "ignored_stale");
+    assert.equal(retryCanceled.status, "duplicate");
+    assert.equal(firstExpired.status, "ignored_stale");
+    assert.equal(retryExpired.status, "duplicate");
+    assert.equal(paymentState.processedWebhookEventIds.includes("mock:evt_stale_canceled"), true);
+    assert.equal(paymentState.processedWebhookEventIds.includes("mock:evt_stale_expired"), true);
+    assert.equal(paymentState.auditLogs.filter((log) => log.action === "payment_webhook_ignored" && (log.targetId === "evt_stale_canceled" || log.targetId === "evt_stale_expired")).length, 2);
+    assert.equal(getMockSubscriptionState().auditLogs.filter((log) => log.action === "subscription_webhook_ignored" && log.targetId === "sub_test_a").length, 2);
+  });
+
   it("sends receipt email through sandbox hook after verified successful payment only", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
     const emailProvider = new SandboxEmailProvider();

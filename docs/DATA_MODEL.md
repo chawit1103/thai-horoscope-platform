@@ -181,6 +181,7 @@ canceled_at
 expired_at
 payment_provider
 provider_customer_id
+provider_subscription_id
 metadata_json
 created_at
 updated_at
@@ -194,6 +195,7 @@ user_id
 subscription_id
 provider
 provider_transaction_id
+provider_checkout_session_id
 idempotency_key
 amount
 currency
@@ -202,6 +204,8 @@ raw_payload_json
 created_at
 updated_at
 ```
+
+PR16 payment-provider state must store provider references only. Do not store card numbers, CVC/CVV values, provider API keys, webhook secrets, or raw sensitive payment payloads.
 
 Indexes:
 

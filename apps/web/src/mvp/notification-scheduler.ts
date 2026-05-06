@@ -6,7 +6,7 @@ import { getMockMvpState, type HoroscopeResult, type PeriodType } from "./mock-f
 
 export type NotificationTopic = "daily_horoscope"|"weekly_horoscope"|"monthly_horoscope"|"yearly_horoscope";
 export type NotificationChannel = "line"|"email";
-export type NotificationQueueStatus = "queued"|"skipped"|"sent"|"failed"|"suppressed"|"duplicate"|"fallback_sent"|"deferred";
+export type NotificationQueueStatus = "queued"|"skipped"|"in_progress"|"sent"|"failed"|"suppressed"|"duplicate"|"fallback_sent"|"deferred";
 export interface NotificationPreference { topicCode:NotificationTopic|"all"; channel:NotificationChannel; enabled:boolean; allowFallback?:boolean; }
 export interface QuietHours { start:string; end:string; }
 export interface NotificationSchedulerUser {
@@ -169,6 +169,10 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
 
     const primary = await dispatchToChannel(message, message.channel, user, input.emailGateway, input.lineGateway, false, now);
     attempts.push(primary);
+    if (primary.status === "duplicate") {
+      duplicates += 1;
+      continue;
+    }
     if (primary.status === "sent") {
       message.status = "sent";
       sent += 1;
@@ -179,6 +183,10 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
     if (currentFallbackChannel && isFallbackTrigger(primary.status)) {
       const fallback = await dispatchToChannel(message, currentFallbackChannel, user, input.emailGateway, input.lineGateway, true, now);
       attempts.push(fallback);
+      if (fallback.status === "duplicate") {
+        duplicates += 1;
+        continue;
+      }
       if (fallback.status === "sent") {
         message.status = "fallback_sent";
         fallbackSent += 1;
@@ -208,7 +216,7 @@ function getQueueEligibility(input:{ user:NotificationSchedulerUser; topicCode:N
   const local = getLocalDateTimeParts(input.now, input.user.timezone);
   const localMinute = Number(local.hour) * 60 + Number(local.minute);
   if (input.user.quietHours && isWithinQuietHours(localMinute, input.user.quietHours)) return { status:"deferred", reason:"quiet_hours" };
-  if (minutesApart(localMinute, parseTimeToMinutes(input.user.preferredNotificationTime)) > input.dispatchWindowMinutes) return { status:"deferred", reason:"outside_preferred_time_window" };
+  if (!isWithinSameDatePreferredWindow(localMinute, parseTimeToMinutes(input.user.preferredNotificationTime), input.dispatchWindowMinutes)) return { status:"deferred", reason:"outside_preferred_time_window" };
   return { status:"eligible" };
 }
 
@@ -223,15 +231,24 @@ function getDispatchGuard(message:ScheduledNotificationMessage, user:Notificatio
 }
 
 async function dispatchToChannel(message:ScheduledNotificationMessage, channel:NotificationChannel, user:NotificationSchedulerUser, emailGateway:EmailGateway|undefined, lineGateway:LineGateway|undefined, fallback:boolean, now:Date):Promise<NotificationDeliveryAttempt> {
-  if (hasDeliveryAttempt(message.id, channel)) return recordAttempt(message, channel, "duplicate", now, fallback, "duplicate_delivery");
+  const claim = claimDeliveryAttempt(message, channel, now, fallback);
+  if (claim.status === "duplicate") return claim.attempt;
   if (channel === "email") {
-    if (!emailGateway || !user.emailAccount) return recordAttempt(message, channel, "suppressed", now, fallback, "email_account_unavailable");
-    const result = await emailGateway.send(user.emailAccount, toEmailMessage(message));
-    return recordAttempt(message, channel, mapEmailStatus(result.status), now, fallback, result.errorCode, result.providerMessageId);
+    if (!emailGateway || !user.emailAccount) return updateAttempt(claim.attempt, "suppressed", now, "email_account_unavailable");
+    try {
+      const result = await emailGateway.send(user.emailAccount, toEmailMessage(message));
+      return updateAttempt(claim.attempt, mapEmailStatus(result.status), now, result.errorCode, result.providerMessageId);
+    } catch {
+      return updateAttempt(claim.attempt, "failed", now, "provider_exception");
+    }
   }
-  if (!lineGateway || !user.lineAccount) return recordAttempt(message, channel, "suppressed", now, fallback, "line_account_unavailable");
-  const result = await lineGateway.send(user.lineAccount, toLineMessage(message));
-  return recordAttempt(message, channel, mapLineStatus(result.status), now, fallback, result.errorCode, result.providerMessageId);
+  if (!lineGateway || !user.lineAccount) return updateAttempt(claim.attempt, "suppressed", now, "line_account_unavailable");
+  try {
+    const result = await lineGateway.send(user.lineAccount, toLineMessage(message));
+    return updateAttempt(claim.attempt, mapLineStatus(result.status), now, result.errorCode, result.providerMessageId);
+  } catch {
+    return updateAttempt(claim.attempt, "failed", now, "provider_exception");
+  }
 }
 
 function toEmailMessage(message:ScheduledNotificationMessage):EmailMessage {
@@ -246,6 +263,24 @@ function recordAttempt(message:ScheduledNotificationMessage, channel:Notificatio
   const attempt:NotificationDeliveryAttempt = { id:`notif_attempt_${state.nextAttemptSeq++}`, outboundMessageId:message.id, channel, status, attemptedAt:now.toISOString(), providerMessageId, errorCode, fallback };
   state.deliveryAttempts.push(attempt);
   writeAudit("notification_delivery_attempted", attempt.id, now, { topicCode:message.topicCode, periodKey:message.periodKey, channel, status, errorCode:errorCode ?? "", fallback:String(fallback) });
+  return structuredClone(attempt);
+}
+
+function claimDeliveryAttempt(message:ScheduledNotificationMessage, channel:NotificationChannel, now:Date, fallback:boolean):{status:"claimed"; attempt:NotificationDeliveryAttempt}|{status:"duplicate"; attempt:NotificationDeliveryAttempt} {
+  if (hasActiveOrSentDeliveryAttempt(message.id, channel)) return { status:"duplicate", attempt:recordAttempt(message, channel, "duplicate", now, fallback, "already_in_progress") };
+  const attempt:NotificationDeliveryAttempt = { id:`notif_attempt_${state.nextAttemptSeq++}`, outboundMessageId:message.id, channel, status:"in_progress", attemptedAt:now.toISOString(), fallback };
+  state.deliveryAttempts.push(attempt);
+  writeAudit("notification_delivery_attempted", attempt.id, now, { topicCode:message.topicCode, periodKey:message.periodKey, channel, status:"in_progress", errorCode:"", fallback:String(fallback) });
+  return { status:"claimed", attempt };
+}
+
+function updateAttempt(attempt:NotificationDeliveryAttempt, status:NotificationQueueStatus, now:Date, errorCode?:string, providerMessageId?:string):NotificationDeliveryAttempt {
+  attempt.status = status;
+  attempt.attemptedAt = now.toISOString();
+  attempt.errorCode = errorCode;
+  attempt.providerMessageId = providerMessageId;
+  const message = state.outboundMessages.find((item)=>item.id===attempt.outboundMessageId);
+  writeAudit("notification_delivery_attempted", attempt.id, now, { topicCode:message?.topicCode ?? "unknown", periodKey:message?.periodKey ?? "", channel:attempt.channel, status, errorCode:errorCode ?? "", fallback:String(attempt.fallback) });
   return structuredClone(attempt);
 }
 
@@ -301,7 +336,7 @@ function isChannelBlockedOrBounced(user:NotificationSchedulerUser, channel:Notif
 
 function isFallbackTrigger(status:NotificationQueueStatus):boolean { return status === "suppressed" || status === "failed"; }
 function hasSentAttempt(outboundMessageId:string):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&(attempt.status==="sent"||attempt.status==="fallback_sent")); }
-function hasDeliveryAttempt(outboundMessageId:string, channel:NotificationChannel):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.channel===channel&&(attempt.status==="sent"||attempt.status==="fallback_sent")); }
+function hasActiveOrSentDeliveryAttempt(outboundMessageId:string, channel:NotificationChannel):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.channel===channel&&(attempt.status==="in_progress"||attempt.status==="sent"||attempt.status==="fallback_sent")); }
 function mapEmailStatus(status:EmailDeliveryResult["status"]):NotificationQueueStatus { return status === "sent" ? "sent" : status === "failed" ? "failed" : "suppressed"; }
 function mapLineStatus(status:LineDeliveryResult["status"]):NotificationQueueStatus { return status === "sent" ? "sent" : status === "failed" ? "failed" : "suppressed"; }
 function makeQueueKey(userId:string, topicCode:NotificationTopic, periodKey:string, channel:NotificationChannel):string { return [userId, topicCode, periodKey, channel].join(":"); }
@@ -323,7 +358,12 @@ function parseTimeToMinutes(value:string):number {
   if (hour > 23 || minute > 59) throw new Error("preferredNotificationTime must use HH:mm.");
   return hour * 60 + minute;
 }
-function minutesApart(a:number,b:number):number { const diff=Math.abs(a-b); return Math.min(diff, 1440-diff); }
+function isWithinSameDatePreferredWindow(localMinute:number, preferredMinute:number, dispatchWindowMinutes:number):boolean {
+  // Preferred windows are anchored to the current local calendar date and never wrap across midnight.
+  // If preferredMinute + dispatchWindowMinutes exceeds 23:59, the post-midnight portion is intentionally excluded;
+  // the next scheduler run must derive the next local date's period key before considering that next-day time.
+  return localMinute >= preferredMinute && localMinute <= preferredMinute + dispatchWindowMinutes;
+}
 function isWithinQuietHours(localMinute:number, quietHours:QuietHours):boolean {
   const start = parseTimeToMinutes(quietHours.start);
   const end = parseTimeToMinutes(quietHours.end);

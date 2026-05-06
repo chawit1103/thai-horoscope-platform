@@ -271,6 +271,46 @@ describe("notification scheduler", () => {
     assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "quiet_hours");
   });
 
+  it("does not treat 23:55 as inside a same-date 00:05 preferred window", async () => {
+    approveHoroscopes("midnight_late_user", ["daily_horoscope"]);
+    const midnightLate = user({ userId:"midnight_late_user", preferredNotificationTime:"00:05", subscription:await activeSubscription("midnight_late_user") });
+
+    const result = runNotificationSchedulerJob({ sessionId, users:[midnightLate], topics:["daily_horoscope"], now:new Date("2026-05-03T16:55:00.000Z"), dispatchWindowMinutes:15 });
+
+    assert.equal(result.queued.length, 0);
+    assert.equal(result.deferred, 1);
+    assert.equal(getNotificationSchedulerState().outboundMessages.length, 0);
+  });
+
+  it("does not wrap a prior-date 23:55 preferred window into 00:05 next day", async () => {
+    approveHoroscopes("midnight_next_day_user", ["daily_horoscope"]);
+    const nextDay = user({ userId:"midnight_next_day_user", preferredNotificationTime:"23:55", subscription:await activeSubscription("midnight_next_day_user") });
+
+    const result = runNotificationSchedulerJob({ sessionId, users:[nextDay], topics:["daily_horoscope"], now:new Date("2026-05-03T17:05:00.000Z"), dispatchWindowMinutes:15 });
+
+    assert.equal(result.queued.length, 0);
+    assert.equal(result.deferred, 1);
+  });
+
+  it("queues 00:10 inside the same local date 00:05 preferred window", async () => {
+    approveHoroscopes("midnight_inside_user", ["daily_horoscope"]);
+    const inside = user({ userId:"midnight_inside_user", preferredNotificationTime:"00:05", subscription:await activeSubscription("midnight_inside_user") });
+
+    const result = runNotificationSchedulerJob({ sessionId, users:[inside], topics:["daily_horoscope"], now:new Date("2026-05-02T17:10:00.000Z"), dispatchWindowMinutes:15 });
+
+    assert.equal(result.queued.length, 1);
+    assert.equal(result.queued[0]?.periodKey, "2026-05-03");
+  });
+
+  it("does not queue the current period almost 24 hours late because of circular preferred-time comparison", async () => {
+    approveHoroscopes("midnight_period_key_user", ["daily_horoscope"]);
+    const periodKeyUser = user({ userId:"midnight_period_key_user", preferredNotificationTime:"00:05", subscription:await activeSubscription("midnight_period_key_user") });
+
+    runNotificationSchedulerJob({ sessionId, users:[periodKeyUser], topics:["daily_horoscope"], now:new Date("2026-05-03T16:55:00.000Z"), dispatchWindowMinutes:15 });
+
+    assert.equal(getNotificationSchedulerState().outboundMessages.some((message)=>message.periodKey==="2026-05-03"), false);
+  });
+
   it("does not send duplicates during repeated dispatch", async () => {
     approveHoroscopes("dispatch_retry_user", ["daily_horoscope"]);
     const dispatchUser = user({ userId:"dispatch_retry_user", subscription:await activeSubscription("dispatch_retry_user") });
@@ -283,6 +323,69 @@ describe("notification scheduler", () => {
     assert.equal(getNotificationSchedulerState().deliveryAttempts.length, 1);
     assert.equal(g.lineProvider.networkSendCount, 0);
     assert.equal(g.lineProvider.sent.length, 0);
+  });
+
+  it("claims an overlapping queued email dispatch before provider delivery", async () => {
+    approveHoroscopes("overlap_email_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"overlap_email_user", primaryChannel:"email", fallbackChannel:undefined, subscription:await activeSubscription("overlap_email_user") });
+    let sendCalls = 0;
+    let release!:()=>void;
+    const providerWait = new Promise<void>((resolve)=>{ release = resolve; });
+    const emailGateway = { send:async () => { sendCalls += 1; await providerWait; return { status:"sent" as const, providerMessageId:"email_once" }; } } as unknown as EmailGateway;
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const first = dispatchQueuedNotifications({ sessionId, users:[dispatchUser], emailGateway, now });
+    const second = dispatchQueuedNotifications({ sessionId, users:[dispatchUser], emailGateway, now });
+    await Promise.resolve();
+    release();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    assert.equal(sendCalls, 1);
+    assert.equal(firstResult.sent + secondResult.sent, 1);
+    assert.equal(firstResult.duplicates + secondResult.duplicates, 1);
+    assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.status), ["sent", "duplicate"]);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[1]?.errorCode, "already_in_progress");
+  });
+
+  it("claims an overlapping queued LINE dispatch before provider delivery", async () => {
+    approveHoroscopes("overlap_line_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"overlap_line_user", subscription:await activeSubscription("overlap_line_user") });
+    let sendCalls = 0;
+    let release!:()=>void;
+    const providerWait = new Promise<void>((resolve)=>{ release = resolve; });
+    const lineGateway = { send:async () => { sendCalls += 1; await providerWait; return { status:"sent" as const, providerMessageId:"line_once" }; } } as unknown as LineGateway;
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const first = dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway, now });
+    const second = dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway, now });
+    await Promise.resolve();
+    release();
+    await Promise.all([first, second]);
+
+    assert.equal(sendCalls, 1);
+    assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.status), ["sent", "duplicate"]);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[1]?.errorCode, "already_in_progress");
+  });
+
+  it("updates a failed provider claim without allowing duplicate sends", async () => {
+    approveHoroscopes("overlap_failed_email_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"overlap_failed_email_user", primaryChannel:"email", fallbackChannel:undefined, subscription:await activeSubscription("overlap_failed_email_user") });
+    let sendCalls = 0;
+    let release!:()=>void;
+    const providerWait = new Promise<void>((resolve)=>{ release = resolve; });
+    const emailGateway = { send:async () => { sendCalls += 1; await providerWait; return { status:"failed" as const, errorCode:"provider_failed" }; } } as unknown as EmailGateway;
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const first = dispatchQueuedNotifications({ sessionId, users:[dispatchUser], emailGateway, now });
+    const second = dispatchQueuedNotifications({ sessionId, users:[dispatchUser], emailGateway, now });
+    await Promise.resolve();
+    release();
+    await Promise.all([first, second]);
+
+    assert.equal(sendCalls, 1);
+    assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.status), ["failed", "duplicate"]);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "provider_failed");
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "failed");
   });
 
   it("does not use fallback when primary is unavailable but fallback is not allowed", async () => {
@@ -441,6 +544,7 @@ describe("notification scheduler", () => {
 
     assert.equal(deferred.sent, 0);
     assert.equal(deferred.attempts[0]?.status, "deferred");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts.some((attempt)=>attempt.status==="in_progress"), false);
     assert.equal(retried.sent, 1);
     assert.equal(g.lineAuditLogs.length, 1);
     assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.status), ["deferred", "sent"]);

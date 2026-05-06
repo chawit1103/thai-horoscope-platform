@@ -238,7 +238,8 @@ async function dispatchToChannel(message:ScheduledNotificationMessage, channel:N
   const claim = claimDeliveryAttempt(message, channel, now, fallback);
   if (claim.status === "duplicate") return claim.attempt;
   if (channel === "email") {
-    if (!emailGateway || !user.emailAccount) return updateAttempt(claim.attempt, "suppressed", now, "email_account_unavailable");
+    if (!emailGateway) return updateAttempt(claim.attempt, "failed", now, "email_gateway_unavailable");
+    if (!user.emailAccount) return updateAttempt(claim.attempt, "suppressed", now, "email_account_unavailable");
     try {
       const result = await emailGateway.send(user.emailAccount, toEmailMessage(message));
       return updateAttempt(claim.attempt, mapEmailStatus(result.status), now, result.errorCode, result.providerMessageId);
@@ -246,7 +247,8 @@ async function dispatchToChannel(message:ScheduledNotificationMessage, channel:N
       return updateAttempt(claim.attempt, "failed", now, "provider_exception");
     }
   }
-  if (!lineGateway || !user.lineAccount) return updateAttempt(claim.attempt, "suppressed", now, "line_account_unavailable");
+  if (!lineGateway) return updateAttempt(claim.attempt, "failed", now, "line_gateway_unavailable");
+  if (!user.lineAccount) return updateAttempt(claim.attempt, "suppressed", now, "line_account_unavailable");
   try {
     const result = await lineGateway.send(user.lineAccount, toLineMessage(message));
     return updateAttempt(claim.attempt, mapLineStatus(result.status), now, result.errorCode, result.providerMessageId);
@@ -256,7 +258,8 @@ async function dispatchToChannel(message:ScheduledNotificationMessage, channel:N
 }
 
 function toEmailMessage(message:ScheduledNotificationMessage):EmailMessage {
-  return { topicCode:message.topicCode, subject:message.title, text:message.body, html:`<p>${escapeHtml(message.body)}</p>`, transactional:false, metadata:{ periodKey:message.periodKey } };
+  const idempotencyKey = makeEmailIdempotencyKey(message);
+  return { topicCode:message.topicCode, subject:message.title, text:message.body, html:`<p>${escapeHtml(message.body)}</p>`, transactional:false, idempotencyKey, metadata:{ periodKey:message.periodKey, idempotencyKey } };
 }
 
 function toLineMessage(message:ScheduledNotificationMessage):LineMessage {
@@ -353,6 +356,7 @@ function isChannelBlockedOrBounced(user:NotificationSchedulerUser, channel:Notif
 
 function isFallbackTrigger(attempt:NotificationDeliveryAttempt):boolean { return attempt.status === "suppressed" && isTerminalFallbackErrorCode(attempt.errorCode); }
 function isTerminalFallbackErrorCode(errorCode:string|undefined):boolean { return new Set(["email_not_verified", "email_bounced", "email_complained", "email_unsubscribed", "email_account_unavailable", "line_account_inactive", "line_account_unavailable"]).has(errorCode ?? ""); }
+function makeEmailIdempotencyKey(message:ScheduledNotificationMessage):string { return `notification_email_${sha256(`${message.queueKey}:email`).slice(0,32)}`; }
 function hasSentAttempt(outboundMessageId:string):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&(attempt.status==="sent"||attempt.status==="fallback_sent")); }
 function hasActiveOrSentDeliveryAttempt(outboundMessageId:string, channel:NotificationChannel):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.channel===channel&&(attempt.status==="in_progress"||attempt.status==="sent"||attempt.status==="fallback_sent")); }
 function mapEmailStatus(status:EmailDeliveryResult["status"]):NotificationQueueStatus { return status === "sent" ? "sent" : status === "failed" ? "failed" : "suppressed"; }

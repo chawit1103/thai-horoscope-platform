@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { EmailGateway, SandboxEmailProvider, createEmailChannelAccount, type EmailAuditLogEntry } from "../src/mvp/email-gateway";
+import { EmailGateway, SandboxEmailProvider, createEmailChannelAccount, type EmailAuditLogEntry, type EmailProviderRequest } from "../src/mvp/email-gateway";
 import { LineGateway, SandboxLineProvider, createLineChannelAccount, type LineAuditLogEntry } from "../src/mvp/line-gateway";
 import { approveDraft, callMockAstroCalc, deleteBirthProfile, generateHoroscopeResult, getMockMvpState, requestAccountDeletion, resetMockMvpState, saveBirthProfile, setMockUserPlan, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
 import { getNotificationPeriodKey, getNotificationSchedulerState, resetNotificationSchedulerState, runNotificationSchedulerJob, dispatchQueuedNotifications, type NotificationSchedulerUser, type NotificationTopic } from "../src/mvp/notification-scheduler";
@@ -487,6 +487,67 @@ describe("notification scheduler", () => {
     assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>[attempt.channel, attempt.status, attempt.errorCode]), [["email", "suppressed", "email_unsubscribed"], ["line", "sent", undefined]]);
   });
 
+
+  it("includes a stable idempotency key on retryable scheduled email sends", async () => {
+    approveHoroscopes("email_idempotency_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"email_idempotency_user", primaryChannel:"email", fallbackChannel:undefined, subscription:await activeSubscription("email_idempotency_user") });
+    const requests:EmailProviderRequest[] = [];
+    const provider = new SandboxEmailProvider();
+    provider.send = async (request:EmailProviderRequest) => { requests.push(structuredClone(request)); throw new Error("timeout after accept"); };
+    const emailGateway = new EmailGateway({ provider, fromEmail:"noreply@example.test", sandboxMode:false, auditHashSecret:"test-email-audit-secret", auditLogs:[] });
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], emailGateway, now });
+    await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], emailGateway, now });
+
+    assert.equal(requests.length, 2);
+    assert.ok(requests[0]?.idempotencyKey);
+    assert.equal(requests[0]?.idempotencyKey, requests[1]?.idempotencyKey);
+    assert.equal(requests[0]?.headers["x-idempotency-key"], requests[0]?.idempotencyKey);
+    assert.equal(requests[0]?.metadata?.idempotencyKey, requests[0]?.idempotencyKey);
+    assert.equal(provider.networkSendCount, 0);
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "queued");
+  });
+
+  it("uses different email idempotency keys for different user topic periods", async () => {
+    approveHoroscopes("email_idempotency_a", ["daily_horoscope"], now);
+    approveHoroscopes("email_idempotency_b", ["daily_horoscope"], now);
+    approveHoroscopes("email_idempotency_a", ["daily_horoscope"], new Date("2026-05-04T00:30:00.000Z"));
+    const requests:EmailProviderRequest[] = [];
+    const provider = new SandboxEmailProvider();
+    provider.send = async (request:EmailProviderRequest) => { requests.push(structuredClone(request)); return { providerMessageId:`sent_${requests.length}` }; };
+    const emailGateway = new EmailGateway({ provider, fromEmail:"noreply@example.test", sandboxMode:false, auditHashSecret:"test-email-audit-secret", auditLogs:[] });
+    const userA = user({ userId:"email_idempotency_a", primaryChannel:"email", fallbackChannel:undefined, subscription:await activeSubscription("email_idempotency_a") });
+    const userB = user({ userId:"email_idempotency_b", primaryChannel:"email", fallbackChannel:undefined, subscription:await activeSubscription("email_idempotency_b") });
+    runNotificationSchedulerJob({ sessionId, users:[userA, userB], topics:["daily_horoscope"], now });
+    runNotificationSchedulerJob({ sessionId, users:[userA], topics:["daily_horoscope"], now:new Date("2026-05-04T00:30:00.000Z") });
+
+    await dispatchQueuedNotifications({ sessionId, users:[userA, userB], emailGateway, now });
+
+    const keys = requests.map((request)=>request.idempotencyKey);
+    assert.equal(new Set(keys).size, 3);
+    assert.ok(keys.every((key)=>typeof key === "string" && key.startsWith("notification_email_")));
+    assert.equal(provider.networkSendCount, 0);
+  });
+
+  it("includes an email idempotency key on fallback email delivery", async () => {
+    approveHoroscopes("fallback_email_idempotency_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"fallback_email_idempotency_user", subscription:await activeSubscription("fallback_email_idempotency_user") });
+    dispatchUser.lineAccount!.blocked = true;
+    const provider = new SandboxEmailProvider();
+    const emailGateway = new EmailGateway({ provider, fromEmail:"noreply@example.test", sandboxMode:false, auditHashSecret:"test-email-audit-secret", auditLogs:[] });
+    const lineGateway = gateways().lineGateway;
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway, emailGateway, now });
+
+    assert.equal(dispatch.fallbackSent, 1);
+    assert.equal(provider.sent.length, 1);
+    assert.ok(provider.sent[0]?.idempotencyKey);
+    assert.equal(provider.sent[0]?.headers["x-idempotency-key"], provider.sent[0]?.idempotencyKey);
+    assert.equal(provider.networkSendCount, 0);
+  });
+
   it("does not fallback after an ambiguous primary provider failure and keeps the message retryable", async () => {
     approveHoroscopes("provider_failure_retry_user", ["daily_horoscope"]);
     const dispatchUser = user({ userId:"provider_failure_retry_user", subscription:await activeSubscription("provider_failure_retry_user") });
@@ -536,6 +597,41 @@ describe("notification scheduler", () => {
     assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "suppressed");
     assert.equal(getNotificationSchedulerState().deliveryAttempts.length, 1);
     assert.equal(g.lineAuditLogs.length, 1);
+  });
+
+
+  it("does not fallback to email when the primary LINE gateway is missing", async () => {
+    approveHoroscopes("missing_line_gateway_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"missing_line_gateway_user", subscription:await activeSubscription("missing_line_gateway_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const missingGateway = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], emailGateway:g.emailGateway, now });
+    const retried = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(missingGateway.fallbackSent, 0);
+    assert.equal(g.emailAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "failed");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "line_gateway_unavailable");
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "sent");
+    assert.equal(retried.sent, 1);
+  });
+
+  it("does not fallback to LINE when the primary email gateway is missing", async () => {
+    approveHoroscopes("missing_email_gateway_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"missing_email_gateway_user", primaryChannel:"email", fallbackChannel:"line", preferences:[{ topicCode:"all", channel:"email", enabled:true, allowFallback:true }, { topicCode:"all", channel:"line", enabled:true, allowFallback:true }], subscription:await activeSubscription("missing_email_gateway_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const missingGateway = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:g.lineGateway, now });
+    const retried = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(missingGateway.fallbackSent, 0);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "failed");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "email_gateway_unavailable");
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "sent");
+    assert.equal(retried.sent, 1);
   });
 
   it("does not deliver bounced email", async () => {

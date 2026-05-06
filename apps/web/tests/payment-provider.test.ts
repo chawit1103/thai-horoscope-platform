@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { EmailGateway, SandboxEmailProvider, createEmailChannelAccount, type EmailAuditLogEntry } from "../src/mvp/email-gateway";
 import { canAccessPeriod, getMockSubscriptionState, resetMockSubscriptionState } from "../src/mvp/subscription-lifecycle";
-import { HttpPaymentProvider, MockPaymentProvider, createPaymentCheckoutSession, createPaymentWebhookSignature, getMockPaymentProviderState, processPaymentWebhook, recordClientCheckoutReturn, resetMockPaymentProviderState, type CreateCheckoutInput, type PaymentWebhookEvent } from "../src/mvp/payment-provider";
+import { HttpPaymentProvider, InMemoryWebhookIdempotencyStore, MockPaymentProvider, createPaymentCheckoutSession, createPaymentWebhookSignature, getMockPaymentProviderState, processPaymentWebhook, recordClientCheckoutReturn, resetMockPaymentProviderState, type CreateCheckoutInput, type PaymentWebhookEvent, type WebhookIdempotencyStore } from "../src/mvp/payment-provider";
 
 const webhookSecret = "test-payment-webhook-secret";
 const periodStart = "2026-05-01T00:00:00.000Z";
@@ -30,7 +30,7 @@ const paymentEvent = (overrides:Partial<PaymentWebhookEvent> = {}):PaymentWebhoo
   providerCustomerId:"cus_test_a",
   providerSubscriptionId:"sub_test_a",
   providerPaymentId:"pay_test_a",
-  providerCheckoutSessionId:"checkout_test_a",
+  providerCheckoutSessionId:"mock_checkout_1",
   currentPeriodStart:periodStart,
   currentPeriodEnd:periodEnd,
   occurredAt:"2026-05-01T00:00:01.000Z",
@@ -75,6 +75,79 @@ describe("payment provider foundation", () => {
     assert.equal(canAccessPeriod({ subscription, periodType:"monthly", now:insidePeriod }), true);
   });
 
+  it("known checkout session completes and activates the stored user and plan", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput({ userId:"stored_user", planCode:"basic", providerSubscriptionId:"sub_stored" }));
+
+    const result = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ providerCheckoutSessionId:checkout.id, userId:"stored_user", planCode:"basic", providerSubscriptionId:"sub_stored" })) });
+    const checkoutState = getMockPaymentProviderState().checkoutSessions[0];
+    const subscription = getMockSubscriptionState().subscriptions[0];
+
+    assert.equal(result.status, "processed");
+    assert.equal(checkoutState?.status, "completed");
+    assert.equal(checkoutState?.consumed, true);
+    assert.equal(subscription?.userId, "stored_user");
+    assert.equal(subscription?.planCode, "basic");
+  });
+
+  it("rejects unknown checkout session completions without granting entitlement", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+
+    const result = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_unknown_checkout", providerCheckoutSessionId:"unknown_checkout" })) });
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.reason, "unknown_checkout_session");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+  });
+
+  it("rejects checkout payload plan upgrades beyond the stored checkout plan", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput({ planCode:"basic" }));
+
+    const result = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_plan_upgrade", providerCheckoutSessionId:checkout.id, planCode:"premium" })) });
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.reason, "checkout_plan_mismatch");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+  });
+
+  it("rejects checkout payload attempts to redirect entitlement to another user", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput({ userId:"stored_user" }));
+
+    const result = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_user_redirect", providerCheckoutSessionId:checkout.id, userId:"attacker_user" })) });
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.reason, "checkout_user_mismatch");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+  });
+
+  it("rejects checkout completion provider mismatches", async () => {
+    const httpProvider = new HttpPaymentProvider({ checkoutEndpoint:"https://payments.example.test/checkout", apiKey:"test_api_key", webhookSecret, fetcher:async () => new Response(JSON.stringify({ id:"shared_checkout", checkoutUrl:"https://payments.example.test/checkout/shared_checkout" }), { status:200, headers:{ "content-type":"application/json" } }) });
+    await createPaymentCheckoutSession(httpProvider, checkoutInput());
+    const mockProvider = new MockPaymentProvider({ webhookSecret });
+
+    const result = await processPaymentWebhook({ provider:mockProvider, ...signedRequest(paymentEvent({ id:"evt_provider_mismatch", providerCheckoutSessionId:"shared_checkout" })) });
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.reason, "provider_mismatch");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+  });
+
+  it("duplicate checkout completed webhook is idempotent", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput());
+    const request = signedRequest(paymentEvent({ id:"evt_checkout_duplicate", providerCheckoutSessionId:checkout.id }));
+
+    const first = await processPaymentWebhook({ provider, ...request });
+    const duplicate = await processPaymentWebhook({ provider, ...request });
+
+    assert.equal(first.status, "processed");
+    assert.equal(duplicate.status, "duplicate");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 1);
+    assert.equal(getMockPaymentProviderState().checkoutSessions[0]?.consumed, true);
+  });
+
   it("verified checkout session created webhook does not activate subscription", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
 
@@ -99,7 +172,8 @@ describe("payment provider foundation", () => {
 
   it("deduplicates verified payment webhook event IDs", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
-    const request = signedRequest(paymentEvent({ id:"evt_idem" }));
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput());
+    const request = signedRequest(paymentEvent({ id:"evt_idem", providerCheckoutSessionId:checkout.id }));
 
     const first = await processPaymentWebhook({ provider, ...request });
     const duplicate = await processPaymentWebhook({ provider, ...request });
@@ -111,6 +185,55 @@ describe("payment provider foundation", () => {
     assert.equal(getMockPaymentProviderState().processedWebhookEventIds.length, 1);
   });
 
+  it("claims webhook idempotency before checkout side effects", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput());
+    const claimObservations:{ subscriptions:number; checkoutConsumed:boolean|undefined }[] = [];
+    const store:WebhookIdempotencyStore = {
+      claim:() => {
+        claimObservations.push({ subscriptions:getMockSubscriptionState().subscriptions.length, checkoutConsumed:getMockPaymentProviderState().checkoutSessions[0]?.consumed });
+        return "claimed";
+      },
+      markProcessed:() => undefined,
+    };
+
+    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_claim_first", providerCheckoutSessionId:checkout.id })), idempotencyStore:store });
+
+    assert.deepEqual(claimObservations, [{ subscriptions:0, checkoutConsumed:false }]);
+    assert.equal(getMockSubscriptionState().subscriptions.length, 1);
+  });
+
+  it("duplicate event IDs do not duplicate subscriptions, receipts, or processed audit entries", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const emailProvider = new SandboxEmailProvider();
+    const emailAuditLogs:EmailAuditLogEntry[] = [];
+    const emailGateway = new EmailGateway({ provider:emailProvider, fromEmail:"noreply@example.test", sandboxMode:true, auditHashSecret:"test-email-audit-secret", auditLogs:emailAuditLogs });
+    const emailAccount = { ...createEmailChannelAccount({ userId:"user_a", email:"user@example.test", now:new Date(periodStart) }), verified:true };
+    const request = signedRequest(paymentEvent({ id:"evt_receipt_duplicate", type:"payment.succeeded" }));
+
+    const first = await processPaymentWebhook({ provider, ...request, receiptHook:{ emailGateway, emailAccount } });
+    const duplicate = await processPaymentWebhook({ provider, ...request, receiptHook:{ emailGateway, emailAccount } });
+    const paymentState = getMockPaymentProviderState();
+
+    assert.equal(first.status, "processed");
+    assert.equal(duplicate.status, "duplicate");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+    assert.equal(paymentState.receiptNotifications.length, 1);
+    assert.equal(paymentState.auditLogs.filter((log) => log.action === "payment_webhook_processed" && log.targetId === "evt_receipt_duplicate").length, 1);
+  });
+
+  it("idempotency key includes provider and event id", () => {
+    const store = new InMemoryWebhookIdempotencyStore();
+
+    const mockClaim = store.claim("mock", "evt_same_provider_id");
+    const httpClaim = store.claim("http", "evt_same_provider_id");
+    const duplicateMockClaim = store.claim("mock", "evt_same_provider_id");
+
+    assert.equal(mockClaim, "claimed");
+    assert.equal(httpClaim, "claimed");
+    assert.equal(duplicateMockClaim, "duplicate");
+  });
+
   it("keeps out-of-order lifecycle prerequisites replayable instead of idempotently burned", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
     const renewal = paymentEvent({ id:"evt_out_of_order_renew", type:"subscription.renewed", currentPeriodStart:periodEnd, currentPeriodEnd:renewedPeriodEnd, occurredAt:"2026-06-01T00:00:01.000Z" });
@@ -119,7 +242,7 @@ describe("payment provider foundation", () => {
     assert.equal(beforeCreate.status, "ignored_retryable");
     assert.equal(getMockPaymentProviderState().processedWebhookEventIds.length, 0);
 
-    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_replay" })) });
+    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_replay", type:"subscription.created" })) });
     const replay = await processPaymentWebhook({ provider, ...signedRequest(renewal) });
 
     assert.equal(replay.status, "processed");
@@ -146,7 +269,7 @@ describe("payment provider foundation", () => {
 
   it("maps failed payment to renewal_failed and past_due behavior", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
-    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_fail" })) });
+    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_fail", type:"subscription.created" })) });
 
     const failed = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_failed", type:"payment.failed", occurredAt:"2026-05-20T00:00:00.000Z" })) });
     const subscription = failed.subscriptionResult?.subscription;
@@ -158,7 +281,7 @@ describe("payment provider foundation", () => {
 
   it("maps successful subscription renewal to an extended lifecycle period", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
-    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_renew" })) });
+    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_renew", type:"subscription.created" })) });
 
     const renewed = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_renew", type:"subscription.renewed", currentPeriodStart:periodEnd, currentPeriodEnd:renewedPeriodEnd, occurredAt:"2026-06-01T00:00:01.000Z" })) });
 
@@ -169,7 +292,7 @@ describe("payment provider foundation", () => {
 
   it("maps subscription cancellation webhook to lifecycle cancellation", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
-    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_cancel" })) });
+    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_cancel", type:"subscription.created" })) });
 
     const canceled = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_cancel", type:"subscription.canceled", cancelAtPeriodEnd:false, occurredAt:"2026-05-10T00:00:00.000Z" })) });
 
@@ -188,7 +311,7 @@ describe("payment provider foundation", () => {
 
   it("stores provider references only and never stores card data", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
-    const eventWithCardLikePayload = { ...paymentEvent({ id:"evt_no_card" }), cardNumber:"test-card-sensitive-marker", cvc:"test-cvc-sensitive-marker", rawPayload:{ card:"test-card-sensitive-marker" } };
+    const eventWithCardLikePayload = { ...paymentEvent({ id:"evt_no_card", type:"payment.succeeded" }), cardNumber:"test-card-sensitive-marker", cvc:"test-cvc-sensitive-marker", rawPayload:{ card:"test-card-sensitive-marker" } };
 
     await processPaymentWebhook({ provider, ...signedRequest(eventWithCardLikePayload) });
     const serializedState = JSON.stringify(getMockPaymentProviderState());
@@ -201,7 +324,7 @@ describe("payment provider foundation", () => {
 
   it("audit logs exclude raw payment secrets and card data", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
-    const rawBody = JSON.stringify({ ...paymentEvent({ id:"evt_audit_clean" }), secret:"provider-secret", cardNumber:"test-card-sensitive-marker" });
+    const rawBody = JSON.stringify({ ...paymentEvent({ id:"evt_audit_clean", type:"payment.succeeded" }), secret:"provider-secret", cardNumber:"test-card-sensitive-marker" });
     const timestamp = Date.now();
     const headers = new Headers({ "x-payment-timestamp":String(timestamp), "x-payment-signature":createPaymentWebhookSignature({ timestamp, body:rawBody, secret:webhookSecret }) });
 
@@ -216,7 +339,7 @@ describe("payment provider foundation", () => {
   it("tests never call a real payment provider network", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
     await createPaymentCheckoutSession(provider, checkoutInput());
-    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_no_network" })) });
+    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_no_network", type:"payment.succeeded" })) });
 
     assert.equal(provider.networkCallCount, 0);
   });

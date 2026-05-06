@@ -207,13 +207,17 @@ refund.succeeded
 
 Verified payment webhooks are mapped into PR15 subscription lifecycle events where appropriate:
 
-- `checkout.session.completed` and `subscription.created` map to `subscription.created`.
+- `checkout.session.completed` requires a stored server-side checkout session for the same provider and `providerCheckoutSessionId`; unknown sessions, provider mismatches, user mismatches, and plan mismatches are rejected before entitlement changes.
+- `checkout.session.completed` derives `userId` and `planCode` from the stored checkout record, marks that checkout completed/consumed idempotently, and then maps to `subscription.created`.
+- `subscription.created` maps to `subscription.created`.
 - `subscription.renewed` maps to `subscription.renewed`.
 - `payment.failed` and `subscription.renewal_failed` map to `subscription.renewal_failed`.
 - `subscription.canceled` maps to `subscription.canceled`.
 - `subscription.expired` maps to `subscription.expired`.
 - `payment.succeeded` can trigger a sandboxed payment receipt email hook, but does not activate entitlement by itself.
 - refund events are placeholders in PR16 and do not change subscription state.
+
+The PR16 in-memory checkout session registry and `InMemoryWebhookIdempotencyStore` are mock/test-only foundations. Production payment webhooks must use durable database storage with a unique constraint on `provider + providerEventId`, plus a transaction that atomically claims the webhook idempotency row and applies subscription, receipt, and audit side effects exactly once. In-memory idempotency is not production-safe for serverless, multi-instance, or restarted Node.js processes.
 
 Environment placeholders:
 

@@ -336,6 +336,117 @@ describe("notification scheduler", () => {
     assert.equal(result.skipped, 1);
   });
 
+
+  it("suppresses a queued message when its exact source birth profile is deleted", async () => {
+    const birthProfileId = approveHoroscopes("deleted_source_dispatch_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"deleted_source_dispatch_user", subscription:await activeSubscription("deleted_source_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    deleteBirthProfile({ sessionId, userId:"deleted_source_dispatch_user" }, birthProfileId, new Date("2026-05-02T00:00:00.000Z"));
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.sent, 0);
+    assert.equal(dispatch.suppressed, 1);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "user_or_source_artifact_inactive");
+  });
+
+  it("does not accept another approved horoscope for the same period as the queued source", async () => {
+    const oldBirthProfileId = approveHoroscopes("replaced_source_dispatch_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"replaced_source_dispatch_user", subscription:await activeSubscription("replaced_source_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    deleteBirthProfile({ sessionId, userId:"replaced_source_dispatch_user" }, oldBirthProfileId, new Date("2026-05-02T00:00:00.000Z"));
+    approveHoroscopes("replaced_source_dispatch_user", ["daily_horoscope"]);
+    const activeResults = getMockMvpState(sessionId).horoscopeResults.filter((result)=>result.userId==="replaced_source_dispatch_user"&&result.periodType==="daily"&&result.periodKey===getNotificationPeriodKey("daily_horoscope", now, "Asia/Bangkok")&&result.status==="approved");
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(activeResults.length, 1);
+    assert.equal(dispatch.sent, 0);
+    assert.equal(dispatch.suppressed, 1);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "user_or_source_artifact_inactive");
+  });
+
+  it("dispatches a queued message when horoscope result chart snapshot and birth profile still match", async () => {
+    approveHoroscopes("matching_source_dispatch_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"matching_source_dispatch_user", subscription:await activeSubscription("matching_source_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.sent, 1);
+    assert.equal(g.lineAuditLogs.length, 1);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "sent");
+  });
+
+  it("does not use stale fallback consent after fallback permission is revoked", async () => {
+    approveHoroscopes("fallback_revoked_dispatch_user", ["daily_horoscope"]);
+    const queuedUser = user({ userId:"fallback_revoked_dispatch_user", subscription:await activeSubscription("fallback_revoked_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[queuedUser], topics:["daily_horoscope"], now });
+
+    const revokedFallbackUser = user({ ...queuedUser, preferences:[{ topicCode:"all", channel:"line", enabled:true }, { topicCode:"all", channel:"email", enabled:true }] });
+    revokedFallbackUser.lineAccount!.blocked = true;
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[revokedFallbackUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.fallbackSent, 0);
+    assert.equal(g.emailAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.channel).join(","), "line");
+  });
+
+  it("does not use fallback when the current fallback channel preference is disabled", async () => {
+    approveHoroscopes("fallback_disabled_dispatch_user", ["daily_horoscope"]);
+    const queuedUser = user({ userId:"fallback_disabled_dispatch_user", subscription:await activeSubscription("fallback_disabled_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[queuedUser], topics:["daily_horoscope"], now });
+
+    const disabledFallbackUser = user({ ...queuedUser, preferences:[{ topicCode:"all", channel:"line", enabled:true, allowFallback:true }, { topicCode:"all", channel:"email", enabled:false, allowFallback:true }] });
+    disabledFallbackUser.lineAccount!.blocked = true;
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[disabledFallbackUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.fallbackSent, 0);
+    assert.equal(g.emailAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.channel).join(","), "line");
+  });
+
+  it("does not use fallback when the current fallback email is unsubscribed or bounced", async () => {
+    approveHoroscopes("fallback_unsubscribed_dispatch_user", ["daily_horoscope"]);
+    const queuedUser = user({ userId:"fallback_unsubscribed_dispatch_user", subscription:await activeSubscription("fallback_unsubscribed_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[queuedUser], topics:["daily_horoscope"], now });
+
+    const blockedFallbackUser = user({ ...queuedUser });
+    blockedFallbackUser.lineAccount!.blocked = true;
+    blockedFallbackUser.emailAccount = { ...blockedFallbackUser.emailAccount!, unsubscribed:true, bounced:true };
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[blockedFallbackUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.fallbackSent, 0);
+    assert.equal(g.emailAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.channel).join(","), "line");
+  });
+
+  it("retries and sends a quiet-hour-deferred message after quiet hours end", async () => {
+    approveHoroscopes("quiet_retry_dispatch_user", ["daily_horoscope"]);
+    const quietDispatch = user({ userId:"quiet_retry_dispatch_user", quietHours:{ start:"08:00", end:"09:00" }, subscription:await activeSubscription("quiet_retry_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[quietDispatch], topics:["daily_horoscope"], now });
+
+    const deferred = await dispatchQueuedNotifications({ sessionId, users:[quietDispatch], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now:new Date("2026-05-03T01:30:00.000Z") });
+    const retried = await dispatchQueuedNotifications({ sessionId, users:[quietDispatch], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(deferred.sent, 0);
+    assert.equal(deferred.attempts[0]?.status, "deferred");
+    assert.equal(retried.sent, 1);
+    assert.equal(g.lineAuditLogs.length, 1);
+    assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.status), ["deferred", "sent"]);
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "sent");
+  });
+
   it("records delivery attempts without PII or secrets", async () => {
     approveHoroscopes("privacy_user", ["daily_horoscope"]);
     const privacyUser = user({ userId:"privacy_user", subscription:await activeSubscription("privacy_user") });

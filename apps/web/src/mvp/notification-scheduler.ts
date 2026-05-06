@@ -142,9 +142,10 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
 
   for (const message of state.outboundMessages.filter((item)=>item.status==="queued")) {
     const user = input.users.find((item)=>item.userId===message.userId);
-    if (!user || isUserInactive(getMockMvpState(sessionId), user) || !findApprovedHoroscope(getMockMvpState(sessionId), message.userId, message.periodType, message.periodKey)) {
-      const attempt = recordAttempt(message, message.channel, "suppressed", now, true, "user_or_artifact_inactive");
+    if (!user || isUserInactive(getMockMvpState(sessionId), user) || !findActiveQueuedSourceArtifact(getMockMvpState(sessionId), message)) {
+      const attempt = recordAttempt(message, message.channel, "suppressed", now, true, "user_or_source_artifact_inactive");
       attempts.push(attempt);
+      message.status = "suppressed";
       suppressed += 1;
       continue;
     }
@@ -159,8 +160,10 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
     if (guard.status !== "allowed") {
       const attempt = recordAttempt(message, message.channel, guard.status, now, false, guard.reason);
       attempts.push(attempt);
-      message.status = guard.status;
-      if (guard.status === "suppressed") suppressed += 1;
+      if (guard.status === "suppressed") {
+        message.status = "suppressed";
+        suppressed += 1;
+      }
       continue;
     }
 
@@ -172,9 +175,9 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
       continue;
     }
 
-    const canFallback = message.allowFallback && message.fallbackChannel && message.fallbackChannel !== message.channel && isFallbackTrigger(primary.status) && isChannelPreferenceEnabled(user, message.topicCode, message.fallbackChannel) && !isChannelUnsubscribed(user, message.fallbackChannel);
-    if (canFallback) {
-      const fallback = await dispatchToChannel(message, message.fallbackChannel!, user, input.emailGateway, input.lineGateway, true, now);
+    const currentFallbackChannel = getCurrentFallbackChannel(user, message);
+    if (currentFallbackChannel && isFallbackTrigger(primary.status)) {
+      const fallback = await dispatchToChannel(message, currentFallbackChannel, user, input.emailGateway, input.lineGateway, true, now);
       attempts.push(fallback);
       if (fallback.status === "sent") {
         message.status = "fallback_sent";
@@ -240,8 +243,6 @@ function toLineMessage(message:ScheduledNotificationMessage):LineMessage {
 }
 
 function recordAttempt(message:ScheduledNotificationMessage, channel:NotificationChannel, status:NotificationQueueStatus, now:Date, fallback:boolean, errorCode?:string, providerMessageId?:string):NotificationDeliveryAttempt {
-  const existing = status !== "duplicate" ? state.deliveryAttempts.find((attempt)=>attempt.outboundMessageId===message.id&&attempt.channel===channel) : undefined;
-  if (existing) return existing;
   const attempt:NotificationDeliveryAttempt = { id:`notif_attempt_${state.nextAttemptSeq++}`, outboundMessageId:message.id, channel, status, attemptedAt:now.toISOString(), providerMessageId, errorCode, fallback };
   state.deliveryAttempts.push(attempt);
   writeAudit("notification_delivery_attempted", attempt.id, now, { topicCode:message.topicCode, periodKey:message.periodKey, channel, status, errorCode:errorCode ?? "", fallback:String(fallback) });
@@ -254,12 +255,28 @@ function findApprovedHoroscope(mockState:ReturnType<typeof getMockMvpState>, use
   return mockState.horoscopeResults.find((result)=>result.userId===userId&&result.periodType===periodType&&result.periodKey===periodKey&&result.status==="approved"&&activeBirthProfileIds.has(result.birthProfileId)&&activeChartIds.has(result.chartSnapshotId));
 }
 
+function findActiveQueuedSourceArtifact(mockState:ReturnType<typeof getMockMvpState>, message:ScheduledNotificationMessage):HoroscopeResult|undefined {
+  const result = mockState.horoscopeResults.find((item)=>item.id===message.horoscopeResultId);
+  if (!result || result.status!=="approved" || result.userId!==message.userId || result.periodType!==message.periodType || result.periodKey!==message.periodKey || result.birthProfileId!==message.birthProfileId || result.chartSnapshotId!==message.chartSnapshotId) return undefined;
+  const chart = mockState.chartSnapshots.find((snapshot)=>snapshot.id===message.chartSnapshotId);
+  if (!chart || chart.userId!==message.userId || chart.birthProfileId!==message.birthProfileId) return undefined;
+  const birthProfile = mockState.birthProfiles.find((profile)=>profile.id===message.birthProfileId);
+  if (!birthProfile || birthProfile.userId!==message.userId || mockState.deletedBirthProfileIds[message.birthProfileId]) return undefined;
+  return result;
+}
+
 function isUserInactive(mockState:ReturnType<typeof getMockMvpState>, user:NotificationSchedulerUser):boolean {
   return user.active === false || user.accountDeleted === true || Boolean(mockState.deactivatedUserIds[user.userId]) || mockState.accountDeletionRequests.some((request)=>request.userId===user.userId&&request.status==="requested");
 }
 
 function isFallbackAllowed(user:NotificationSchedulerUser, topicCode:NotificationTopic):boolean {
   return Boolean(user.fallbackChannel) && user.preferences?.some((preference)=>(preference.topicCode==="all"||preference.topicCode===topicCode)&&preference.allowFallback) === true;
+}
+
+function getCurrentFallbackChannel(user:NotificationSchedulerUser, message:ScheduledNotificationMessage):NotificationChannel|undefined {
+  if (!isFallbackAllowed(user, message.topicCode) || !user.fallbackChannel || user.fallbackChannel===message.channel) return undefined;
+  if (!isChannelPreferenceEnabled(user, message.topicCode, user.fallbackChannel) || isChannelUnsubscribed(user, user.fallbackChannel) || isChannelBlockedOrBounced(user, user.fallbackChannel)) return undefined;
+  return user.fallbackChannel;
 }
 
 function isChannelPreferenceEnabled(user:NotificationSchedulerUser, topicCode:NotificationTopic, channel:NotificationChannel):boolean {
@@ -273,9 +290,18 @@ function isChannelUnsubscribed(user:NotificationSchedulerUser, channel:Notificat
   return false;
 }
 
+function isChannelBlockedOrBounced(user:NotificationSchedulerUser, channel:NotificationChannel):boolean {
+  if (channel === "email") {
+    const account = user.emailAccount;
+    return !account?.verified || Boolean(account.bounced) || Boolean(account.complained);
+  }
+  const account = user.lineAccount;
+  return !account?.active || Boolean(account.blocked) || !account.followed;
+}
+
 function isFallbackTrigger(status:NotificationQueueStatus):boolean { return status === "suppressed" || status === "failed"; }
 function hasSentAttempt(outboundMessageId:string):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&(attempt.status==="sent"||attempt.status==="fallback_sent")); }
-function hasDeliveryAttempt(outboundMessageId:string, channel:NotificationChannel):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.channel===channel); }
+function hasDeliveryAttempt(outboundMessageId:string, channel:NotificationChannel):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.channel===channel&&(attempt.status==="sent"||attempt.status==="fallback_sent")); }
 function mapEmailStatus(status:EmailDeliveryResult["status"]):NotificationQueueStatus { return status === "sent" ? "sent" : status === "failed" ? "failed" : "suppressed"; }
 function mapLineStatus(status:LineDeliveryResult["status"]):NotificationQueueStatus { return status === "sent" ? "sent" : status === "failed" ? "failed" : "suppressed"; }
 function makeQueueKey(userId:string, topicCode:NotificationTopic, periodKey:string, channel:NotificationChannel):string { return [userId, topicCode, periodKey, channel].join(":"); }

@@ -4,6 +4,10 @@ import { EmailGateway, SandboxEmailProvider, createEmailChannelAccount, type Ema
 import { canAccessPeriod, getMockSubscriptionState, resetMockSubscriptionState } from "../src/mvp/subscription-lifecycle";
 import { HttpPaymentProvider, InMemoryWebhookIdempotencyStore, MockPaymentProvider, createPaymentCheckoutSession, createPaymentWebhookSignature, getMockPaymentProviderState, processPaymentWebhook, recordClientCheckoutReturn, resetMockPaymentProviderState, type CreateCheckoutInput, type PaymentWebhookEvent, type WebhookIdempotencyStore } from "../src/mvp/payment-provider";
 
+// @ts-expect-error WebhookIdempotencyStore implementations must provide release so retryable claims can be cleared.
+const missingReleaseStore:WebhookIdempotencyStore = { claim:() => "claimed", markProcessed:() => undefined };
+void missingReleaseStore;
+
 const webhookSecret = "test-payment-webhook-secret";
 const periodStart = "2026-05-01T00:00:00.000Z";
 const periodEnd = "2026-06-01T00:00:00.000Z";
@@ -259,6 +263,7 @@ describe("payment provider foundation", () => {
         return "claimed";
       },
       markProcessed:() => undefined,
+      release:() => undefined,
     };
 
     await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_claim_first", providerCheckoutSessionId:checkout.id })), idempotencyStore:store });
@@ -312,6 +317,47 @@ describe("payment provider foundation", () => {
     assert.equal(replay.status, "processed");
     assert.equal(replay.subscriptionResult?.status, "applied");
     assert.equal(getMockPaymentProviderState().processedWebhookEventIds.includes("mock:evt_out_of_order_renew"), true);
+  });
+
+  it("calls release before returning ignored_retryable lifecycle results", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const releaseCalls:string[] = [];
+    const claimed = new Set<string>();
+    const store:WebhookIdempotencyStore = {
+      claim:(providerCode, eventId) => {
+        const key = `${providerCode}:${eventId}`;
+        if (claimed.has(key)) return "duplicate";
+        claimed.add(key);
+        return "claimed";
+      },
+      markProcessed:() => undefined,
+      release:(providerCode, eventId) => {
+        releaseCalls.push(`${providerCode}:${eventId}`);
+        claimed.delete(`${providerCode}:${eventId}`);
+      },
+    };
+
+    const result = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_release_retryable", type:"subscription.renewed" })), idempotencyStore:store });
+
+    assert.equal(result.status, "ignored_retryable");
+    assert.deepEqual(releaseCalls, ["mock:evt_release_retryable"]);
+    assert.equal(store.claim("mock", "evt_release_retryable"), "claimed");
+  });
+
+  it("fails safely if retryable webhook claim release fails", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const store:WebhookIdempotencyStore = {
+      claim:() => "claimed",
+      markProcessed:() => undefined,
+      release:() => { throw new Error("release store unavailable"); },
+    };
+
+    await assert.rejects(
+      processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_release_failure", type:"subscription.renewed" })), idempotencyStore:store }),
+      /idempotency release failed/,
+    );
+    assert.equal(getMockPaymentProviderState().auditLogs.at(-1)?.metadata.reason, "idempotency_release_failed");
+    assert.equal(getMockPaymentProviderState().processedWebhookEventIds.includes("mock:evt_release_failure"), false);
   });
 
   it("sends receipt email through sandbox hook after verified successful payment only", async () => {

@@ -18,7 +18,7 @@ export interface PaymentWebhookProcessResult { status:PaymentWebhookProcessStatu
 export interface PaymentReceiptHook { emailGateway:EmailGateway; emailAccount:EmailChannelAccount; }
 export type WebhookIdempotencyClaimResult = "claimed"|"duplicate";
 export interface WebhookIdempotencyRecord { provider:PaymentProviderCode; eventId:string; status:"claimed"|"processed"; result?:PaymentWebhookProcessStatus; claimedAt:string; processedAt?:string; }
-export interface WebhookIdempotencyStore { claim(provider:PaymentProviderCode, eventId:string):WebhookIdempotencyClaimResult; markProcessed(provider:PaymentProviderCode, eventId:string, result:PaymentWebhookProcessStatus):void; release?(provider:PaymentProviderCode, eventId:string):void; list?():WebhookIdempotencyRecord[]; }
+export interface WebhookIdempotencyStore { claim(provider:PaymentProviderCode, eventId:string):WebhookIdempotencyClaimResult; markProcessed(provider:PaymentProviderCode, eventId:string, result:PaymentWebhookProcessStatus):void; release(provider:PaymentProviderCode, eventId:string):void; list?():WebhookIdempotencyRecord[]; }
 
 const PAYMENT_WEBHOOK_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
 let state:PaymentProviderState = { checkoutSessions:[], processedWebhookEventIds:[], processedReceiptKeys:[], auditLogs:[], receiptNotifications:[], providerReferences:[], webhookIdempotencyRecords:[] };
@@ -157,7 +157,7 @@ export async function processPaymentWebhook(input:{ provider:PaymentProvider; he
   const subscriptionEvent = toSubscriptionLifecycleEvent(event);
   const subscriptionResult = subscriptionEvent ? await processMockSubscriptionWebhook(subscriptionEvent) : undefined;
   if (subscriptionResult?.status === "ignored_retryable") {
-    idempotency.release?.(input.provider.provider, event.id);
+    releaseRetryableWebhookClaim(idempotency, input.provider.provider, event, now, subscriptionResult.reason ?? "ignored_retryable");
     writePaymentAudit("payment_webhook_ignored", event.id, now, { eventType:event.type, provider:input.provider.provider, reason:subscriptionResult.reason ?? "ignored_retryable" });
     return { status:"ignored_retryable", reason:subscriptionResult.reason, event:structuredClone(event), subscriptionResult };
   }
@@ -177,6 +177,20 @@ export function createPaymentWebhookSignature(input:{ timestamp:number; body:str
 function rememberProcessedWebhook(provider:PaymentProviderCode, eventId:string):void {
   const idempotencyKey = `${provider}:${eventId}`;
   if (!state.processedWebhookEventIds.includes(idempotencyKey)) state.processedWebhookEventIds.push(idempotencyKey);
+}
+
+function releaseRetryableWebhookClaim(idempotency:WebhookIdempotencyStore, provider:PaymentProviderCode, event:PaymentWebhookEvent, now:Date, retryableReason:string):void {
+  const release = (idempotency as Partial<WebhookIdempotencyStore>).release;
+  if (typeof release !== "function") {
+    writePaymentAudit("payment_webhook_rejected", event.id, now, { eventType:event.type, provider, reason:"idempotency_release_unavailable", retryableReason });
+    throw new Error("Payment webhook idempotency release is required for retryable webhook results.");
+  }
+  try {
+    release.call(idempotency, provider, event.id);
+  } catch (error) {
+    writePaymentAudit("payment_webhook_rejected", event.id, now, { eventType:event.type, provider, reason:"idempotency_release_failed", retryableReason });
+    throw new Error("Payment webhook idempotency release failed for retryable webhook result.", { cause:error });
+  }
 }
 
 function verifyCheckoutOrSubscriptionCreationBinding(provider:PaymentProviderCode, event:PaymentWebhookEvent, now:Date):{ status:"ok"; event?:PaymentWebhookEvent }|{ status:"duplicate"; reason:string }|{ status:"rejected"; reason:string } {

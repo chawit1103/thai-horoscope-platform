@@ -20,14 +20,14 @@ async function activeSubscription(userId:string, planCode:"free"|"basic"|"premiu
   return result.subscription;
 }
 
-function approveHoroscopes(userId:string, selectedTopics:NotificationTopic[] = topics):string {
+function approveHoroscopes(userId:string, selectedTopics:NotificationTopic[] = topics, periodNow:Date = now):string {
   const context = { sessionId, userId };
   setMockUserPlan(userId, "premium", sessionId);
   const profile = saveBirthProfile({ birthDate:"1992-08-15", birthTime:"07:30", birthTimeUnknown:false, birthPlaceText:"Bangkok", timezone:"Asia/Bangkok", consentBirthData:true }, context, new Date("2026-05-01T00:00:00.000Z"));
   const chart = storeChartSnapshot(callMockAstroCalc(profile), sessionId, new Date("2026-05-01T00:01:00.000Z"));
   for (const topic of selectedTopics) {
     const periodType = topic.replace("_horoscope", "") as PeriodType;
-    const result = generateHoroscopeResult({ chartSnapshot:chart, periodType, periodKey:getNotificationPeriodKey(topic, now, "Asia/Bangkok"), sessionId, now:new Date("2026-05-01T00:02:00.000Z") });
+    const result = generateHoroscopeResult({ chartSnapshot:chart, periodType, periodKey:getNotificationPeriodKey(topic, periodNow, "Asia/Bangkok"), sessionId, now:new Date("2026-05-01T00:02:00.000Z") });
     approveDraft(result.id, "scheduler_admin", sessionId, new Date("2026-05-01T00:03:00.000Z"));
   }
   return profile.id;
@@ -154,6 +154,51 @@ describe("notification scheduler", () => {
     assert.equal(getNotificationSchedulerState().outboundMessages.length, 1);
   });
 
+
+
+  it("dedupes queued horoscope periods independently of selected primary channel", async () => {
+    approveHoroscopes("channel_dedupe_user", ["daily_horoscope"]);
+    const lineSnapshot = user({ userId:"channel_dedupe_user", subscription:await activeSubscription("channel_dedupe_user") });
+    const emailSnapshot = user({ ...lineSnapshot, primaryChannel:"email", fallbackChannel:"line" });
+
+    const first = runNotificationSchedulerJob({ sessionId, users:[lineSnapshot], topics:["daily_horoscope"], now });
+    const second = runNotificationSchedulerJob({ sessionId, users:[emailSnapshot], topics:["daily_horoscope"], now });
+    const queued = getNotificationSchedulerState().outboundMessages;
+
+    assert.equal(first.queued.length, 1);
+    assert.equal(second.duplicates, 1);
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0]?.queueKey, "channel_dedupe_user:daily_horoscope:2026-05-03");
+    assert.equal(queued[0]?.channel, "email");
+    assert.equal(queued[0]?.fallbackChannel, "line");
+  });
+
+  it("prevents two scheduler preference snapshots from queuing duplicate outbound messages", async () => {
+    approveHoroscopes("worker_snapshot_user", ["daily_horoscope"]);
+    const lineSnapshot = user({ userId:"worker_snapshot_user", subscription:await activeSubscription("worker_snapshot_user") });
+    const emailSnapshot = user({ ...lineSnapshot, primaryChannel:"email", fallbackChannel:"line" });
+
+    runNotificationSchedulerJob({ sessionId, users:[lineSnapshot], topics:["daily_horoscope"], now });
+    runNotificationSchedulerJob({ sessionId, users:[emailSnapshot], topics:["daily_horoscope"], now });
+
+    assert.equal(getNotificationSchedulerState().outboundMessages.length, 1);
+    assert.deepEqual(getNotificationSchedulerState().outboundMessages.map((message)=>message.topicCode), ["daily_horoscope"]);
+  });
+
+  it("keeps fallback preferences modeled on the same queued message while allowing different periods", async () => {
+    const nextDay = new Date("2026-05-04T00:30:00.000Z");
+    approveHoroscopes("period_split_user", ["daily_horoscope"], now);
+    approveHoroscopes("period_split_user", ["daily_horoscope"], nextDay);
+    const dispatchUser = user({ userId:"period_split_user", subscription:await activeSubscription("period_split_user") });
+
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now:nextDay });
+    const queued = getNotificationSchedulerState().outboundMessages;
+
+    assert.equal(queued.length, 2);
+    assert.deepEqual(queued.map((message)=>message.periodKey).sort(), ["2026-05-03", "2026-05-04"]);
+    assert.deepEqual(queued.map((message)=>message.fallbackChannel), ["email", "email"]);
+  });
 
   it("suppresses queued monthly and yearly premium messages after subscription expiration", async () => {
     approveHoroscopes("expired_dispatch_user", ["monthly_horoscope","yearly_horoscope"]);
@@ -385,7 +430,7 @@ describe("notification scheduler", () => {
     assert.equal(sendCalls, 1);
     assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.status), ["failed", "duplicate"]);
     assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "provider_failed");
-    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "failed");
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "queued");
   });
 
   it("does not use fallback when primary is unavailable but fallback is not allowed", async () => {
@@ -413,6 +458,84 @@ describe("notification scheduler", () => {
     assert.equal(dispatch.fallbackSent, 1);
     assert.equal(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.channel).join(","), "line,email");
     assert.equal(g.emailProvider.networkSendCount, 0);
+  });
+
+
+  it("falls back from bounced email primary to LINE only for terminal suppression states", async () => {
+    approveHoroscopes("bounced_fallback_user", ["daily_horoscope"]);
+    const queuedUser = user({ userId:"bounced_fallback_user", primaryChannel:"email", fallbackChannel:"line", subscription:await activeSubscription("bounced_fallback_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[queuedUser], topics:["daily_horoscope"], now });
+
+    const bouncedPrimary = user({ ...queuedUser, emailAccount:{ ...queuedUser.emailAccount!, bounced:true } });
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[bouncedPrimary], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.fallbackSent, 1);
+    assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>[attempt.channel, attempt.status, attempt.errorCode]), [["email", "suppressed", "email_bounced"], ["line", "sent", undefined]]);
+  });
+
+  it("falls back from unsubscribed email primary when current fallback preference allows", async () => {
+    approveHoroscopes("unsubscribed_fallback_user", ["daily_horoscope"]);
+    const queuedUser = user({ userId:"unsubscribed_fallback_user", primaryChannel:"email", fallbackChannel:"line", subscription:await activeSubscription("unsubscribed_fallback_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[queuedUser], topics:["daily_horoscope"], now });
+
+    const unsubscribedPrimary = user({ ...queuedUser, emailAccount:{ ...queuedUser.emailAccount!, unsubscribed:true } });
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[unsubscribedPrimary], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.fallbackSent, 1);
+    assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>[attempt.channel, attempt.status, attempt.errorCode]), [["email", "suppressed", "email_unsubscribed"], ["line", "sent", undefined]]);
+  });
+
+  it("does not fallback after an ambiguous primary provider failure and keeps the message retryable", async () => {
+    approveHoroscopes("provider_failure_retry_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"provider_failure_retry_user", subscription:await activeSubscription("provider_failure_retry_user") });
+    let lineCalls = 0;
+    const failingLineGateway = { send:async () => { lineCalls += 1; return { status:"failed" as const, errorCode:"line_provider_failed" }; } } as unknown as LineGateway;
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const failed = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:failingLineGateway, emailGateway:g.emailGateway, now });
+    const retried = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(lineCalls, 1);
+    assert.equal(failed.fallbackSent, 0);
+    assert.equal(g.emailAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "failed");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "line_provider_failed");
+    assert.equal(retried.sent, 1);
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "sent");
+  });
+
+  it("does not use fallback after a provider exception on the primary channel", async () => {
+    approveHoroscopes("provider_exception_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"provider_exception_user", subscription:await activeSubscription("provider_exception_user") });
+    const throwingLineGateway = { send:async () => { throw new Error("timeout"); } } as unknown as LineGateway;
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:throwingLineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.fallbackSent, 0);
+    assert.equal(g.emailAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "queued");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "provider_exception");
+  });
+
+  it("does not retry terminal suppressed messages", async () => {
+    approveHoroscopes("terminal_suppressed_user", ["daily_horoscope"]);
+    const blockedUser = user({ userId:"terminal_suppressed_user", fallbackChannel:undefined, subscription:await activeSubscription("terminal_suppressed_user") });
+    blockedUser.lineAccount!.blocked = true;
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[blockedUser], topics:["daily_horoscope"], now });
+
+    await dispatchQueuedNotifications({ sessionId, users:[blockedUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+    blockedUser.lineAccount!.blocked = false;
+    await dispatchQueuedNotifications({ sessionId, users:[blockedUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "suppressed");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts.length, 1);
+    assert.equal(g.lineAuditLogs.length, 1);
   });
 
   it("does not deliver bounced email", async () => {

@@ -96,11 +96,12 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         continue;
       }
 
-      const queueKey = makeQueueKey(user.userId, topicCode, periodKey, channel);
+      const queueKey = makeQueueKey(user.userId, topicCode, periodKey);
       const existing = state.outboundMessages.find((message)=>message.queueKey===queueKey);
       if (existing) {
         duplicates += 1;
-        writeAudit("notification_duplicate", existing.id, now, { topicCode, periodKey, channel });
+        refreshQueuedDeliveryPreferences(existing, user, topicCode, now);
+        writeAudit("notification_duplicate", existing.id, now, { topicCode, periodKey, channel, queuePolicy:"user_topic_period" });
         continue;
       }
 
@@ -180,7 +181,8 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
     }
 
     const currentFallbackChannel = getCurrentFallbackChannel(user, message);
-    if (currentFallbackChannel && isFallbackTrigger(primary.status)) {
+    let retryableFallbackFailure = false;
+    if (currentFallbackChannel && isFallbackTrigger(primary)) {
       const fallback = await dispatchToChannel(message, currentFallbackChannel, user, input.emailGateway, input.lineGateway, true, now);
       attempts.push(fallback);
       if (fallback.status === "duplicate") {
@@ -192,10 +194,12 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
         fallbackSent += 1;
         continue;
       }
+      if (fallback.status === "failed") retryableFallbackFailure = true;
     }
 
-    message.status = primary.status === "failed" ? "failed" : "suppressed";
-    if (message.status === "suppressed") suppressed += 1;
+    if (primary.status === "failed" || retryableFallbackFailure) continue;
+    message.status = "suppressed";
+    suppressed += 1;
   }
 
   return { attempts, sent, suppressed, duplicates, fallbackSent };
@@ -223,7 +227,7 @@ function getQueueEligibility(input:{ user:NotificationSchedulerUser; topicCode:N
 
 function getDispatchGuard(message:ScheduledNotificationMessage, user:NotificationSchedulerUser, now:Date):{status:"allowed"}|{status:"suppressed"|"deferred"; reason:string} {
   if (!canAccessPeriod({ subscription:user.subscription, planCode:user.planCode ?? "free", periodType:message.periodType as SubscriptionPeriodType, now })) return { status:"suppressed", reason:"entitlement_lost" };
-  if (!isChannelPreferenceEnabled(user, message.topicCode, message.channel) || isChannelUnsubscribed(user, message.channel)) return { status:"suppressed", reason:"primary_channel_preference_disabled" };
+  if (!isChannelPreferenceEnabled(user, message.topicCode, message.channel)) return { status:"suppressed", reason:"primary_channel_preference_disabled" };
   const local = getLocalDateTimeParts(now, user.timezone);
   const localMinute = Number(local.hour) * 60 + Number(local.minute);
   if (user.quietHours && isWithinQuietHours(localMinute, user.quietHours)) return { status:"deferred", reason:"quiet_hours" };
@@ -304,6 +308,19 @@ function isUserInactive(mockState:ReturnType<typeof getMockMvpState>, user:Notif
   return user.active === false || user.accountDeleted === true || Boolean(mockState.deactivatedUserIds[user.userId]) || mockState.accountDeletionRequests.some((request)=>request.userId===user.userId&&request.status==="requested");
 }
 
+function refreshQueuedDeliveryPreferences(message:ScheduledNotificationMessage, user:NotificationSchedulerUser, topicCode:NotificationTopic, now:Date):void {
+  // Horoscope queue idempotency is user/topic/period. If a duplicate scheduler snapshot chooses
+  // a different channel before dispatch starts, keep the exact horoscope source/content but refresh
+  // the delivery preference snapshot to the latest eligible primary/fallback channels on this message.
+  // Once any delivery attempt exists, retain the original queued delivery fields to avoid changing an
+  // in-flight provider claim or retry target.
+  if (message.status !== "queued" || state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===message.id)) return;
+  message.channel = user.primaryChannel;
+  message.fallbackChannel = user.fallbackChannel;
+  message.allowFallback = isFallbackAllowed(user, topicCode);
+  writeAudit("notification_duplicate", message.id, now, { topicCode, periodKey:message.periodKey, channel:user.primaryChannel, queuePolicy:"refreshed_pending_delivery_preferences" });
+}
+
 function isFallbackAllowed(user:NotificationSchedulerUser, topicCode:NotificationTopic):boolean {
   return Boolean(user.fallbackChannel) && user.preferences?.some((preference)=>(preference.topicCode==="all"||preference.topicCode===topicCode)&&preference.allowFallback) === true;
 }
@@ -334,12 +351,13 @@ function isChannelBlockedOrBounced(user:NotificationSchedulerUser, channel:Notif
   return !account?.active || Boolean(account.blocked) || !account.followed;
 }
 
-function isFallbackTrigger(status:NotificationQueueStatus):boolean { return status === "suppressed" || status === "failed"; }
+function isFallbackTrigger(attempt:NotificationDeliveryAttempt):boolean { return attempt.status === "suppressed" && isTerminalFallbackErrorCode(attempt.errorCode); }
+function isTerminalFallbackErrorCode(errorCode:string|undefined):boolean { return new Set(["email_not_verified", "email_bounced", "email_complained", "email_unsubscribed", "email_account_unavailable", "line_account_inactive", "line_account_unavailable"]).has(errorCode ?? ""); }
 function hasSentAttempt(outboundMessageId:string):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&(attempt.status==="sent"||attempt.status==="fallback_sent")); }
 function hasActiveOrSentDeliveryAttempt(outboundMessageId:string, channel:NotificationChannel):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.channel===channel&&(attempt.status==="in_progress"||attempt.status==="sent"||attempt.status==="fallback_sent")); }
 function mapEmailStatus(status:EmailDeliveryResult["status"]):NotificationQueueStatus { return status === "sent" ? "sent" : status === "failed" ? "failed" : "suppressed"; }
 function mapLineStatus(status:LineDeliveryResult["status"]):NotificationQueueStatus { return status === "sent" ? "sent" : status === "failed" ? "failed" : "suppressed"; }
-function makeQueueKey(userId:string, topicCode:NotificationTopic, periodKey:string, channel:NotificationChannel):string { return [userId, topicCode, periodKey, channel].join(":"); }
+function makeQueueKey(userId:string, topicCode:NotificationTopic, periodKey:string):string { return [userId, topicCode, periodKey].join(":"); }
 function auditTarget(userId:string, topicCode:string, periodKey:string):string { return `notif_${sha256(`${userId}:${topicCode}:${periodKey}`).slice(0,16)}`; }
 function writeAudit(action:NotificationSchedulerAuditLogEntry["action"], targetId:string, now:Date, metadata:Record<string,string>):void { state.auditLogs.push({ action, targetId, createdAt:now.toISOString(), metadata:sanitizeNotificationMetadata(metadata) }); }
 function sanitizeNotificationMetadata(metadata:Record<string,string>):Record<string,string> { return Object.fromEntries(Object.entries(metadata).filter(([key,value])=>!isSensitiveMetadataKey(key)&&!isSensitiveMetadataValue(value))); }

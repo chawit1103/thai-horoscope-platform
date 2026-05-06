@@ -134,6 +134,8 @@ calculation_profiles:
 
 `file_manifest` should include file names, sizes, and SHA-256 hashes. The chart snapshot should include the resulting `ephemeris_fingerprint`, not raw filesystem details.
 
+PR18 Swiss Ephemeris path validation treats only pinned Swiss Ephemeris data files as fingerprintable inputs. Supported file patterns are `*.se1` and `*.se2`, including standard `se*.se1` and `se*.se2` Swiss Ephemeris filenames. If `ASTRO_EPHEMERIS_PATH` points to a directory, the adapter recursively collects only supported files, deterministically fingerprints each relative filename, size, and SHA-256 content hash, and fails closed with `EPHEMERIS_FILES_EMPTY` when no supported files are present. Unrelated files such as logs, temporary downloads, and provider scratch files are ignored and cannot make a directory valid. If `ASTRO_EPHEMERIS_PATH` points to a single file, that file must match a supported pattern or the adapter fails with `EPHEMERIS_FILE_MISSING`.
+
 Runtime behavior must not:
 
 - silently update ephemeris files

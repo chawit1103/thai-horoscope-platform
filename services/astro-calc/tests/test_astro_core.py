@@ -202,19 +202,23 @@ class AstroCoreTests(unittest.TestCase):
             create_service(AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="none", ephemeris_path=None))
 
         fake = FakeSwe()
-        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
-        engine = SwissEphemerisEngine(config, swe_module=fake)
-        snapshot = AstroCoreService(engine=engine, config=config).calculate_natal_chart(bangkok_request("TH_NIRAYANA_SWISSEPH_V1"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "sepl_18.se1").write_bytes(b"fixture")
+            config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path=temp_dir)
+            engine = SwissEphemerisEngine(config, swe_module=fake)
+            snapshot = AstroCoreService(engine=engine, config=config).calculate_natal_chart(bangkok_request("TH_NIRAYANA_SWISSEPH_V1"))
         self.assertEqual(snapshot.engine, "swisseph")
         self.assertEqual(snapshot.engine_info.name, "swisseph")
         self.assertEqual(snapshot.calculation_profile_code, "TH_NIRAYANA_SWISSEPH_V1")
 
     def test_swisseph_engine_rejects_mock_specific_profile(self) -> None:
         fake = FakeSwe()
-        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
-        engine = SwissEphemerisEngine(config, swe_module=fake)
-        with self.assertRaisesRegex(ValueError, "ASTRO_PROFILE_ENGINE_MISMATCH"):
-            AstroCoreService(engine=engine, config=config).calculate_natal_chart(bangkok_request("TH_NIRAYANA_MOCK_V1"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "sepl_18.se1").write_bytes(b"fixture")
+            config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path=temp_dir)
+            engine = SwissEphemerisEngine(config, swe_module=fake)
+            with self.assertRaisesRegex(ValueError, "ASTRO_PROFILE_ENGINE_MISMATCH"):
+                AstroCoreService(engine=engine, config=config).calculate_natal_chart(bangkok_request("TH_NIRAYANA_MOCK_V1"))
 
     def test_unknown_birth_time_with_datetime_local_uses_noon_not_midnight(self) -> None:
         service = AstroCoreService()
@@ -595,6 +599,56 @@ class AstroCoreTests(unittest.TestCase):
         with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILE_MISSING"):
             SwissEphemerisEngine(config)
 
+    def test_swisseph_adapter_fails_closed_when_ephemeris_directory_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = AstroRuntimeConfig(
+                engine="swisseph",
+                runtime_env="test",
+                swisseph_license_mode="free",
+                ephemeris_path=temp_dir,
+            )
+            with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILES_EMPTY"):
+                SwissEphemerisEngine(config, swe_module=FakeSwe())
+            with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILES_EMPTY"):
+                fingerprint_ephemeris_path(temp_dir)
+
+    def test_swisseph_adapter_fails_closed_with_only_unrelated_ephemeris_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "download.tmp").write_bytes(b"not ephemeris")
+            (root / "swisseph.log").write_bytes(b"log")
+            config = AstroRuntimeConfig(
+                engine="swisseph",
+                runtime_env="test",
+                swisseph_license_mode="free",
+                ephemeris_path=temp_dir,
+            )
+            with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILES_EMPTY"):
+                SwissEphemerisEngine(config, swe_module=FakeSwe())
+            with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILES_EMPTY"):
+                fingerprint_ephemeris_path(temp_dir)
+
+    def test_swisseph_adapter_starts_with_supported_ephemeris_files_and_ignores_unrelated_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            supported = root / "sepl_18.se1"
+            supported.write_bytes(b"supported-v1")
+            unrelated = root / "runtime.log"
+            unrelated.write_bytes(b"ignored-v1")
+            config = AstroRuntimeConfig(
+                engine="swisseph",
+                runtime_env="test",
+                swisseph_license_mode="free",
+                ephemeris_path=temp_dir,
+            )
+            first = fingerprint_ephemeris_path(temp_dir)
+            engine = SwissEphemerisEngine(config, swe_module=FakeSwe())
+            unrelated.write_bytes(b"ignored-v2")
+            self.assertEqual(first, fingerprint_ephemeris_path(temp_dir))
+            supported.write_bytes(b"supported-v2")
+            self.assertNotEqual(first, fingerprint_ephemeris_path(temp_dir))
+            self.assertEqual(engine.ephemeris_fingerprint, first)
+
     def test_mock_engine_works_without_license_or_ephemeris_path(self) -> None:
         config = AstroRuntimeConfig(engine="mock", swisseph_license_mode="none", ephemeris_path=None)
         config.validate()
@@ -646,11 +700,15 @@ class AstroCoreTests(unittest.TestCase):
             (right / "sepl_18.se1").write_bytes(b"planet")
             (right / "semo_18.se1").write_bytes(b"moon")
             self.assertEqual(fingerprint_ephemeris_path(str(left)), fingerprint_ephemeris_path(str(right)))
-            single = left / "single.custom"
+            single = left / "single.se2"
             single.write_bytes(b"content-v1")
             first = fingerprint_ephemeris_path(str(single))
             single.write_bytes(b"content-v2")
             self.assertNotEqual(first, fingerprint_ephemeris_path(str(single)))
+            unsupported = left / "single.custom"
+            unsupported.write_bytes(b"unsupported")
+            with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILE_MISSING"):
+                fingerprint_ephemeris_path(str(unsupported))
 
     def test_calculation_hash_changes_when_ephemeris_fingerprint_changes(self) -> None:
         request = bangkok_request()
@@ -700,11 +758,13 @@ class AstroCoreTests(unittest.TestCase):
 
     def test_swisseph_adapter_uses_injected_module_without_runtime_downloads(self) -> None:
         fake = FakeSwe()
-        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
-        engine = SwissEphemerisEngine(config, swe_module=fake)
-        positions = engine.planet_positions(2451545.0, ["sun", "rahu", "ketu"], "lahiri")
-        houses = engine.houses(2451545.0, 13.7563, 100.5018, "whole_sign", True)
-        self.assertEqual(fake.ephe_path, "/tmp/ephe")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "sepl_18.se1").write_bytes(b"fixture")
+            config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path=temp_dir)
+            engine = SwissEphemerisEngine(config, swe_module=fake)
+            positions = engine.planet_positions(2451545.0, ["sun", "rahu", "ketu"], "lahiri")
+            houses = engine.houses(2451545.0, 13.7563, 100.5018, "whole_sign", True)
+            self.assertEqual(fake.ephe_path, temp_dir)
         self.assertEqual(fake.sid_mode_set, True)
         self.assertEqual(positions["sun"].sign_index, 0)
         self.assertAlmostEqual((positions["rahu"].longitude_deg + 180) % 360, positions["ketu"].longitude_deg, places=6)
@@ -712,27 +772,33 @@ class AstroCoreTests(unittest.TestCase):
 
     def test_swisseph_adapter_honors_mean_node_profile_for_rahu_and_ketu(self) -> None:
         fake = FakeSwe()
-        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
-        engine = SwissEphemerisEngine(config, swe_module=fake)
-        positions = engine.planet_positions(2451545.0, ["rahu", "ketu"], "lahiri", "mean_node")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "sepl_18.se1").write_bytes(b"fixture")
+            config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path=temp_dir)
+            engine = SwissEphemerisEngine(config, swe_module=fake)
+            positions = engine.planet_positions(2451545.0, ["rahu", "ketu"], "lahiri", "mean_node")
         self.assertIn(fake.MEAN_NODE, fake.calc_body_ids)
         self.assertNotIn(fake.TRUE_NODE, fake.calc_body_ids)
         self.assertAlmostEqual((positions["rahu"].longitude_deg + 180) % 360, positions["ketu"].longitude_deg, places=6)
 
     def test_swisseph_adapter_honors_true_node_profile_for_rahu_and_ketu(self) -> None:
         fake = FakeSwe()
-        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
-        engine = SwissEphemerisEngine(config, swe_module=fake)
-        positions = engine.planet_positions(2451545.0, ["rahu", "ketu"], "lahiri", "true_node")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "sepl_18.se1").write_bytes(b"fixture")
+            config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path=temp_dir)
+            engine = SwissEphemerisEngine(config, swe_module=fake)
+            positions = engine.planet_positions(2451545.0, ["rahu", "ketu"], "lahiri", "true_node")
         self.assertIn(fake.TRUE_NODE, fake.calc_body_ids)
         self.assertNotIn(fake.MEAN_NODE, fake.calc_body_ids)
         self.assertAlmostEqual((positions["rahu"].longitude_deg + 180) % 360, positions["ketu"].longitude_deg, places=6)
 
     def test_snapshot_metadata_node_type_agrees_with_swisseph_body_selection(self) -> None:
         fake = FakeSwe()
-        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
-        engine = SwissEphemerisEngine(config, swe_module=fake)
-        snapshot = AstroCoreService(engine=engine, config=config).calculate_natal_chart(bangkok_request("TH_SIMPLE_RASI_V1"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "sepl_18.se1").write_bytes(b"fixture")
+            config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path=temp_dir)
+            engine = SwissEphemerisEngine(config, swe_module=fake)
+            snapshot = AstroCoreService(engine=engine, config=config).calculate_natal_chart(bangkok_request("TH_SIMPLE_RASI_V1"))
         self.assertEqual(snapshot.metadata["node_type"], "mean_node")
         self.assertEqual(snapshot.calculation_profile.node_type, "mean_node")
         self.assertIn(fake.MEAN_NODE, fake.calc_body_ids)

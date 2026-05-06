@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import importlib
 from pathlib import Path
@@ -29,7 +30,7 @@ SWISSEPH_NODE_BODIES = {
     "true_node": "TRUE_NODE",
 }
 
-EXPECTED_EPHEMERIS_SUFFIXES = {".se1", ".se2", ".se3", ".sef", ".eph", ".ephe", ".bsp"}
+SUPPORTED_EPHEMERIS_FILE_PATTERNS = ("*.se1", "*.se2", "se*.se1", "se*.se2")
 
 
 class SwissEphemerisEngine(AstroEngine):
@@ -40,10 +41,8 @@ class SwissEphemerisEngine(AstroEngine):
     def __init__(self, config: AstroRuntimeConfig, swe_module: Any | None = None) -> None:
         config.validate()
         self._config = config
-        if swe_module is None and config.ephemeris_path and not Path(config.ephemeris_path).exists():
-            raise FileNotFoundError("EPHEMERIS_FILE_MISSING: ASTRO_EPHEMERIS_PATH does not exist; runtime downloads are disabled.")
-        self._swe = swe_module or importlib.import_module("swisseph")
         self.ephemeris_fingerprint = fingerprint_ephemeris_path(config.ephemeris_path)
+        self._swe = swe_module or importlib.import_module("swisseph")
         self._swe.set_ephe_path(config.ephemeris_path)
         self._set_ayanamsha(config.default_ayanamsha)
 
@@ -134,10 +133,7 @@ def fingerprint_ephemeris_path(path: str | None) -> str:
     if not path:
         return "swisseph-unset"
     root = Path(path)
-    if not root.exists():
-        missing_digest = hashlib.sha256(path.encode("utf-8")).hexdigest()[:16]
-        return f"swisseph-path-{missing_digest}"
-    files = [root] if root.is_file() else _expected_ephemeris_files(root)
+    files = _supported_ephemeris_files(root)
     aggregate_digest = hashlib.sha256()
     for file_path in files:
         relative_name = file_path.name if root.is_file() else file_path.relative_to(root).as_posix()
@@ -147,11 +143,25 @@ def fingerprint_ephemeris_path(path: str | None) -> str:
     return f"swisseph-path-{aggregate_digest.hexdigest()[:16]}"
 
 
-def _expected_ephemeris_files(root: Path) -> list[Path]:
-    return sorted(
-        (item for item in root.rglob("*") if item.is_file() and item.suffix.lower() in EXPECTED_EPHEMERIS_SUFFIXES),
+def _supported_ephemeris_files(root: Path) -> list[Path]:
+    if not root.exists():
+        raise FileNotFoundError("EPHEMERIS_FILE_MISSING: ASTRO_EPHEMERIS_PATH does not exist; runtime downloads are disabled.")
+    if root.is_file():
+        if _is_supported_ephemeris_file(root):
+            return [root]
+        raise FileNotFoundError("EPHEMERIS_FILE_MISSING: ASTRO_EPHEMERIS_PATH file is not a supported Swiss Ephemeris file type.")
+    files = sorted(
+        (item for item in root.rglob("*") if item.is_file() and _is_supported_ephemeris_file(item)),
         key=lambda item: item.relative_to(root).as_posix(),
     )
+    if not files:
+        raise FileNotFoundError("EPHEMERIS_FILES_EMPTY: ASTRO_EPHEMERIS_PATH contains no supported Swiss Ephemeris files.")
+    return files
+
+
+def _is_supported_ephemeris_file(path: Path) -> bool:
+    filename = path.name.lower()
+    return any(fnmatch.fnmatchcase(filename, pattern) for pattern in SUPPORTED_EPHEMERIS_FILE_PATTERNS)
 
 
 def _sha256_file(path: Path) -> str:

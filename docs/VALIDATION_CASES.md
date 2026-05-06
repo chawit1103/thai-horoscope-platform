@@ -94,7 +94,7 @@ These cases must be covered by unit tests at minimum and promoted to golden fixt
 
 | Edge | Expected behavior | PR18 status |
 | --- | --- | --- |
-| Unknown birth time | Return `UNKNOWN_BIRTH_TIME` and `UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE`; mark houses/angles unreliable; omit planet house assignment. | Covered by unit test. |
+| Unknown birth time | Return `UNKNOWN_BIRTH_TIME`, `UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK`, `FAST_PLANET_POSITIONS_APPROXIMATE`, and `UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE`; mark houses/angles unreliable; omit planet house assignment. | Covered by unit test and contract schema validation. |
 | Timezone | Convert Asia/Bangkok and DST/non-DST America/New_York deterministically; reject invalid timezone with `INVALID_TIMEZONE`. | Covered by unit test. |
 | Missing location | Return `MISSING_LOCATION`; do not claim reliable houses or Ascendant/Lagna. | Covered by unit test. |
 | Unsupported date range | Return `UNSUPPORTED_DATE_RANGE` for natal chart date limits and `UNSUPPORTED_TIMING_RANGE` for hourly timing ranges beyond the prototype limit. | Covered by unit test. |

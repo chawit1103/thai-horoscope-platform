@@ -155,6 +155,15 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
       continue;
     }
 
+    const guard = getDispatchGuard(message, user, now);
+    if (guard.status !== "allowed") {
+      const attempt = recordAttempt(message, message.channel, guard.status, now, false, guard.reason);
+      attempts.push(attempt);
+      message.status = guard.status;
+      if (guard.status === "suppressed") suppressed += 1;
+      continue;
+    }
+
     const primary = await dispatchToChannel(message, message.channel, user, input.emailGateway, input.lineGateway, false, now);
     attempts.push(primary);
     if (primary.status === "sent") {
@@ -198,6 +207,16 @@ function getQueueEligibility(input:{ user:NotificationSchedulerUser; topicCode:N
   if (input.user.quietHours && isWithinQuietHours(localMinute, input.user.quietHours)) return { status:"deferred", reason:"quiet_hours" };
   if (minutesApart(localMinute, parseTimeToMinutes(input.user.preferredNotificationTime)) > input.dispatchWindowMinutes) return { status:"deferred", reason:"outside_preferred_time_window" };
   return { status:"eligible" };
+}
+
+
+function getDispatchGuard(message:ScheduledNotificationMessage, user:NotificationSchedulerUser, now:Date):{status:"allowed"}|{status:"suppressed"|"deferred"; reason:string} {
+  if (!canAccessPeriod({ subscription:user.subscription, planCode:user.planCode ?? "free", periodType:message.periodType as SubscriptionPeriodType, now })) return { status:"suppressed", reason:"entitlement_lost" };
+  if (!isChannelPreferenceEnabled(user, message.topicCode, message.channel) || isChannelUnsubscribed(user, message.channel)) return { status:"suppressed", reason:"primary_channel_preference_disabled" };
+  const local = getLocalDateTimeParts(now, user.timezone);
+  const localMinute = Number(local.hour) * 60 + Number(local.minute);
+  if (user.quietHours && isWithinQuietHours(localMinute, user.quietHours)) return { status:"deferred", reason:"quiet_hours" };
+  return { status:"allowed" };
 }
 
 async function dispatchToChannel(message:ScheduledNotificationMessage, channel:NotificationChannel, user:NotificationSchedulerUser, emailGateway:EmailGateway|undefined, lineGateway:LineGateway|undefined, fallback:boolean, now:Date):Promise<NotificationDeliveryAttempt> {

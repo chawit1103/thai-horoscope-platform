@@ -154,6 +154,123 @@ describe("notification scheduler", () => {
     assert.equal(getNotificationSchedulerState().outboundMessages.length, 1);
   });
 
+
+  it("suppresses queued monthly and yearly premium messages after subscription expiration", async () => {
+    approveHoroscopes("expired_dispatch_user", ["monthly_horoscope","yearly_horoscope"]);
+    const premium = user({ userId:"expired_dispatch_user", subscription:await activeSubscription("expired_dispatch_user", "premium") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[premium], topics:["monthly_horoscope","yearly_horoscope"], now });
+
+    const expiredSubscription = { ...premium.subscription!, status:"expired" as const, expiredAt:"2026-06-01T00:00:00.000Z", updatedAt:"2026-06-01T00:00:00.000Z" };
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[{ ...premium, subscription:expiredSubscription }], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now:new Date("2026-06-01T00:00:00.000Z") });
+
+    assert.equal(dispatch.sent, 0);
+    assert.equal(dispatch.suppressed, 2);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.errorCode), ["entitlement_lost","entitlement_lost"]);
+  });
+
+  it("suppresses queued premium messages after downgrade to basic", async () => {
+    approveHoroscopes("downgraded_dispatch_user", ["monthly_horoscope"]);
+    const premium = user({ userId:"downgraded_dispatch_user", subscription:await activeSubscription("downgraded_dispatch_user", "premium") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[premium], topics:["monthly_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[{ ...premium, subscription:undefined, planCode:"basic" }], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.sent, 0);
+    assert.equal(dispatch.suppressed, 1);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "entitlement_lost");
+  });
+
+  it("dispatches allowed daily free messages when entitlement remains valid", async () => {
+    approveHoroscopes("free_daily_dispatch_user", ["daily_horoscope"]);
+    const freeDaily = user({ userId:"free_daily_dispatch_user", planCode:"free", subscription:undefined });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[freeDaily], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[freeDaily], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.sent, 1);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "sent");
+    assert.equal(g.lineAuditLogs.length, 1);
+  });
+
+  it("suppresses queued LINE primary messages when LINE preference is disabled before dispatch", async () => {
+    approveHoroscopes("line_disabled_dispatch_user", ["daily_horoscope"]);
+    const queuedUser = user({ userId:"line_disabled_dispatch_user", subscription:await activeSubscription("line_disabled_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[queuedUser], topics:["daily_horoscope"], now });
+
+    const disabledUser = user({ ...queuedUser, preferences:[{ topicCode:"daily_horoscope", channel:"line", enabled:false, allowFallback:true }, { topicCode:"all", channel:"email", enabled:true, allowFallback:true }] });
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[disabledUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.sent, 0);
+    assert.equal(dispatch.fallbackSent, 0);
+    assert.equal(dispatch.suppressed, 1);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.equal(g.emailAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "primary_channel_preference_disabled");
+  });
+
+  it("suppresses queued email primary messages when email preference is disabled before dispatch", async () => {
+    approveHoroscopes("email_disabled_dispatch_user", ["daily_horoscope"]);
+    const queuedUser = user({ userId:"email_disabled_dispatch_user", primaryChannel:"email", fallbackChannel:"line", subscription:await activeSubscription("email_disabled_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[queuedUser], topics:["daily_horoscope"], now });
+
+    const disabledUser = user({ ...queuedUser, preferences:[{ topicCode:"daily_horoscope", channel:"email", enabled:false, allowFallback:true }, { topicCode:"all", channel:"line", enabled:true, allowFallback:true }] });
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[disabledUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.sent, 0);
+    assert.equal(dispatch.fallbackSent, 0);
+    assert.equal(dispatch.suppressed, 1);
+    assert.equal(g.emailAuditLogs.length, 0);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "primary_channel_preference_disabled");
+  });
+
+  it("defers queued messages when dispatch falls inside current quiet hours", async () => {
+    approveHoroscopes("quiet_dispatch_user", ["daily_horoscope"]);
+    const quietDispatch = user({ userId:"quiet_dispatch_user", quietHours:{ start:"08:00", end:"09:00" }, subscription:await activeSubscription("quiet_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[quietDispatch], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[quietDispatch], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now:new Date("2026-05-03T01:30:00.000Z") });
+
+    assert.equal(dispatch.sent, 0);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "deferred");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "quiet_hours");
+  });
+
+  it("dispatches queued messages outside quiet hours", async () => {
+    approveHoroscopes("outside_quiet_dispatch_user", ["daily_horoscope"]);
+    const quietDispatch = user({ userId:"outside_quiet_dispatch_user", quietHours:{ start:"08:00", end:"09:00" }, subscription:await activeSubscription("outside_quiet_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[quietDispatch], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[quietDispatch], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.sent, 1);
+    assert.equal(g.lineAuditLogs.length, 1);
+  });
+
+  it("uses the user's timezone when re-checking quiet hours at dispatch", async () => {
+    approveHoroscopes("utc_quiet_dispatch_user", ["daily_horoscope"]);
+    const utcQuiet = user({ userId:"utc_quiet_dispatch_user", timezone:"UTC", preferredNotificationTime:"00:30", quietHours:{ start:"00:40", end:"01:00" }, subscription:await activeSubscription("utc_quiet_dispatch_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[utcQuiet], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[utcQuiet], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now:new Date("2026-05-03T00:45:00.000Z") });
+
+    assert.equal(dispatch.sent, 0);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "deferred");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "quiet_hours");
+  });
+
   it("does not send duplicates during repeated dispatch", async () => {
     approveHoroscopes("dispatch_retry_user", ["daily_horoscope"]);
     const dispatchUser = user({ userId:"dispatch_retry_user", subscription:await activeSubscription("dispatch_retry_user") });

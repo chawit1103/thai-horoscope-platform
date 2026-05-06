@@ -9,7 +9,7 @@ from app.core.aspects import calculate_aspects, calculate_cross_aspects, calcula
 from app.core.math import angular_distance, sign_index, stable_hash
 from app.core.profiles import get_profile, validate_profile_engine_compatibility
 from app.core.storage import ChartSnapshotStore
-from app.core.time import julian_day_ut, local_to_utc, utc_to_iso
+from app.core.time import birth_datetime_local, date_from_datetime_local, julian_day_ut, local_to_utc, parse_birth_date, parse_datetime_local, utc_to_iso
 from app.core.zodiac import degree_in_sign, sign_name_en, sign_name_th, whole_sign_house_number
 from app.engines.base import AstroEngine
 from app.engines.mock import MockAstroEngine
@@ -608,9 +608,7 @@ def utc_to_local_iso(value_utc: datetime, timezone: str) -> str:
 
 
 def local_with_offset_iso(datetime_local: str, timezone: str) -> str:
-    local = datetime.fromisoformat(datetime_local)
-    if local.tzinfo is not None:
-        return local.isoformat(timespec="seconds")
+    local = parse_datetime_local(datetime_local)
     return local.replace(tzinfo=ZoneInfo(timezone)).isoformat(timespec="seconds")
 
 
@@ -651,10 +649,10 @@ def group_hit_keys(hits: list[TransitToNatalHit], field: str) -> dict[str, list[
 
 def resolve_datetime_local(request: ChartRequest) -> str:
     if request.birth_time_unknown:
-        birth_date = request.birth_date or _date_from_datetime_local(request.datetime_local)
+        birth_date = request.birth_date or date_from_datetime_local(request.datetime_local)
         if not birth_date:
             raise ValueError("Either datetime_local or birth_date is required.")
-        return f"{birth_date}T12:00:00"
+        return f"{parse_birth_date(birth_date).isoformat()}T12:00:00"
     if request.datetime_local:
         return request.datetime_local
     if not request.birth_date:
@@ -662,15 +660,7 @@ def resolve_datetime_local(request: ChartRequest) -> str:
     birth_time = request.birth_time
     if not birth_time:
         raise ValueError("birth_time is required unless birth_time_unknown is true.")
-    if len(birth_time) == 5:
-        birth_time = f"{birth_time}:00"
-    return f"{request.birth_date}T{birth_time}"
-
-
-def _date_from_datetime_local(datetime_local: str | None) -> str | None:
-    if not datetime_local:
-        return None
-    return datetime.fromisoformat(datetime_local).date().isoformat()
+    return birth_datetime_local(request.birth_date, birth_time)
 
 
 def validate_request_warnings(request: ChartRequest, datetime_local: str) -> list[WarningMessage]:

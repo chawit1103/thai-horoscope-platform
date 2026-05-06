@@ -1,7 +1,50 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+UNKNOWN_BIRTH_TIME_FALLBACK = "12:00:00"
+
+
+def parse_datetime_local(datetime_local: str, error_code: str = "INVALID_DATETIME_LOCAL") -> datetime:
+    try:
+        local = datetime.fromisoformat(datetime_local)
+    except ValueError:
+        raise ValueError(error_code) from None
+    if local.tzinfo is not None:
+        raise ValueError("INVALID_DATETIME_LOCAL_OFFSET")
+    return local
+
+
+def parse_birth_date(birth_date: str) -> date:
+    try:
+        return date.fromisoformat(birth_date)
+    except ValueError:
+        raise ValueError("INVALID_BIRTH_DATE") from None
+
+
+def normalize_birth_time(birth_time: str) -> str:
+    candidate = f"{birth_time}:00" if len(birth_time) == 5 else birth_time
+    try:
+        parsed = time.fromisoformat(candidate)
+    except ValueError:
+        raise ValueError("INVALID_BIRTH_TIME") from None
+    if parsed.tzinfo is not None:
+        raise ValueError("INVALID_BIRTH_TIME")
+    return parsed.replace(microsecond=0).isoformat()
+
+
+def birth_datetime_local(birth_date: str, birth_time: str) -> str:
+    parsed_date = parse_birth_date(birth_date)
+    normalized_time = normalize_birth_time(birth_time)
+    return f"{parsed_date.isoformat()}T{normalized_time}"
+
+
+def date_from_datetime_local(datetime_local: str | None) -> str | None:
+    if not datetime_local:
+        return None
+    return parse_datetime_local(datetime_local).date().isoformat()
 
 
 def local_to_utc(datetime_local: str, timezone: str) -> datetime:
@@ -9,9 +52,7 @@ def local_to_utc(datetime_local: str, timezone: str) -> datetime:
         tz = ZoneInfo(timezone)
     except ZoneInfoNotFoundError as error:
         raise ValueError(f"INVALID_TIMEZONE: {timezone}") from error
-    local = datetime.fromisoformat(datetime_local)
-    if local.tzinfo is not None:
-        raise ValueError("datetime_local must not include an offset; timezone is provided separately.")
+    local = parse_datetime_local(datetime_local)
     return local.replace(tzinfo=tz).astimezone(UTC)
 
 
@@ -34,7 +75,7 @@ def julian_day_ut(value: datetime) -> float:
 
 def each_hour_utc(date_local: str, timezone: str) -> list[tuple[datetime, datetime, str]]:
     tz = ZoneInfo(timezone)
-    start_local = datetime.fromisoformat(f"{date_local}T00:00:00").replace(tzinfo=tz)
+    start_local = parse_datetime_local(f"{date_local}T00:00:00", "INVALID_BIRTH_DATE").replace(tzinfo=tz)
     windows: list[tuple[datetime, datetime, str]] = []
     for hour in range(24):
         local_start = start_local + timedelta(hours=hour)

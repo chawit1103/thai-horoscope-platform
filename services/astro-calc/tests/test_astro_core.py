@@ -66,6 +66,81 @@ class AstroCoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "INVALID_TIMEZONE"):
             local_to_utc("2026-01-01T08:30:00", "Not/AZone")
 
+    def test_malformed_datetime_local_error_is_sanitized(self) -> None:
+        raw_datetime = "1990-05-12Tbirth-secret"
+        with self.assertRaisesRegex(ValueError, "INVALID_DATETIME_LOCAL") as raised:
+            AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local=raw_datetime))
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertNotIn("birth-secret", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_malformed_birth_date_error_is_sanitized(self) -> None:
+        raw_birth_date = "1990-birth-secret-12"
+        with self.assertRaisesRegex(ValueError, "INVALID_BIRTH_DATE") as raised:
+            AstroCoreService().calculate_natal_chart(
+                ChartRequest(
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    birth_date=raw_birth_date,
+                    birth_time="08:30",
+                    timezone="Asia/Bangkok",
+                    latitude=13.7563,
+                    longitude=100.5018,
+                )
+            )
+        self.assertNotIn(raw_birth_date, str(raised.exception))
+        self.assertNotIn("birth-secret", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_malformed_birth_time_error_is_sanitized(self) -> None:
+        raw_birth_time = "08:birth-secret"
+        with self.assertRaisesRegex(ValueError, "INVALID_BIRTH_TIME") as raised:
+            AstroCoreService().calculate_natal_chart(
+                ChartRequest(
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    birth_date="1990-05-12",
+                    birth_time=raw_birth_time,
+                    timezone="Asia/Bangkok",
+                    latitude=13.7563,
+                    longitude=100.5018,
+                )
+            )
+        self.assertNotIn(raw_birth_time, str(raised.exception))
+        self.assertNotIn("birth-secret", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_combined_birth_date_time_parse_does_not_leak_raw_values(self) -> None:
+        raw_birth_date = "1990-05-12"
+        raw_birth_time = "08:raw-secret"
+        with self.assertRaisesRegex(ValueError, "INVALID_BIRTH_TIME") as raised:
+            AstroCoreService().calculate_natal_chart(
+                ChartRequest(
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    birth_date=raw_birth_date,
+                    birth_time=raw_birth_time,
+                    timezone="Asia/Bangkok",
+                    latitude=13.7563,
+                    longitude=100.5018,
+                )
+            )
+        self.assertNotIn(raw_birth_date, str(raised.exception))
+        self.assertNotIn(raw_birth_time, str(raised.exception))
+        self.assertNotIn("raw-secret", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_valid_birth_date_and_time_still_parse_correctly(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_V1",
+                birth_date="1990-05-12",
+                birth_time="08:30:15",
+                timezone="Asia/Bangkok",
+                latitude=13.7563,
+                longitude=100.5018,
+            )
+        )
+        self.assertEqual(snapshot.datetime_local, "1990-05-12T08:30:15")
+        self.assertEqual(snapshot.datetime_utc, "1990-05-12T01:30:15Z")
+
     def test_natal_chart_is_json_serializable_and_has_lagna_houses(self) -> None:
         snapshot = AstroCoreService().calculate_natal_chart(bangkok_request())
         encoded = json.dumps(snapshot.to_json_dict(), sort_keys=True)

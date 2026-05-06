@@ -119,14 +119,17 @@ describe("notification scheduler", () => {
     assert.equal(result.skipped, 2);
   });
 
-  it("defers during quiet hours", async () => {
+  it("queues and defers retryable messages during quiet hours inside the preferred window", async () => {
     approveHoroscopes("quiet_user", ["daily_horoscope"]);
     const quietUser = user({ userId:"quiet_user", quietHours:{ start:"22:00", end:"08:00" }, subscription:await activeSubscription("quiet_user") });
 
     const result = runNotificationSchedulerJob({ sessionId, users:[quietUser], topics:["daily_horoscope"], now });
 
-    assert.equal(result.queued.length, 0);
+    assert.equal(result.queued.length, 1);
     assert.equal(result.deferred, 1);
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "queued");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "deferred");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "quiet_hours");
   });
 
   it("respects timezone and preferred notification time", async () => {
@@ -140,6 +143,48 @@ describe("notification scheduler", () => {
     assert.equal(result.queued.length, 1);
     assert.equal(result.queued[0]?.userId, "bangkok_user");
     assert.equal(result.deferred, 1);
+  });
+
+  it("does not create duplicate queued records on repeated scheduler runs during quiet hours", async () => {
+    approveHoroscopes("quiet_duplicate_user", ["daily_horoscope"]);
+    const quietUser = user({ userId:"quiet_duplicate_user", quietHours:{ start:"22:00", end:"08:00" }, subscription:await activeSubscription("quiet_duplicate_user") });
+
+    const first = runNotificationSchedulerJob({ sessionId, users:[quietUser], topics:["daily_horoscope"], now });
+    const second = runNotificationSchedulerJob({ sessionId, users:[quietUser], topics:["daily_horoscope"], now });
+
+    assert.equal(first.queued.length, 1);
+    assert.equal(second.queued.length, 0);
+    assert.equal(second.duplicates, 1);
+    assert.equal(getNotificationSchedulerState().outboundMessages.length, 1);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts.filter((attempt)=>attempt.errorCode==="quiet_hours").length, 1);
+  });
+
+  it("dispatches the same quiet-hour queued message after quiet hours even outside the original preferred window", async () => {
+    approveHoroscopes("quiet_after_window_user", ["daily_horoscope"]);
+    const quietUser = user({ userId:"quiet_after_window_user", quietHours:{ start:"22:00", end:"08:00" }, subscription:await activeSubscription("quiet_after_window_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[quietUser], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[quietUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now:new Date("2026-05-03T01:00:00.000Z") });
+
+    assert.equal(dispatch.sent, 1);
+    assert.equal(getNotificationSchedulerState().outboundMessages.length, 1);
+    assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>attempt.status), ["deferred", "sent"]);
+    assert.equal(g.lineAuditLogs.length, 1);
+  });
+
+  it("does not queue deactivated unsubscribed or unentitled users during quiet hours", async () => {
+    approveHoroscopes("quiet_deactivated_user", ["daily_horoscope"]);
+    approveHoroscopes("quiet_unsubscribed_user", ["daily_horoscope"]);
+    approveHoroscopes("quiet_unentitled_user", ["monthly_horoscope"]);
+    const deactivated = user({ userId:"quiet_deactivated_user", active:false, quietHours:{ start:"22:00", end:"08:00" }, subscription:await activeSubscription("quiet_deactivated_user") });
+    const unsubscribed = user({ userId:"quiet_unsubscribed_user", primaryChannel:"email", quietHours:{ start:"22:00", end:"08:00" }, emailAccount:{ ...createEmailChannelAccount({ userId:"quiet_unsubscribed_user", email:"quiet-unsubscribed@example.test", now }), verified:true, unsubscribed:true }, subscription:await activeSubscription("quiet_unsubscribed_user") });
+    const unentitled = user({ userId:"quiet_unentitled_user", quietHours:{ start:"22:00", end:"08:00" }, planCode:"free", subscription:undefined });
+
+    const result = runNotificationSchedulerJob({ sessionId, users:[deactivated, unsubscribed, unentitled], topics:["daily_horoscope", "monthly_horoscope"], now });
+
+    assert.equal(result.queued.length, 0);
+    assert.equal(getNotificationSchedulerState().outboundMessages.length, 0);
   });
 
   it("does not create duplicate outbound messages across retry runs", async () => {
@@ -632,6 +677,57 @@ describe("notification scheduler", () => {
     assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "email_gateway_unavailable");
     assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "sent");
     assert.equal(retried.sent, 1);
+  });
+
+  it("does not fallback to email when primary LINE account data is missing from the dispatch snapshot", async () => {
+    approveHoroscopes("missing_line_account_user", ["daily_horoscope"]);
+    const queuedUser = user({ userId:"missing_line_account_user", subscription:await activeSubscription("missing_line_account_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[queuedUser], topics:["daily_horoscope"], now });
+
+    const missingAccountUser = user({ ...queuedUser, lineAccount:undefined });
+    const missingAccount = await dispatchQueuedNotifications({ sessionId, users:[missingAccountUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+    const retried = await dispatchQueuedNotifications({ sessionId, users:[queuedUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(missingAccount.fallbackSent, 0);
+    assert.equal(missingAccount.sent, 0);
+    assert.equal(g.emailAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "failed");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "line_account_unavailable");
+    assert.equal(retried.sent, 1);
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "sent");
+  });
+
+  it("does not fallback to LINE when primary email account data is missing from the dispatch snapshot", async () => {
+    approveHoroscopes("missing_email_account_user", ["daily_horoscope"]);
+    const queuedUser = user({ userId:"missing_email_account_user", primaryChannel:"email", fallbackChannel:"line", preferences:[{ topicCode:"all", channel:"email", enabled:true, allowFallback:true }, { topicCode:"all", channel:"line", enabled:true, allowFallback:true }], subscription:await activeSubscription("missing_email_account_user") });
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[queuedUser], topics:["daily_horoscope"], now });
+
+    const missingAccountUser = user({ ...queuedUser, emailAccount:undefined });
+    const missingAccount = await dispatchQueuedNotifications({ sessionId, users:[missingAccountUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+    const retried = await dispatchQueuedNotifications({ sessionId, users:[queuedUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(missingAccount.fallbackSent, 0);
+    assert.equal(missingAccount.sent, 0);
+    assert.equal(g.lineAuditLogs.length, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "failed");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "email_account_unavailable");
+    assert.equal(retried.sent, 1);
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "sent");
+  });
+
+  it("still falls back from explicitly inactive LINE primary when current preferences allow", async () => {
+    approveHoroscopes("inactive_line_fallback_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"inactive_line_fallback_user", subscription:await activeSubscription("inactive_line_fallback_user") });
+    dispatchUser.lineAccount!.active = false;
+    const g = gateways();
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway:g.lineGateway, emailGateway:g.emailGateway, now });
+
+    assert.equal(dispatch.fallbackSent, 1);
+    assert.deepEqual(getNotificationSchedulerState().deliveryAttempts.map((attempt)=>[attempt.channel, attempt.status, attempt.errorCode]), [["line", "suppressed", "line_account_inactive"], ["email", "sent", undefined]]);
   });
 
   it("does not deliver bounced email", async () => {

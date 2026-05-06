@@ -126,6 +126,11 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
       state.outboundMessages.push(message);
       queued.push(structuredClone(message));
       writeAudit("notification_queued", message.id, now, { topicCode, periodKey, channel, fallbackChannel:message.fallbackChannel ?? "" });
+      if ("deferredReason" in eligibility && eligibility.deferredReason) {
+        deferred += 1;
+        const attempt = recordAttempt(message, channel, "deferred", now, false, eligibility.deferredReason);
+        writeAudit("notification_deferred", message.id, now, { topicCode, periodKey, reason:eligibility.deferredReason, attemptId:attempt.id });
+      }
     }
   }
 
@@ -213,14 +218,14 @@ export function getNotificationPeriodKey(topicCode:NotificationTopic, now:Date, 
   return parts.year;
 }
 
-function getQueueEligibility(input:{ user:NotificationSchedulerUser; topicCode:NotificationTopic; periodType:PeriodType; periodKey:string; now:Date; dispatchWindowMinutes:number; sessionId:string }):{status:"eligible"}|{status:"skipped"|"deferred"; reason:string} {
+function getQueueEligibility(input:{ user:NotificationSchedulerUser; topicCode:NotificationTopic; periodType:PeriodType; periodKey:string; now:Date; dispatchWindowMinutes:number; sessionId:string }):{status:"eligible"; deferredReason?:string}|{status:"skipped"|"deferred"; reason:string} {
   const mockState = getMockMvpState(input.sessionId);
   if (isUserInactive(mockState, input.user)) return { status:"skipped", reason:"user_inactive" };
   if (!canAccessPeriod({ subscription:input.user.subscription, planCode:input.user.planCode ?? "free", periodType:input.periodType as SubscriptionPeriodType, now:input.now })) return { status:"skipped", reason:"missing_entitlement" };
   const local = getLocalDateTimeParts(input.now, input.user.timezone);
   const localMinute = Number(local.hour) * 60 + Number(local.minute);
-  if (input.user.quietHours && isWithinQuietHours(localMinute, input.user.quietHours)) return { status:"deferred", reason:"quiet_hours" };
   if (!isWithinSameDatePreferredWindow(localMinute, parseTimeToMinutes(input.user.preferredNotificationTime), input.dispatchWindowMinutes)) return { status:"deferred", reason:"outside_preferred_time_window" };
+  if (input.user.quietHours && isWithinQuietHours(localMinute, input.user.quietHours)) return { status:"eligible", deferredReason:"quiet_hours" };
   return { status:"eligible" };
 }
 
@@ -239,7 +244,7 @@ async function dispatchToChannel(message:ScheduledNotificationMessage, channel:N
   if (claim.status === "duplicate") return claim.attempt;
   if (channel === "email") {
     if (!emailGateway) return updateAttempt(claim.attempt, "failed", now, "email_gateway_unavailable");
-    if (!user.emailAccount) return updateAttempt(claim.attempt, "suppressed", now, "email_account_unavailable");
+    if (!user.emailAccount) return updateAttempt(claim.attempt, "failed", now, "email_account_unavailable");
     try {
       const result = await emailGateway.send(user.emailAccount, toEmailMessage(message));
       return updateAttempt(claim.attempt, mapEmailStatus(result.status), now, result.errorCode, result.providerMessageId);
@@ -248,7 +253,7 @@ async function dispatchToChannel(message:ScheduledNotificationMessage, channel:N
     }
   }
   if (!lineGateway) return updateAttempt(claim.attempt, "failed", now, "line_gateway_unavailable");
-  if (!user.lineAccount) return updateAttempt(claim.attempt, "suppressed", now, "line_account_unavailable");
+  if (!user.lineAccount) return updateAttempt(claim.attempt, "failed", now, "line_account_unavailable");
   try {
     const result = await lineGateway.send(user.lineAccount, toLineMessage(message));
     return updateAttempt(claim.attempt, mapLineStatus(result.status), now, result.errorCode, result.providerMessageId);
@@ -355,7 +360,7 @@ function isChannelBlockedOrBounced(user:NotificationSchedulerUser, channel:Notif
 }
 
 function isFallbackTrigger(attempt:NotificationDeliveryAttempt):boolean { return attempt.status === "suppressed" && isTerminalFallbackErrorCode(attempt.errorCode); }
-function isTerminalFallbackErrorCode(errorCode:string|undefined):boolean { return new Set(["email_not_verified", "email_bounced", "email_complained", "email_unsubscribed", "email_account_unavailable", "line_account_inactive", "line_account_unavailable"]).has(errorCode ?? ""); }
+function isTerminalFallbackErrorCode(errorCode:string|undefined):boolean { return new Set(["email_not_verified", "email_bounced", "email_complained", "email_unsubscribed", "line_account_inactive"]).has(errorCode ?? ""); }
 function makeEmailIdempotencyKey(message:ScheduledNotificationMessage):string { return `notification_email_${sha256(`${message.queueKey}:email`).slice(0,32)}`; }
 function hasSentAttempt(outboundMessageId:string):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&(attempt.status==="sent"||attempt.status==="fallback_sent")); }
 function hasActiveOrSentDeliveryAttempt(outboundMessageId:string, channel:NotificationChannel):boolean { return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.channel===channel&&(attempt.status==="in_progress"||attempt.status==="sent"||attempt.status==="fallback_sent")); }

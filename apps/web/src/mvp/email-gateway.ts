@@ -5,8 +5,8 @@ export type EmailDeliveryStatus = "sent"|"failed"|"blocked"|"bounced"|"complaine
 export type EmailWebhookEventType = "bounce"|"complaint"|"unsubscribe";
 
 export interface EmailChannelAccount { userId:string; email:string; verified:boolean; unsubscribed:boolean; bounced:boolean; complained:boolean; verificationTokenHash?:string; verifiedAt?:string; updatedAt:string; }
-export interface EmailMessage { topicCode:EmailTopicCode; subject:string; text:string; html:string; transactional:boolean; metadata?:Record<string,string>; }
-export interface EmailProviderRequest { to:string; from:string; subject:string; text:string; html:string; headers:Record<string,string>; }
+export interface EmailMessage { topicCode:EmailTopicCode; subject:string; text:string; html:string; transactional:boolean; metadata?:Record<string,string>; idempotencyKey?:string; }
+export interface EmailProviderRequest { to:string; from:string; subject:string; text:string; html:string; headers:Record<string,string>; metadata?:Record<string,string>; idempotencyKey?:string; }
 export interface EmailProviderResult { providerMessageId?:string; raw?:unknown; }
 export interface EmailProvider { send(request:EmailProviderRequest):Promise<EmailProviderResult>; verifyWebhook?(headers:Headers, body:string):Promise<boolean>; normalizeWebhook?(body:unknown):Promise<EmailWebhookEvent[]>; }
 export interface EmailWebhookEvent { type:EmailWebhookEventType; email?:string; providerMessageId?:string; reason?:string; }
@@ -86,7 +86,13 @@ export class EmailGateway {
         subject: message.subject,
         text: message.text,
         html: message.html,
-        headers: { "x-topic-code": message.topicCode, "x-transactional": String(isTransactional) },
+        headers: {
+          "x-topic-code": message.topicCode,
+          "x-transactional": String(isTransactional),
+          ...(message.idempotencyKey ? { "x-idempotency-key": message.idempotencyKey } : {}),
+        },
+        metadata: message.metadata,
+        idempotencyKey: message.idempotencyKey,
       });
       this.audit("email_delivery_sent", channelAccount, message, response.providerMessageId);
       return { status: "sent", providerMessageId: response.providerMessageId };
@@ -114,7 +120,7 @@ export class EmailGateway {
       action,
       targetId: stableEmailTarget(account.email, this.config.auditHashSecret),
       createdAt: new Date().toISOString(),
-      metadata: sanitizeEmailLogMetadata({ topicCode: message.topicCode, transactional: String(isGatewayTransactionalTopic(message.topicCode)), providerMessageId: providerMessageId ?? "", errorCode: errorCode ?? "", email: account.email, subject: message.subject }),
+      metadata: sanitizeEmailLogMetadata({ topicCode: message.topicCode, transactional: String(isGatewayTransactionalTopic(message.topicCode)), providerMessageId: providerMessageId ?? "", errorCode: errorCode ?? "", idempotencyKey: message.idempotencyKey ?? "", email: account.email, subject: message.subject }),
     });
   }
 }

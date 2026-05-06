@@ -209,15 +209,15 @@ Verified payment webhooks are mapped into PR15 subscription lifecycle events whe
 
 - `checkout.session.completed` requires a stored server-side checkout session for the same provider and `providerCheckoutSessionId`; unknown sessions, provider mismatches, user mismatches, and plan mismatches are rejected before entitlement changes.
 - `checkout.session.completed` derives `userId` and `planCode` from the stored checkout record, marks that checkout completed/consumed idempotently, and then maps to `subscription.created`.
-- `subscription.created` maps to `subscription.created`.
+- `subscription.created` can create entitlement only when it is bound to a stored server-created checkout session, either by `providerCheckoutSessionId` or by an existing stored `providerSubscriptionId` binding. It rejects unknown bindings, provider mismatches, user mismatches, and plan mismatches, and derives `userId`/`planCode` from the stored checkout record.
 - `subscription.renewed` maps to `subscription.renewed`.
 - `payment.failed` and `subscription.renewal_failed` map to `subscription.renewal_failed`.
 - `subscription.canceled` maps to `subscription.canceled`.
 - `subscription.expired` maps to `subscription.expired`.
-- `payment.succeeded` can trigger a sandboxed payment receipt email hook, but does not activate entitlement by itself.
+- `payment.succeeded` can trigger a sandboxed payment receipt email hook, but does not activate entitlement by itself. Receipt hooks are deduplicated by a stable payment-level key (`providerPaymentId`, or `receiptId` as a fallback); events without a stable receipt key do not send receipts, and `checkout.session.completed` is not a receipt trigger.
 - refund events are placeholders in PR16 and do not change subscription state.
 
-The PR16 in-memory checkout session registry and `InMemoryWebhookIdempotencyStore` are mock/test-only foundations. Production payment webhooks must use durable database storage with a unique constraint on `provider + providerEventId`, plus a transaction that atomically claims the webhook idempotency row and applies subscription, receipt, and audit side effects exactly once. In-memory idempotency is not production-safe for serverless, multi-instance, or restarted Node.js processes.
+The PR16 in-memory checkout session registry and `InMemoryWebhookIdempotencyStore` are mock/test-only foundations. Production payment webhooks must use durable database storage with unique constraints on `provider + providerEventId` for webhook processing and on the chosen provider payment/receipt key for receipt side effects, plus a transaction that atomically claims the webhook idempotency row and applies subscription, receipt, and audit side effects exactly once. In-memory idempotency is not production-safe for serverless, multi-instance, or restarted Node.js processes.
 
 Environment placeholders:
 

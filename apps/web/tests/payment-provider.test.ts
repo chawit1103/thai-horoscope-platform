@@ -44,6 +44,11 @@ const signedRequest = (event:PaymentWebhookEvent, secret=webhookSecret) => {
   return { rawBody, headers:new Headers({ "x-payment-timestamp":String(timestamp), "x-payment-signature":createPaymentWebhookSignature({ timestamp, body:rawBody, secret }) }) };
 };
 
+const createStoredSubscription = async (provider:MockPaymentProvider, eventId = "evt_create_bound") => {
+  const checkout = await createPaymentCheckoutSession(provider, checkoutInput());
+  return processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:eventId, type:"subscription.created", providerCheckoutSessionId:checkout.id })) });
+};
+
 describe("payment provider foundation", () => {
   beforeEach(() => {
     resetMockPaymentProviderState();
@@ -158,6 +163,65 @@ describe("payment provider foundation", () => {
     assert.equal(getMockSubscriptionState().subscriptions.length, 0);
   });
 
+  it("rejects subscription.created without a stored checkout binding", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+
+    const result = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_unbound_subscription_create", type:"subscription.created", providerCheckoutSessionId:undefined })) });
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.reason, "unknown_subscription_binding");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+  });
+
+  it("rejects subscription.created with an unknown checkout binding", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+
+    const result = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_unknown_subscription_checkout", type:"subscription.created", providerCheckoutSessionId:"unknown_checkout" })) });
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.reason, "unknown_checkout_session");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+  });
+
+  it("rejects subscription.created payload attempts to override stored user or plan", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput({ userId:"stored_user", planCode:"basic", providerSubscriptionId:"sub_stored" }));
+
+    const userOverride = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_subscription_user_override", type:"subscription.created", providerCheckoutSessionId:checkout.id, providerSubscriptionId:"sub_stored", userId:"attacker_user", planCode:"basic" })) });
+    const planOverride = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_subscription_plan_override", type:"subscription.created", providerCheckoutSessionId:checkout.id, providerSubscriptionId:"sub_stored", userId:"stored_user", planCode:"premium" })) });
+
+    assert.equal(userOverride.status, "rejected");
+    assert.equal(userOverride.reason, "checkout_user_mismatch");
+    assert.equal(planOverride.status, "rejected");
+    assert.equal(planOverride.reason, "checkout_plan_mismatch");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+  });
+
+  it("processes subscription.created after checkout completion idempotently without duplicating subscription", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput());
+
+    const checkoutCompleted = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_checkout_then_subscription", providerCheckoutSessionId:checkout.id })) });
+    const subscriptionCreated = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_subscription_after_checkout", type:"subscription.created", providerCheckoutSessionId:checkout.id })) });
+
+    assert.equal(checkoutCompleted.status, "processed");
+    assert.equal(subscriptionCreated.status, "processed");
+    assert.equal(subscriptionCreated.subscriptionResult?.reason, "already_exists");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 1);
+  });
+
+  it("rejects subscription.created provider mismatches", async () => {
+    const httpProvider = new HttpPaymentProvider({ checkoutEndpoint:"https://payments.example.test/checkout", apiKey:"test_api_key", webhookSecret, fetcher:async () => new Response(JSON.stringify({ id:"shared_subscription_checkout", checkoutUrl:"https://payments.example.test/checkout/shared_subscription_checkout" }), { status:200, headers:{ "content-type":"application/json" } }) });
+    await createPaymentCheckoutSession(httpProvider, checkoutInput({ providerSubscriptionId:"sub_shared_provider" }));
+    const mockProvider = new MockPaymentProvider({ webhookSecret });
+
+    const result = await processPaymentWebhook({ provider:mockProvider, ...signedRequest(paymentEvent({ id:"evt_subscription_provider_mismatch", type:"subscription.created", providerCheckoutSessionId:"shared_subscription_checkout", providerSubscriptionId:"sub_shared_provider" })) });
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.reason, "provider_mismatch");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+  });
+
   it("rejects invalid webhook signatures before mutating subscriptions", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
     const request = signedRequest(paymentEvent(), "wrong-secret");
@@ -242,7 +306,7 @@ describe("payment provider foundation", () => {
     assert.equal(beforeCreate.status, "ignored_retryable");
     assert.equal(getMockPaymentProviderState().processedWebhookEventIds.length, 0);
 
-    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_replay", type:"subscription.created" })) });
+    await createStoredSubscription(provider, "evt_create_before_replay");
     const replay = await processPaymentWebhook({ provider, ...signedRequest(renewal) });
 
     assert.equal(replay.status, "processed");
@@ -264,12 +328,64 @@ describe("payment provider foundation", () => {
     assert.equal(emailProvider.networkSendCount, 0);
     assert.equal(emailProvider.sent.length, 0);
     assert.equal(getMockPaymentProviderState().receiptNotifications.length, 1);
+    assert.equal(getMockPaymentProviderState().processedReceiptKeys.length, 1);
     assert.equal(JSON.stringify(emailAuditLogs).includes("user@example.test"), false);
+  });
+
+  it("deduplicates checkout completed and payment succeeded receipt hooks by payment id", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput());
+    const emailProvider = new SandboxEmailProvider();
+    const emailAuditLogs:EmailAuditLogEntry[] = [];
+    const emailGateway = new EmailGateway({ provider:emailProvider, fromEmail:"noreply@example.test", sandboxMode:true, auditHashSecret:"test-email-audit-secret", auditLogs:emailAuditLogs });
+    const emailAccount = { ...createEmailChannelAccount({ userId:"user_a", email:"user@example.test", now:new Date(periodStart) }), verified:true };
+    const receiptHook = { emailGateway, emailAccount };
+
+    const checkoutCompleted = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_receipt_checkout", providerCheckoutSessionId:checkout.id, providerPaymentId:"pay_same_receipt" })), receiptHook });
+    const paymentSucceeded = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_receipt_payment", type:"payment.succeeded", providerPaymentId:"pay_same_receipt" })), receiptHook });
+
+    assert.equal(checkoutCompleted.receiptNotification, undefined);
+    assert.equal(paymentSucceeded.receiptNotification?.status, "sent");
+    assert.equal(getMockPaymentProviderState().receiptNotifications.length, 1);
+    assert.equal(emailAuditLogs.length, 1);
+  });
+
+  it("deduplicates distinct payment.succeeded events for the same payment id", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const emailProvider = new SandboxEmailProvider();
+    const emailAuditLogs:EmailAuditLogEntry[] = [];
+    const emailGateway = new EmailGateway({ provider:emailProvider, fromEmail:"noreply@example.test", sandboxMode:true, auditHashSecret:"test-email-audit-secret", auditLogs:emailAuditLogs });
+    const emailAccount = { ...createEmailChannelAccount({ userId:"user_a", email:"user@example.test", now:new Date(periodStart) }), verified:true };
+    const receiptHook = { emailGateway, emailAccount };
+
+    const first = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_payment_receipt_first", type:"payment.succeeded", providerPaymentId:"pay_duplicate_receipt" })), receiptHook });
+    const second = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_payment_receipt_second", type:"payment.succeeded", providerPaymentId:"pay_duplicate_receipt" })), receiptHook });
+
+    assert.equal(first.receiptNotification?.status, "sent");
+    assert.equal(second.receiptNotification, undefined);
+    assert.equal(getMockPaymentProviderState().receiptNotifications.length, 1);
+    assert.equal(getMockPaymentProviderState().processedReceiptKeys.length, 1);
+    assert.equal(emailAuditLogs.length, 1);
+  });
+
+  it("does not send receipt hooks without a stable payment or receipt key", async () => {
+    const provider = new MockPaymentProvider({ webhookSecret });
+    const emailProvider = new SandboxEmailProvider();
+    const emailAuditLogs:EmailAuditLogEntry[] = [];
+    const emailGateway = new EmailGateway({ provider:emailProvider, fromEmail:"noreply@example.test", sandboxMode:true, auditHashSecret:"test-email-audit-secret", auditLogs:emailAuditLogs });
+    const emailAccount = { ...createEmailChannelAccount({ userId:"user_a", email:"user@example.test", now:new Date(periodStart) }), verified:true };
+
+    const result = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ type:"payment.succeeded", id:"evt_receipt_missing_key", providerPaymentId:undefined, receiptId:undefined })), receiptHook:{ emailGateway, emailAccount } });
+
+    assert.equal(result.status, "processed");
+    assert.equal(result.receiptNotification, undefined);
+    assert.equal(getMockPaymentProviderState().receiptNotifications.length, 0);
+    assert.equal(emailAuditLogs.length, 0);
   });
 
   it("maps failed payment to renewal_failed and past_due behavior", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
-    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_fail", type:"subscription.created" })) });
+    await createStoredSubscription(provider, "evt_create_before_fail");
 
     const failed = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_failed", type:"payment.failed", occurredAt:"2026-05-20T00:00:00.000Z" })) });
     const subscription = failed.subscriptionResult?.subscription;
@@ -281,7 +397,7 @@ describe("payment provider foundation", () => {
 
   it("maps successful subscription renewal to an extended lifecycle period", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
-    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_renew", type:"subscription.created" })) });
+    await createStoredSubscription(provider, "evt_create_before_renew");
 
     const renewed = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_renew", type:"subscription.renewed", currentPeriodStart:periodEnd, currentPeriodEnd:renewedPeriodEnd, occurredAt:"2026-06-01T00:00:01.000Z" })) });
 
@@ -292,7 +408,7 @@ describe("payment provider foundation", () => {
 
   it("maps subscription cancellation webhook to lifecycle cancellation", async () => {
     const provider = new MockPaymentProvider({ webhookSecret });
-    await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_create_before_cancel", type:"subscription.created" })) });
+    await createStoredSubscription(provider, "evt_create_before_cancel");
 
     const canceled = await processPaymentWebhook({ provider, ...signedRequest(paymentEvent({ id:"evt_cancel", type:"subscription.canceled", cancelAtPeriodEnd:false, occurredAt:"2026-05-10T00:00:00.000Z" })) });
 

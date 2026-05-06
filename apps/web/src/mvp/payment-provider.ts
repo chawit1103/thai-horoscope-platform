@@ -12,7 +12,7 @@ export type StoredCheckoutSession = Omit<CheckoutSession, "status"> & { status:"
 export interface PaymentWebhookEvent { id:string; type:PaymentWebhookEventType; userId:string; planCode?:PlanCode; providerCustomerId?:string; providerSubscriptionId?:string; providerPaymentId?:string; providerCheckoutSessionId?:string; currentPeriodStart?:string; currentPeriodEnd?:string; cancelAtPeriodEnd?:boolean; occurredAt:string; receiptId?:string; }
 export interface PaymentProvider { provider:PaymentProviderCode; createCheckoutSession(input:CreateCheckoutInput):Promise<CheckoutSession>; verifyWebhook(headers:Headers, rawBody:string):Promise<boolean>; parseWebhook(headers:Headers, rawBody:string):Promise<PaymentWebhookEvent>; }
 export interface PaymentAuditLogEntry { action:"payment_checkout_session_created"|"payment_webhook_processed"|"payment_webhook_duplicate"|"payment_webhook_rejected"|"payment_webhook_ignored"|"payment_client_return_ignored"; targetId:string; createdAt:string; metadata:Record<string,string>; }
-export interface PaymentProviderState { checkoutSessions:StoredCheckoutSession[]; processedWebhookEventIds:string[]; auditLogs:PaymentAuditLogEntry[]; receiptNotifications:EmailDeliveryResult[]; providerReferences:PaymentProviderReference[]; webhookIdempotencyRecords:WebhookIdempotencyRecord[]; }
+export interface PaymentProviderState { checkoutSessions:StoredCheckoutSession[]; processedWebhookEventIds:string[]; processedReceiptKeys:string[]; auditLogs:PaymentAuditLogEntry[]; receiptNotifications:EmailDeliveryResult[]; providerReferences:PaymentProviderReference[]; webhookIdempotencyRecords:WebhookIdempotencyRecord[]; }
 export interface PaymentProviderReference { userId:string; providerCustomerId?:string; providerSubscriptionId?:string; providerPaymentId?:string; updatedAt:string; }
 export interface PaymentWebhookProcessResult { status:PaymentWebhookProcessStatus; reason?:string; event?:PaymentWebhookEvent; subscriptionResult?:SubscriptionWebhookResult; receiptNotification?:EmailDeliveryResult; }
 export interface PaymentReceiptHook { emailGateway:EmailGateway; emailAccount:EmailChannelAccount; }
@@ -21,7 +21,7 @@ export interface WebhookIdempotencyRecord { provider:PaymentProviderCode; eventI
 export interface WebhookIdempotencyStore { claim(provider:PaymentProviderCode, eventId:string):WebhookIdempotencyClaimResult; markProcessed(provider:PaymentProviderCode, eventId:string, result:PaymentWebhookProcessStatus):void; release?(provider:PaymentProviderCode, eventId:string):void; list?():WebhookIdempotencyRecord[]; }
 
 const PAYMENT_WEBHOOK_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
-let state:PaymentProviderState = { checkoutSessions:[], processedWebhookEventIds:[], auditLogs:[], receiptNotifications:[], providerReferences:[], webhookIdempotencyRecords:[] };
+let state:PaymentProviderState = { checkoutSessions:[], processedWebhookEventIds:[], processedReceiptKeys:[], auditLogs:[], receiptNotifications:[], providerReferences:[], webhookIdempotencyRecords:[] };
 
 /** Mock/test-only idempotency store. Production must use durable DB storage with a unique provider + event id constraint and a transaction around claim + side effects. */
 export class InMemoryWebhookIdempotencyStore implements WebhookIdempotencyStore {
@@ -101,7 +101,7 @@ export class HttpPaymentProvider implements PaymentProvider {
   }
 }
 
-export function resetMockPaymentProviderState():void { state = { checkoutSessions:[], processedWebhookEventIds:[], auditLogs:[], receiptNotifications:[], providerReferences:[], webhookIdempotencyRecords:[] }; webhookIdempotencyStore = new InMemoryWebhookIdempotencyStore(state.webhookIdempotencyRecords); }
+export function resetMockPaymentProviderState():void { state = { checkoutSessions:[], processedWebhookEventIds:[], processedReceiptKeys:[], auditLogs:[], receiptNotifications:[], providerReferences:[], webhookIdempotencyRecords:[] }; webhookIdempotencyStore = new InMemoryWebhookIdempotencyStore(state.webhookIdempotencyRecords); }
 export function getMockPaymentProviderState():PaymentProviderState { return structuredClone(state); }
 
 export async function createPaymentCheckoutSession(provider:PaymentProvider, input:CreateCheckoutInput):Promise<CheckoutSession> {
@@ -139,7 +139,7 @@ export async function processPaymentWebhook(input:{ provider:PaymentProvider; he
   }
 
   const now = parsePaymentEventDate(event.occurredAt) ?? new Date();
-  const verifiedCheckout = verifyCheckoutCompletion(input.provider.provider, event, now);
+  const verifiedCheckout = verifyCheckoutOrSubscriptionCreationBinding(input.provider.provider, event, now);
   if (verifiedCheckout.status === "rejected") {
     idempotency.markProcessed(input.provider.provider, event.id, "rejected");
     rememberProcessedWebhook(input.provider.provider, event.id);
@@ -161,7 +161,7 @@ export async function processPaymentWebhook(input:{ provider:PaymentProvider; he
     writePaymentAudit("payment_webhook_ignored", event.id, now, { eventType:event.type, provider:input.provider.provider, reason:subscriptionResult.reason ?? "ignored_retryable" });
     return { status:"ignored_retryable", reason:subscriptionResult.reason, event:structuredClone(event), subscriptionResult };
   }
-  const receiptNotification = shouldSendReceipt(event) && input.receiptHook ? await sendPaymentReceipt(input.receiptHook, event) : undefined;
+  const receiptNotification = input.receiptHook ? await sendPaymentReceiptOnce(input.provider.provider, input.receiptHook, event) : undefined;
   if (receiptNotification) state.receiptNotifications.push(receiptNotification);
   upsertProviderReference({ userId:event.userId, providerCustomerId:event.providerCustomerId, providerSubscriptionId:event.providerSubscriptionId, providerPaymentId:event.providerPaymentId, updatedAt:now.toISOString() });
   idempotency.markProcessed(input.provider.provider, event.id, "processed");
@@ -179,22 +179,51 @@ function rememberProcessedWebhook(provider:PaymentProviderCode, eventId:string):
   if (!state.processedWebhookEventIds.includes(idempotencyKey)) state.processedWebhookEventIds.push(idempotencyKey);
 }
 
-function verifyCheckoutCompletion(provider:PaymentProviderCode, event:PaymentWebhookEvent, now:Date):{ status:"ok"; event?:PaymentWebhookEvent }|{ status:"duplicate"; reason:string }|{ status:"rejected"; reason:string } {
-  if (event.type !== "checkout.session.completed") return { status:"ok" };
-  if (!event.providerCheckoutSessionId) return { status:"rejected", reason:"missing_checkout_session" };
-  const checkout = state.checkoutSessions.find((item)=>item.provider===provider && item.id===event.providerCheckoutSessionId);
-  if (!checkout) {
-    const checkoutWithSameId = state.checkoutSessions.find((item)=>item.id===event.providerCheckoutSessionId);
-    return { status:"rejected", reason:checkoutWithSameId ? "provider_mismatch" : "unknown_checkout_session" };
+function verifyCheckoutOrSubscriptionCreationBinding(provider:PaymentProviderCode, event:PaymentWebhookEvent, now:Date):{ status:"ok"; event?:PaymentWebhookEvent }|{ status:"duplicate"; reason:string }|{ status:"rejected"; reason:string } {
+  if (event.type !== "checkout.session.completed" && event.type !== "subscription.created") return { status:"ok" };
+  if (event.type === "checkout.session.completed") {
+    if (!event.providerCheckoutSessionId) return { status:"rejected", reason:"missing_checkout_session" };
+    const checkout = state.checkoutSessions.find((item)=>item.provider===provider && item.id===event.providerCheckoutSessionId);
+    if (!checkout) {
+      const checkoutWithSameId = state.checkoutSessions.find((item)=>item.id===event.providerCheckoutSessionId);
+      return { status:"rejected", reason:checkoutWithSameId ? "provider_mismatch" : "unknown_checkout_session" };
+    }
+    if (event.userId !== checkout.userId) return { status:"rejected", reason:"checkout_user_mismatch" };
+    if (event.planCode && event.planCode !== checkout.planCode) return { status:"rejected", reason:"checkout_plan_mismatch" };
+    if (event.providerSubscriptionId && checkout.providerSubscriptionId && event.providerSubscriptionId !== checkout.providerSubscriptionId) return { status:"rejected", reason:"checkout_subscription_mismatch" };
+    if (checkout.consumed) return { status:"duplicate", reason:"checkout_already_completed" };
+    return completeCheckoutBinding(checkout, event, now);
   }
+
+  if (!event.providerSubscriptionId) return { status:"rejected", reason:"missing_subscription_binding" };
+  const checkout = findCheckoutForSubscriptionCreated(provider, event);
+  if (!checkout) return { status:"rejected", reason:subscriptionCreatedRejectionReason(provider, event) };
+  if (event.providerCheckoutSessionId && event.providerCheckoutSessionId !== checkout.id) return { status:"rejected", reason:"subscription_checkout_mismatch" };
+  if (checkout.providerSubscriptionId && checkout.providerSubscriptionId !== event.providerSubscriptionId) return { status:"rejected", reason:"subscription_binding_mismatch" };
   if (event.userId !== checkout.userId) return { status:"rejected", reason:"checkout_user_mismatch" };
   if (event.planCode && event.planCode !== checkout.planCode) return { status:"rejected", reason:"checkout_plan_mismatch" };
-  if (checkout.consumed) return { status:"duplicate", reason:"checkout_already_completed" };
+  return completeCheckoutBinding(checkout, event, now);
+}
+
+function findCheckoutForSubscriptionCreated(provider:PaymentProviderCode, event:PaymentWebhookEvent):StoredCheckoutSession|undefined {
+  if (event.providerCheckoutSessionId) return state.checkoutSessions.find((item)=>item.provider===provider && item.id===event.providerCheckoutSessionId);
+  return state.checkoutSessions.find((item)=>item.provider===provider && item.providerSubscriptionId===event.providerSubscriptionId);
+}
+
+function subscriptionCreatedRejectionReason(provider:PaymentProviderCode, event:PaymentWebhookEvent):string {
+  if (event.providerCheckoutSessionId && state.checkoutSessions.some((item)=>item.id===event.providerCheckoutSessionId && item.provider!==provider)) return "provider_mismatch";
+  if (state.checkoutSessions.some((item)=>item.providerSubscriptionId===event.providerSubscriptionId && item.provider!==provider)) return "provider_mismatch";
+  return event.providerCheckoutSessionId ? "unknown_checkout_session" : "unknown_subscription_binding";
+}
+
+function completeCheckoutBinding(checkout:StoredCheckoutSession, event:PaymentWebhookEvent, now:Date):{ status:"ok"; event:PaymentWebhookEvent } {
   checkout.status = "completed";
   checkout.consumed = true;
-  checkout.completedAt = now.toISOString();
-  checkout.consumedAt = now.toISOString();
-  return { status:"ok", event:{ ...event, userId:checkout.userId, planCode:checkout.planCode, providerCustomerId:event.providerCustomerId ?? checkout.providerCustomerId, providerSubscriptionId:event.providerSubscriptionId ?? checkout.providerSubscriptionId, currentPeriodStart:event.currentPeriodStart, currentPeriodEnd:event.currentPeriodEnd } };
+  checkout.completedAt = checkout.completedAt ?? now.toISOString();
+  checkout.consumedAt = checkout.consumedAt ?? now.toISOString();
+  checkout.providerCustomerId = checkout.providerCustomerId ?? event.providerCustomerId;
+  checkout.providerSubscriptionId = checkout.providerSubscriptionId ?? event.providerSubscriptionId;
+  return { status:"ok", event:{ ...event, userId:checkout.userId, planCode:checkout.planCode, providerCustomerId:event.providerCustomerId ?? checkout.providerCustomerId, providerSubscriptionId:event.providerSubscriptionId ?? checkout.providerSubscriptionId, providerCheckoutSessionId:checkout.id, currentPeriodStart:event.currentPeriodStart, currentPeriodEnd:event.currentPeriodEnd } };
 }
 
 function toSubscriptionLifecycleEvent(event:PaymentWebhookEvent):MockSubscriptionWebhookEvent|undefined {
@@ -212,8 +241,16 @@ function lifecycleEvent(event:PaymentWebhookEvent, type:MockSubscriptionWebhookE
   return { id:`payment:${event.id}`, type, subscriptionId:event.providerSubscriptionId ?? "", userId:event.userId, planCode:event.planCode, currentPeriodStart:event.currentPeriodStart, currentPeriodEnd:event.currentPeriodEnd, occurredAt:event.occurredAt, ...overrides };
 }
 
-function shouldSendReceipt(event:PaymentWebhookEvent):boolean { return event.type === "payment.succeeded" || event.type === "checkout.session.completed"; }
-async function sendPaymentReceipt(hook:PaymentReceiptHook, event:PaymentWebhookEvent):Promise<EmailDeliveryResult> {
+function receiptDeduplicationKey(provider:PaymentProviderCode, event:PaymentWebhookEvent):string|undefined {
+  if (event.type !== "payment.succeeded") return undefined;
+  const paymentKey = event.providerPaymentId ?? event.receiptId;
+  return paymentKey ? `${provider}:${paymentKey}` : undefined;
+}
+
+async function sendPaymentReceiptOnce(provider:PaymentProviderCode, hook:PaymentReceiptHook, event:PaymentWebhookEvent):Promise<EmailDeliveryResult|undefined> {
+  const receiptKey = receiptDeduplicationKey(provider, event);
+  if (!receiptKey || state.processedReceiptKeys.includes(receiptKey)) return undefined;
+  state.processedReceiptKeys.push(receiptKey);
   return hook.emailGateway.send(hook.emailAccount, renderTransactionalEmailTemplate("payment_receipt", { receiptId:event.receiptId ?? event.providerPaymentId ?? event.id }));
 }
 

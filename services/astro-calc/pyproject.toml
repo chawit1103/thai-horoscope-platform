@@ -1,0 +1,17 @@
+[project]
+name = "thai-horoscope-astro-calc"
+version = "0.1.0"
+description = "Astro calculation core for Thai Nirayana chart snapshots"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["app", "tests"]

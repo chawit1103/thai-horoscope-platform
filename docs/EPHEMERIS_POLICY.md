@@ -78,9 +78,69 @@ Before paid production launch:
 2. Document library versions.
 3. Document file versions/fingerprints.
 4. Store ephemeris files in controlled deployment artifact or mounted storage.
-5. Do not download ephemeris files at runtime in production.
-6. Add golden-file regression tests.
-7. Add license approval record.
+5. Pin the exact ephemeris file set used for each calculation profile.
+6. Do not download ephemeris files at runtime in production.
+7. Do not download ephemeris files during tests.
+8. Add golden-file regression tests.
+9. Add license approval record.
+
+Swiss Ephemeris specifically requires an explicit human/legal license decision before production use. Until that decision is recorded, `ASTRO_ENGINE=swisseph` is allowed only for local/test validation with clearly non-production configuration.
+
+## Swiss Ephemeris license modes
+
+`SWISSEPH_LICENSE_MODE` is an explicit runtime declaration:
+
+```text
+none
+free
+professional
+```
+
+Mode policy:
+
+- `none`: default mode. Swiss Ephemeris is disabled and must fail closed when `ASTRO_ENGINE=swisseph`.
+- `free`: local/test validation only. This mode is not production-ready and must fail closed in production.
+- `professional`: required for production use of `ASTRO_ENGINE=swisseph`.
+
+Production requires:
+
+```text
+ASTRO_ENGINE=swisseph
+NODE_ENV=production
+SWISSEPH_LICENSE_MODE=professional
+ASTRO_EPHEMERIS_PATH=/mounted/ephemeris/path
+```
+
+If any production requirement is missing, calculation must fail closed before loading or using the adapter.
+
+## Ephemeris file pinning
+
+Ephemeris files must be pinned and fingerprinted. A deployment must know exactly which file set produced a chart snapshot.
+
+Minimum metadata to record for a production Swiss Ephemeris file set:
+
+```text
+engine: swisseph
+library: pyswisseph
+library_version:
+ephemeris_path:
+file_manifest:
+combined_fingerprint: sha256:...
+license_mode: professional
+approved_by:
+approval_date:
+calculation_profiles:
+```
+
+`file_manifest` should include file names, sizes, and SHA-256 hashes. The chart snapshot should include the resulting `ephemeris_fingerprint`, not raw filesystem details.
+
+Runtime behavior must not:
+
+- silently update ephemeris files
+- download ephemeris files on startup
+- download ephemeris files during request handling
+- download ephemeris files during tests
+- use an unpinned ephemeris directory for production calculations.
 
 ## Ephemeris fingerprint
 
@@ -99,9 +159,31 @@ mock-v1
 Production service must not:
 
 - silently update ephemeris files
-- download kernels/files during request handling
+- download kernels/files on startup or during request handling
 - switch calculation profile without version bump
 - overwrite historical chart snapshots
+
+## PR18 runtime guard
+
+The Swiss Ephemeris adapter is available only through `services/astro-calc/app/engines/swisseph.py` and is selected with `ASTRO_ENGINE=swisseph`.
+
+Required environment:
+
+```text
+ASTRO_ENGINE=swisseph
+ASTRO_EPHEMERIS_PATH=/mounted/ephemeris/path
+SWISSEPH_LICENSE_MODE=free|professional
+```
+
+Production requires:
+
+```text
+NODE_ENV=production
+SWISSEPH_LICENSE_MODE=professional
+ASTRO_EPHEMERIS_PATH=/mounted/ephemeris/path
+```
+
+If any production requirement is missing, the adapter fails closed before calculation. Free/license-unclear modes are local/test only and still require an explicit ephemeris path. Ephemeris files must be pinned, fingerprinted, and provided by deployment artifact or mounted storage; the service must not download ephemeris files at runtime.
 
 ## Calculation profile versioning
 

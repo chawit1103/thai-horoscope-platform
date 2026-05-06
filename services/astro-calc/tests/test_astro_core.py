@@ -1,0 +1,651 @@
+from __future__ import annotations
+
+import json
+import unittest
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from app.config import AstroRuntimeConfig
+from app.core.calculators import AstroCoreService
+from app.core.math import normalize_deg, sign_index
+from app.core.time import local_to_utc, utc_to_iso
+from app.engines.swisseph import SwissEphemerisEngine
+from app.schemas import ChartRequest, HourlyTimingRequest, SolarReturnRequest, TransitLocation, TransitRequest, TransitSnapshotRequest
+
+
+def bangkok_request(profile: str = "TH_NIRAYANA_V1", birth_time_unknown: bool = False) -> ChartRequest:
+    return ChartRequest(
+        calculation_profile_code=profile,
+        datetime_local="1990-05-12T08:30:00",
+        timezone="Asia/Bangkok",
+        latitude=13.7563,
+        longitude=100.5018,
+        elevation_m=0,
+        time_accuracy_minutes=5,
+        birth_time_unknown=birth_time_unknown,
+    )
+
+
+class AstroCoreTests(unittest.TestCase):
+    def test_timezone_conversion_bangkok_and_dst(self) -> None:
+        self.assertEqual(utc_to_iso(local_to_utc("1990-05-12T08:30:00", "Asia/Bangkok")), "1990-05-12T01:30:00Z")
+        self.assertEqual(utc_to_iso(local_to_utc("2026-07-01T08:30:00", "America/New_York")), "2026-07-01T12:30:00Z")
+        self.assertEqual(utc_to_iso(local_to_utc("2026-01-01T08:30:00", "America/New_York")), "2026-01-01T13:30:00Z")
+        with self.assertRaisesRegex(ValueError, "INVALID_TIMEZONE"):
+            local_to_utc("2026-01-01T08:30:00", "Not/AZone")
+
+    def test_natal_chart_is_json_serializable_and_has_lagna_houses(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(bangkok_request())
+        encoded = json.dumps(snapshot.to_json_dict(), sort_keys=True)
+        self.assertIn("calculation_hash", encoded)
+        self.assertEqual(snapshot.datetime_local, "1990-05-12T08:30:00")
+        self.assertEqual(snapshot.calculation_profile.code, "TH_NIRAYANA_V1")
+        self.assertEqual(snapshot.ayanamsa_deg, snapshot.ayanamsha.value_deg)
+        self.assertIsNotNone(snapshot.houses.ascendant_deg)
+        self.assertEqual(len(snapshot.houses.cusps_deg), 12)
+        self.assertEqual(snapshot.angles.lagna_deg, snapshot.houses.ascendant_deg)
+        assert snapshot.houses.ascendant_deg is not None
+        self.assertAlmostEqual(snapshot.angles.descendant_deg or 0, (snapshot.houses.ascendant_deg + 180) % 360, places=8)
+        self.assertIn("lagna", snapshot.derived_points)
+        self.assertEqual(snapshot.metadata["zodiac_type"], "sidereal")
+        self.assertEqual(snapshot.metadata["house_system"], "whole_sign")
+        self.assertEqual(snapshot.houses.system, snapshot.calculation_profile.house_system)
+        self.assertTrue(all(planet.house_number is not None for planet in snapshot.planets.values()))
+        self.assertEqual(snapshot.ayanamsha.name, "lahiri")
+
+    def test_birth_date_input_shape_resolves_datetime_local(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_V1",
+                birth_date="1990-05-12",
+                birth_time="08:30",
+                timezone="Asia/Bangkok",
+                latitude=13.7563,
+                longitude=100.5018,
+                elevation_m=0,
+            )
+        )
+        self.assertEqual(snapshot.datetime_local, "1990-05-12T08:30:00")
+        self.assertEqual(snapshot.datetime_utc, "1990-05-12T01:30:00Z")
+        self.assertIn("uranus", snapshot.planets)
+        self.assertIn("neptune", snapshot.planets)
+        self.assertIn("pluto", snapshot.planets)
+        self.assertEqual(snapshot.planets["sun"].sidereal_longitude_deg, snapshot.planets["sun"].longitude_deg)
+        self.assertEqual(snapshot.planets["sun"].sign_name_th, "สิงห์")
+        self.assertIsNotNone(snapshot.planets["sun"].house_number)
+
+    def test_natal_planets_are_present_and_sidereal_longitude_matches_ayanamsa(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(bangkok_request())
+        expected_planets = {
+            "sun",
+            "moon",
+            "mercury",
+            "venus",
+            "mars",
+            "jupiter",
+            "saturn",
+            "uranus",
+            "neptune",
+            "pluto",
+            "rahu",
+            "ketu",
+        }
+        self.assertEqual(set(snapshot.planets), expected_planets)
+        for planet in snapshot.planets.values():
+            self.assertIsNotNone(planet.ayanamsa_deg)
+            assert planet.ayanamsa_deg is not None
+            self.assertAlmostEqual(
+                planet.sidereal_longitude_deg,
+                normalize_deg(planet.tropical_longitude_deg - planet.ayanamsa_deg),
+                places=6,
+            )
+
+    def test_public_chart_snapshot_shape_includes_nested_engine_datetime_location_and_zodiac(self) -> None:
+        snapshot = AstroCoreService(config=AstroRuntimeConfig(swisseph_license_mode="professional", ephemeris_path="/ephe")).calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_SWISSEPH_V1",
+                birth_date="1971-03-11",
+                birth_time="08:17",
+                timezone="Asia/Bangkok",
+                latitude=13.7563,
+                longitude=100.5018,
+                elevation_m=0,
+            )
+        )
+        public = snapshot.to_json_dict()
+        engine = public["engine"]
+        datetime_info = public["datetime"]
+        location = public["location"]
+        zodiac = public["zodiac"]
+        assert isinstance(engine, dict)
+        assert isinstance(datetime_info, dict)
+        assert isinstance(location, dict)
+        assert isinstance(zodiac, dict)
+        self.assertEqual(public["chart_type"], "natal")
+        self.assertEqual(public["calculation_profile_code"], "TH_NIRAYANA_SWISSEPH_V1")
+        self.assertEqual(engine["name"], "mock")
+        self.assertEqual(engine["license_mode"], "professional")
+        self.assertEqual(engine["ephemeris_path_configured"], True)
+        self.assertEqual(engine["ephemeris_fingerprint"], snapshot.ephemeris_fingerprint)
+        self.assertEqual(public["engine_name"], "mock")
+        self.assertEqual(datetime_info["local"], "1971-03-11T08:17:00+07:00")
+        self.assertEqual(datetime_info["utc"], "1971-03-11T01:17:00Z")
+        self.assertEqual(datetime_info["timezone"], "Asia/Bangkok")
+        self.assertEqual(location["latitude"], 13.7563)
+        self.assertEqual(location["longitude"], 100.5018)
+        self.assertEqual(location["elevation_m"], 0)
+        self.assertEqual(zodiac["type"], "sidereal")
+        self.assertEqual(zodiac["ayanamsa_code"], "LAHIRI")
+        self.assertEqual(zodiac["ayanamsa_deg"], snapshot.ayanamsa_deg)
+
+    def test_unknown_birth_time_warns_and_marks_houses_unreliable(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(bangkok_request(birth_time_unknown=True))
+        self.assertEqual(snapshot.houses.ascendant_deg, None)
+        self.assertEqual(snapshot.houses.reliable, False)
+        self.assertEqual(snapshot.warnings[0].code, "UNKNOWN_BIRTH_TIME")
+        self.assertEqual(snapshot.warnings[1].code, "UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE")
+        self.assertEqual(snapshot.angles.reliable, False)
+        self.assertEqual(snapshot.derived_points, {})
+        self.assertTrue(all(planet.house_number is None for planet in snapshot.planets.values()))
+
+    def test_changing_birth_time_or_location_changes_ascendant(self) -> None:
+        service = AstroCoreService()
+        base = service.calculate_natal_chart(bangkok_request())
+        later_time = service.calculate_natal_chart(replace(bangkok_request(), datetime_local="1990-05-12T10:30:00"))
+        chiang_mai = service.calculate_natal_chart(replace(bangkok_request(), latitude=18.7883, longitude=98.9853))
+        self.assertIsNotNone(base.houses.ascendant_deg)
+        self.assertNotEqual(base.houses.ascendant_deg, later_time.houses.ascendant_deg)
+        self.assertNotEqual(base.houses.ascendant_deg, chiang_mai.houses.ascendant_deg)
+
+    def test_location_and_date_warnings_are_reported(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_V1",
+                birth_date="1800-01-01",
+                birth_time="08:30",
+                timezone="Asia/Bangkok",
+                latitude=0,
+                longitude=0,
+            )
+        )
+        warning_codes = {warning.code for warning in snapshot.warnings}
+        self.assertIn("MISSING_LOCATION", warning_codes)
+        self.assertIn("UNSUPPORTED_DATE_RANGE", warning_codes)
+        self.assertFalse(snapshot.houses.reliable)
+        self.assertIsNone(snapshot.houses.ascendant_deg)
+        self.assertEqual(snapshot.houses.cusps_deg, [])
+        self.assertTrue(all(planet.house_number is None for planet in snapshot.planets.values()))
+
+    def test_calculation_hash_is_stable_and_profile_sensitive(self) -> None:
+        service = AstroCoreService()
+        first = service.calculate_natal_chart(bangkok_request())
+        second = service.calculate_natal_chart(bangkok_request())
+        simple = service.calculate_natal_chart(bangkok_request("TH_SIMPLE_RASI_V1"))
+        self.assertEqual(first.calculation_hash, second.calculation_hash)
+        self.assertIs(first, second)
+        self.assertNotEqual(first.calculation_hash, simple.calculation_hash)
+
+    def test_sign_boundary_and_retrograde_flags(self) -> None:
+        self.assertEqual(sign_index(29.9999), 0)
+        self.assertEqual(sign_index(30.0), 1)
+        self.assertEqual(sign_index(359.9999), 11)
+        snapshot = AstroCoreService().calculate_natal_chart(bangkok_request())
+        self.assertEqual(snapshot.planets["rahu"].retrograde, True)
+        self.assertAlmostEqual((snapshot.planets["rahu"].sidereal_longitude_deg + 180) % 360, snapshot.planets["ketu"].sidereal_longitude_deg, places=6)
+        self.assertAlmostEqual((snapshot.planets["rahu"].tropical_longitude_deg + 180) % 360, snapshot.planets["ketu"].tropical_longitude_deg, places=6)
+
+    def test_transit_to_natal_comparison_is_deterministic(self) -> None:
+        service = AstroCoreService()
+        comparison = service.calculate_transit_comparison(
+            TransitRequest(natal=bangkok_request(), transit_datetime_local="2026-05-06T12:00:00", transit_timezone="Asia/Bangkok")
+        )
+        second = service.calculate_transit_comparison(
+            TransitRequest(natal=bangkok_request(), transit_datetime_local="2026-05-06T12:00:00", transit_timezone="Asia/Bangkok")
+        )
+        self.assertEqual(comparison.calculation_hash, second.calculation_hash)
+        self.assertEqual(comparison.natal.calculation_hash, second.natal.calculation_hash)
+        self.assertGreaterEqual(len(comparison.transit_to_natal_aspects), 1)
+
+    def test_snapshot_based_transit_to_natal_is_deterministic_and_structural(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        request = TransitSnapshotRequest(
+            natal_chart_snapshot=natal,
+            transit_datetime_utc="2026-05-06T05:00:00Z",
+            calculation_profile_code="TH_NIRAYANA_V1",
+            transit_location=TransitLocation(latitude=13.7563, longitude=100.5018),
+            orb_settings={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+        )
+        first = service.calculate_transit_to_natal(request)
+        second = service.calculate_transit_to_natal(request)
+        encoded = json.dumps(first.to_json_dict(), ensure_ascii=False, sort_keys=True)
+        self.assertEqual(first.calculation_hash, second.calculation_hash)
+        self.assertEqual(first.transit_chart_snapshot.calculation_hash, second.transit_chart_snapshot.calculation_hash)
+        self.assertEqual(first.transit_planets["sun"].longitude_deg, second.transit_planets["sun"].longitude_deg)
+        self.assertEqual(first.natal_planets["sun"].longitude_deg, natal.planets["sun"].longitude_deg)
+        self.assertGreater(len(first.transit_to_natal_hits), 0)
+        self.assertEqual(first.scoring_ready["hit_count"], len(first.transit_to_natal_hits))
+        self.assertNotIn("prediction", encoded.lower())
+        self.assertNotIn("interpretation_text", encoded)
+        self.assertNotIn("prose", encoded.lower())
+        self.assertTrue(all(" " not in hit.interpretation_key for hit in first.transit_to_natal_hits))
+
+    def test_transit_datetime_changes_positions_and_hash(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        base = TransitSnapshotRequest(
+            natal_chart_snapshot=natal,
+            transit_datetime_utc="2026-05-06T05:00:00Z",
+            calculation_profile_code="TH_NIRAYANA_V1",
+            transit_location=TransitLocation(latitude=13.7563, longitude=100.5018),
+        )
+        later = replace(base, transit_datetime_utc="2026-05-07T05:00:00Z")
+        first = service.calculate_transit_to_natal(base)
+        second = service.calculate_transit_to_natal(later)
+        self.assertNotEqual(first.transit_chart_snapshot.calculation_hash, second.transit_chart_snapshot.calculation_hash)
+        self.assertNotEqual(first.calculation_hash, second.calculation_hash)
+        self.assertNotEqual(first.transit_planets["moon"].longitude_deg, second.transit_planets["moon"].longitude_deg)
+
+    def test_transit_datetime_requires_utc_timestamp(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        with self.assertRaisesRegex(ValueError, "UTC"):
+            service.calculate_transit_to_natal(
+                TransitSnapshotRequest(
+                    natal_chart_snapshot=natal,
+                    transit_datetime_utc="2026-05-06T12:00:00+07:00",
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+
+    def test_transit_aspects_respect_configured_orbs(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        wide = TransitSnapshotRequest(
+            natal_chart_snapshot=natal,
+            transit_datetime_utc="2026-05-06T05:00:00Z",
+            calculation_profile_code="TH_NIRAYANA_V1",
+            transit_location=TransitLocation(latitude=13.7563, longitude=100.5018),
+            orb_settings={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+        )
+        narrow = replace(wide, orb_settings={"conjunction": 0.000001, "opposition": 0.000001, "square": 0.000001, "trine": 0.000001, "sextile": 0.000001})
+        wide_result = service.calculate_transit_to_natal(wide)
+        narrow_result = service.calculate_transit_to_natal(narrow)
+        self.assertGreater(len(wide_result.aspects), 0)
+        self.assertGreater(len(wide_result.transit_to_natal_hits), 0)
+        self.assertEqual(narrow_result.aspects, [])
+        self.assertEqual(narrow_result.transit_to_natal_hits, [])
+
+    def test_solar_return_and_hourly_timing_feature_flags(self) -> None:
+        disabled = AstroCoreService(config=AstroRuntimeConfig())
+        with self.assertRaises(PermissionError):
+            disabled.calculate_solar_return(SolarReturnRequest(natal=bangkok_request(), return_year=2026))
+        with self.assertRaises(PermissionError):
+            disabled.calculate_hourly_timing(HourlyTimingRequest(natal=bangkok_request(), date_local="2026-05-06", timezone="Asia/Bangkok"))
+
+        enabled = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True, enable_hourly_timing=True))
+        solar = enabled.calculate_solar_return(SolarReturnRequest(natal=bangkok_request(), return_year=2026))
+        hourly = enabled.calculate_hourly_timing(HourlyTimingRequest(natal=bangkok_request(), date_local="2026-05-06", timezone="Asia/Bangkok"))
+        self.assertEqual(solar.year, 2026)
+        self.assertGreater(len(hourly.windows), 0)
+        self.assertTrue(all(1 <= window.score <= 10 for window in hourly.windows))
+
+    def test_hourly_timing_windows_are_generated_for_fixed_date_range(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        result = service.calculate_hourly_timing(
+            HourlyTimingRequest(
+                natal_chart_snapshot=natal,
+                start_datetime_local="2026-05-06T09:00:00",
+                end_datetime_local="2026-05-06T13:00:00",
+                timezone="Asia/Bangkok",
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+                enabled_aspect_types=["conjunction", "opposition", "square", "trine", "sextile"],
+                orb_thresholds={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+            )
+        )
+        encoded = json.dumps(result.to_json_dict(), ensure_ascii=False, sort_keys=True)
+        self.assertEqual(result.windows, result.timing_windows)
+        self.assertEqual(result.warnings, [])
+        self.assertGreater(len(result.timing_windows), 0)
+        self.assertTrue(all(window.trigger_type == "transit_to_natal_aspect" for window in result.timing_windows))
+        self.assertTrue(all(window.safety_level == "structured_signal_only" for window in result.timing_windows))
+        self.assertNotIn("prediction", encoded.lower())
+        self.assertNotIn("interpretation_text", encoded)
+        self.assertNotIn("prose", encoded.lower())
+
+    def test_hourly_timing_has_no_duplicate_triggers_and_peak_is_inside_window(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        result = service.calculate_hourly_timing(
+            HourlyTimingRequest(
+                natal_chart_snapshot=natal,
+                start_datetime_utc="2026-05-06T00:00:00Z",
+                end_datetime_utc="2026-05-06T06:00:00Z",
+                timezone="Asia/Bangkok",
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+                orb_thresholds={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+            )
+        )
+        seen: set[tuple[str, str, str]] = set()
+        for window in result.timing_windows:
+            key = (window.transit_planet, window.natal_point, window.aspect_type)
+            self.assertNotIn(key, seen)
+            seen.add(key)
+            assert window.peak_datetime_utc is not None
+            self.assertLessEqual(window.start_datetime_utc, window.peak_datetime_utc)
+            self.assertLessEqual(window.peak_datetime_utc, window.end_datetime_utc)
+
+    def test_hourly_timing_windows_respect_timezone(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        result = service.calculate_hourly_timing(
+            HourlyTimingRequest(
+                natal_chart_snapshot=natal,
+                start_datetime_local="2026-05-06T09:00:00",
+                end_datetime_local="2026-05-06T10:00:00",
+                timezone="Asia/Bangkok",
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+                orb_thresholds={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+            )
+        )
+        self.assertTrue(all(window.start_datetime_utc == "2026-05-06T02:00:00Z" for window in result.timing_windows))
+        self.assertTrue(all(window.local_start == "2026-05-06T09:00:00" for window in result.timing_windows))
+        self.assertTrue(all(window.local_end == "2026-05-06T10:00:00" for window in result.timing_windows))
+
+    def test_hourly_timing_unsupported_range_fails_safely(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        result = service.calculate_hourly_timing(
+            HourlyTimingRequest(
+                natal_chart_snapshot=natal,
+                start_datetime_utc="2026-05-01T00:00:00Z",
+                end_datetime_utc="2026-05-20T00:00:00Z",
+                timezone="Asia/Bangkok",
+                calculation_profile_code="TH_NIRAYANA_V1",
+            )
+        )
+        self.assertEqual(result.timing_windows, [])
+        self.assertEqual(result.windows, [])
+        self.assertEqual(result.warnings[0].code, "UNSUPPORTED_TIMING_RANGE")
+
+    def test_hourly_timing_windows_are_deterministic(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        request = HourlyTimingRequest(
+            natal_chart_snapshot=natal,
+            start_datetime_local="2026-05-06T09:00:00",
+            end_datetime_local="2026-05-06T13:00:00",
+            timezone="Asia/Bangkok",
+            location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+            calculation_profile_code="TH_NIRAYANA_V1",
+            orb_thresholds={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+        )
+        first = service.calculate_hourly_timing(request)
+        second = service.calculate_hourly_timing(request)
+        self.assertEqual(first.calculation_hash, second.calculation_hash)
+        self.assertEqual(first.to_json_dict(), second.to_json_dict())
+
+    def test_snapshot_based_solar_return_is_deterministic_and_close_to_natal_sun(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        request = SolarReturnRequest(
+            natal_chart_snapshot=natal,
+            solar_return_year=2026,
+            location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+            calculation_profile_code="TH_NIRAYANA_V1",
+        )
+        first = service.calculate_solar_return(request)
+        second = service.calculate_solar_return(request)
+        self.assertEqual(first.calculation_hash, second.calculation_hash)
+        self.assertEqual(first.solar_return_datetime_utc, second.solar_return_datetime_utc)
+        self.assertEqual(first.solar_return_datetime_utc, "2026-05-12T07:15:00Z")
+        self.assertEqual(first.solar_return_datetime_local, "2026-05-12T14:15:00")
+        self.assertLessEqual(first.delta_arc_seconds, 60)
+        self.assertAlmostEqual(first.sun_longitude_at_return, first.natal_sun_longitude_reference, delta=1 / 60)
+        self.assertEqual(first.solar_return_chart_snapshot.calculation_hash, first.chart.calculation_hash)
+        self.assertEqual(first.warnings, [])
+
+    def test_solar_return_convergence_failure_is_returned_safely(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        result = service.calculate_solar_return(
+            SolarReturnRequest(
+                natal_chart_snapshot=natal,
+                solar_return_year=2026,
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+                max_iterations=0,
+            )
+        )
+        self.assertEqual(result.warnings[0].code, "SOLAR_RETURN_CONVERGENCE_FAILED")
+        self.assertNotEqual(result.solar_return_datetime_utc, "")
+        self.assertGreaterEqual(result.delta_arc_seconds, 0)
+
+    def test_solar_return_from_unknown_birth_time_keeps_return_houses_location_dependent(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request(birth_time_unknown=True))
+        with_location = service.calculate_solar_return(
+            SolarReturnRequest(
+                natal_chart_snapshot=natal,
+                solar_return_year=2026,
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+            )
+        )
+        no_location = service.calculate_solar_return(
+            SolarReturnRequest(
+                natal_chart_snapshot=natal,
+                solar_return_year=2026,
+                calculation_profile_code="TH_NIRAYANA_V1",
+            )
+        )
+        self.assertFalse(natal.houses.reliable)
+        self.assertLessEqual(with_location.delta_arc_seconds, 60)
+        self.assertTrue(with_location.solar_return_chart_snapshot.houses.reliable)
+        self.assertTrue(all(planet.house_number is not None for planet in with_location.solar_return_chart_snapshot.planets.values()))
+        self.assertFalse(no_location.solar_return_chart_snapshot.houses.reliable)
+        self.assertTrue(all(planet.house_number is None for planet in no_location.solar_return_chart_snapshot.planets.values()))
+
+    def test_production_swisseph_guard_fails_closed(self) -> None:
+        with self.assertRaisesRegex(PermissionError, "LICENSE_MODE_NOT_PRODUCTION_READY"):
+            AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="free", ephemeris_path="/tmp").validate()
+        with self.assertRaisesRegex(PermissionError, "EPHEMERIS_FILE_MISSING"):
+            AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="professional").validate()
+        AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="professional", ephemeris_path="/tmp").validate()
+
+    def test_swisseph_adapter_fails_closed_when_ephemeris_path_is_missing(self) -> None:
+        config = AstroRuntimeConfig(
+            engine="swisseph",
+            runtime_env="test",
+            swisseph_license_mode="free",
+            ephemeris_path="/tmp/thai-horoscope-missing-ephemeris",
+        )
+        with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILE_MISSING"):
+            SwissEphemerisEngine(config)
+
+    def test_mock_engine_works_without_license_or_ephemeris_path(self) -> None:
+        config = AstroRuntimeConfig(engine="mock", swisseph_license_mode="none", ephemeris_path=None)
+        config.validate()
+        snapshot = AstroCoreService(config=config).calculate_natal_chart(bangkok_request())
+        public = snapshot.to_json_dict()
+        engine = public["engine"]
+        assert isinstance(engine, dict)
+        self.assertEqual(snapshot.engine, "mock")
+        self.assertEqual(engine["license_mode"], "none")
+        self.assertFalse(engine["ephemeris_path_configured"])
+        self.assertIn("sun", snapshot.planets)
+
+    def test_no_ephemeris_binary_files_are_committed(self) -> None:
+        root = Path(__file__).resolve().parents[3]
+        forbidden_suffixes = {".se1", ".se2", ".sef", ".bsp", ".ephe", ".eph"}
+        search_roots = [
+            root / "services" / "astro-calc",
+            root / "packages" / "contracts",
+            root / "apps" / "web" / "src" / "astro",
+            root / "docs",
+        ]
+        committed_ephemeris_like_files = [
+            str(path.relative_to(root))
+            for search_root in search_roots
+            if search_root.exists()
+            for path in search_root.rglob("*")
+            if path.is_file() and path.suffix.lower() in forbidden_suffixes
+        ]
+        self.assertEqual(committed_ephemeris_like_files, [])
+
+    def test_calculations_do_not_attempt_network_downloads(self) -> None:
+        def fail_network(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("network download attempted")
+
+        with (
+            patch("urllib.request.urlopen", side_effect=fail_network),
+            patch("urllib.request.urlretrieve", side_effect=fail_network),
+        ):
+            service = AstroCoreService()
+            natal = service.calculate_natal_chart(bangkok_request())
+            transit = service.calculate_transit_to_natal(
+                TransitSnapshotRequest(
+                    natal_chart_snapshot=natal,
+                    transit_datetime_utc="2026-05-06T05:00:00Z",
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    transit_location=TransitLocation(latitude=13.7563, longitude=100.5018),
+                )
+            )
+        self.assertIn("sun", natal.planets)
+        self.assertIn("sun", transit.transit_planets)
+
+    def test_swisseph_adapter_uses_injected_module_without_runtime_downloads(self) -> None:
+        fake = FakeSwe()
+        config = AstroRuntimeConfig(engine="swisseph", runtime_env="test", swisseph_license_mode="free", ephemeris_path="/tmp/ephe")
+        engine = SwissEphemerisEngine(config, swe_module=fake)
+        positions = engine.planet_positions(2451545.0, ["sun", "rahu", "ketu"], "lahiri")
+        houses = engine.houses(2451545.0, 13.7563, 100.5018, "whole_sign", True)
+        self.assertEqual(fake.ephe_path, "/tmp/ephe")
+        self.assertEqual(fake.sid_mode_set, True)
+        self.assertEqual(positions["sun"].sign_index, 0)
+        self.assertAlmostEqual((positions["rahu"].longitude_deg + 180) % 360, positions["ketu"].longitude_deg, places=6)
+        self.assertEqual(len(houses.cusps_deg), 12)
+
+    def test_calculation_errors_and_logs_do_not_include_raw_birth_data(self) -> None:
+        request = ChartRequest(
+            calculation_profile_code="TH_NIRAYANA_V1",
+            birth_date="1971-03-11",
+            birth_time="08:17",
+            timezone="Not/AZone",
+            latitude=13.7563,
+            longitude=100.5018,
+            elevation_m=0,
+        )
+        with patch("logging.Logger._log") as log_call:
+            with self.assertRaisesRegex(ValueError, "INVALID_TIMEZONE") as raised:
+                AstroCoreService().calculate_natal_chart(request)
+        self.assertEqual(log_call.call_count, 0)
+        error_message = str(raised.exception)
+        self.assertNotIn("1971-03-11", error_message)
+        self.assertNotIn("08:17", error_message)
+        self.assertNotIn("13.7563", error_message)
+        self.assertNotIn("100.5018", error_message)
+
+    def test_engine_outputs_structured_data_without_prediction_prose(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True, enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        transit = service.calculate_transit_to_natal(
+            TransitSnapshotRequest(
+                natal_chart_snapshot=natal,
+                transit_datetime_utc="2026-05-06T05:00:00Z",
+                calculation_profile_code="TH_NIRAYANA_V1",
+                transit_location=TransitLocation(latitude=13.7563, longitude=100.5018),
+                orb_settings={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+            )
+        )
+        solar = service.calculate_solar_return(
+            SolarReturnRequest(
+                natal_chart_snapshot=natal,
+                solar_return_year=2026,
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+            )
+        )
+        hourly = service.calculate_hourly_timing(
+            HourlyTimingRequest(
+                natal_chart_snapshot=natal,
+                start_datetime_local="2026-05-06T09:00:00",
+                end_datetime_local="2026-05-06T13:00:00",
+                timezone="Asia/Bangkok",
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+            )
+        )
+        encoded = json.dumps(
+            {
+                "natal": natal.to_json_dict(),
+                "transit": transit.to_json_dict(),
+                "solar": solar.to_json_dict(),
+                "hourly": hourly.to_json_dict(),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ).lower()
+        forbidden_terms = [
+            "prediction",
+            "interpretation_text",
+            "prose",
+            "guaranteed",
+            "diagnosis",
+            "lottery",
+            "death",
+            "serious illness",
+            "unavoidable harm",
+        ]
+        for term in forbidden_terms:
+            self.assertNotIn(term, encoded)
+
+
+class FakeSwe(SimpleNamespace):
+    SUN = 0
+    MOON = 1
+    MERCURY = 2
+    VENUS = 3
+    MARS = 4
+    JUPITER = 5
+    SATURN = 6
+    URANUS = 8
+    NEPTUNE = 9
+    PLUTO = 10
+    TRUE_NODE = 7
+    FLG_SWIEPH = 1
+    FLG_SIDEREAL = 2
+    FLG_SPEED = 4
+    SIDM_LAHIRI = 1
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.ephe_path = ""
+        self.sid_mode_set = False
+
+    def set_ephe_path(self, path: str) -> None:
+        self.ephe_path = path
+
+    def set_sid_mode(self, mode: int, _t0: int, _ayan_t0: int) -> None:
+        self.sid_mode_set = mode == self.SIDM_LAHIRI
+
+    def get_ayanamsa_ut(self, _jd_ut: float) -> float:
+        return 24.1
+
+    def calc_ut(self, _jd_ut: float, body_id: int, _flags: int) -> tuple[list[float], int]:
+        longitude = 10.0 + body_id * 20.0
+        speed = -0.05 if body_id == self.TRUE_NODE else 1.0
+        return [longitude, 0.0, 0.0, speed], _flags
+
+    def houses_ex(self, _jd_ut: float, _lat: float, _lon: float, _house_code: bytes, _flags: int) -> tuple[list[float], list[float]]:
+        return [float(index * 30) for index in range(12)], [15.0, 105.0]
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -33,12 +33,18 @@ EMAIL_AUDIT_HASH_SECRET=<staging-only secret>
 LINE_PROVIDER_MODE=sandbox
 LINE_AUDIT_HASH_SECRET=<staging-only secret>
 PAYMENT_PROVIDER_MODE=mock
+ENABLE_REAL_EMAIL_SENDS=false
+ENABLE_REAL_LINE_SENDS=false
+ENABLE_REAL_PAYMENT_PROVIDER=false
+ENABLE_PROVIDER_DRY_RUN=true
+REQUIRE_PROVIDER_ACTIVATION_APPROVAL=false
 NOTIFICATION_SCHEDULER_MODE=dry_run
 ASTRO_ENGINE=mock
 SWISSEPH_LICENSE_MODE=none
 ```
 
 Use real provider staging/test accounts only after the owner approves that provider-specific test. Never reuse production tokens in staging.
+Use `docs/PROVIDER_DRY_RUN.md` before any approved real-provider staging test.
 
 ## Deploy
 
@@ -65,6 +71,7 @@ Minimum smoke paths:
 - LINE webhook rejects invalid signatures
 - payment webhook rejects invalid signatures
 - notification scheduler remains dry-run or sandboxed
+- provider activation dry-run reports no real provider network calls
 - astro-calc uses mock or approved test engine only
 - structured monitoring events and mock alert hooks contain sanitized metadata only
 

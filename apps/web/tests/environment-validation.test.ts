@@ -27,7 +27,7 @@ describe("environment validation", () => {
 
     assert.equal(report.status, "error");
     assert.equal(email.status, "error");
-    assertIssueVariables(email.errors, "EMAIL_REAL_PROVIDER_CONFIG_MISSING", ["EMAIL_AUDIT_HASH_SECRET", "EMAIL_FROM_ADDRESS", "EMAIL_PROVIDER_API_KEY", "EMAIL_PROVIDER_ENDPOINT", "EMAIL_WEBHOOK_SECRET"]);
+    assertIssueVariables(email.errors, "EMAIL_REAL_PROVIDER_CONFIG_MISSING", ["EMAIL_AUDIT_HASH_SECRET", "EMAIL_FROM_ADDRESS", "EMAIL_PROVIDER_API_KEY", "EMAIL_PROVIDER_ENDPOINT", "EMAIL_VERIFIED_SENDER_DOMAIN", "EMAIL_WEBHOOK_SECRET"]);
   });
 
   it("LINE real mode requires channel secret and access token", () => {
@@ -128,6 +128,7 @@ describe("environment validation", () => {
       EMAIL_PROVIDER_API_KEY:"email-api-secret-value",
       EMAIL_WEBHOOK_SECRET:"email-webhook-secret-value",
       EMAIL_AUDIT_HASH_SECRET:"email-audit-secret-value",
+      EMAIL_VERIFIED_SENDER_DOMAIN:"example.test",
       LINE_PROVIDER_MODE:"http",
       LINE_CHANNEL_SECRET:"line-channel-secret-value",
       LINE_CHANNEL_ACCESS_TOKEN:"line-access-token-value",
@@ -136,6 +137,10 @@ describe("environment validation", () => {
       PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"https://payments.example.test/checkout",
       PAYMENT_PROVIDER_API_KEY:"payment-api-secret-value",
       PAYMENT_WEBHOOK_SECRET:"payment-webhook-secret-value",
+      ENABLE_REAL_EMAIL_SENDS:"true",
+      ENABLE_REAL_LINE_SENDS:"true",
+      ENABLE_REAL_PAYMENT_PROVIDER:"true",
+      REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
       NOTIFICATION_SCHEDULER_MODE:"dry_run",
       NOTIFICATION_SCHEDULER_TOKEN:"scheduler-token-value",
       ASTRO_ENGINE:"swisseph",

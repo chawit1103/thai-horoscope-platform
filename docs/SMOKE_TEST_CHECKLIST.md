@@ -11,6 +11,8 @@ Validate that staging is operational without sending real provider traffic or ex
 [ ] Health output includes component statuses and modes
 [ ] Health output does not include raw secrets, tokens, email addresses, LINE user IDs, payment credentials, or birth data
 [ ] Missing config errors list variable names only
+[ ] Provider activation readiness output is sanitized and safe for operator display
+[ ] ENABLE_PROVIDER_DRY_RUN=true reports no provider network calls
 ```
 
 ## Monitoring and alerting
@@ -60,6 +62,9 @@ Real staging/test mode:
 [ ] EMAIL_PROVIDER_MODE=http
 [ ] EMAIL_PROVIDER_ENDPOINT points to staging/test provider
 [ ] EMAIL_PROVIDER_API_KEY is staging/test only
+[ ] EMAIL_VERIFIED_SENDER_DOMAIN is verified for the intended sender/domain
+[ ] ENABLE_REAL_EMAIL_SENDS=true only after human approval
+[ ] REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true before activation
 [ ] EMAIL_WEBHOOK_SECRET is configured
 [ ] Test webhook signature verification passes with staging secret
 [ ] Invalid webhook signature fails closed
@@ -81,6 +86,8 @@ Real staging/test mode:
 [ ] LINE_PROVIDER_MODE=http
 [ ] LINE_CHANNEL_SECRET is staging/test only
 [ ] LINE_CHANNEL_ACCESS_TOKEN is staging/test only
+[ ] ENABLE_REAL_LINE_SENDS=true only after human approval
+[ ] REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true before activation
 [ ] Invalid webhook signature fails closed
 [ ] Test account only receives approved test messages
 ```
@@ -103,6 +110,8 @@ Real staging/test mode:
 [ ] PAYMENT_PROVIDER_CHECKOUT_ENDPOINT points to staging/test provider
 [ ] PAYMENT_PROVIDER_API_KEY is staging/test only
 [ ] PAYMENT_WEBHOOK_SECRET is configured
+[ ] ENABLE_REAL_PAYMENT_PROVIDER=true only after human approval
+[ ] REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true before activation
 [ ] Webhook idempotency is verified
 [ ] Duplicate webhook does not duplicate subscription, receipt, or audit side effects
 ```

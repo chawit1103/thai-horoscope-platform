@@ -13,6 +13,7 @@ List the fail-closed rules that must hold before production launch.
 - Do not send real LINE messages, real email, or real payment requests from tests.
 - Do not send real Slack, LINE, email, webhook, or vendor alert calls from tests; use mock alert hooks only.
 - Do not enable paid production astrology calculations with mock ephemeris output.
+- Do not activate real Email, LINE, or Payment providers without explicit real-provider flags and human approval gate configuration.
 
 ## Admin auth
 
@@ -41,6 +42,10 @@ EMAIL_PROVIDER_ENDPOINT
 EMAIL_PROVIDER_API_KEY
 EMAIL_WEBHOOK_SECRET
 EMAIL_AUDIT_HASH_SECRET
+EMAIL_VERIFIED_SENDER_DOMAIN
+ENABLE_REAL_EMAIL_SENDS=true
+REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true
+ENABLE_PROVIDER_DRY_RUN=false
 ```
 
 Email logs must not include raw email addresses, tokens, webhook secrets, provider API keys, subject/body content, or raw provider payloads.
@@ -54,6 +59,9 @@ LINE_PROVIDER_MODE=http
 LINE_CHANNEL_SECRET
 LINE_CHANNEL_ACCESS_TOKEN
 LINE_AUDIT_HASH_SECRET
+ENABLE_REAL_LINE_SENDS=true
+REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true
+ENABLE_PROVIDER_DRY_RUN=false
 ```
 
 LINE logs must not include raw LINE user IDs, access tokens, webhook secrets, message bodies, or raw payloads.
@@ -67,6 +75,9 @@ PAYMENT_PROVIDER_MODE=http
 PAYMENT_PROVIDER_CHECKOUT_ENDPOINT
 PAYMENT_PROVIDER_API_KEY
 PAYMENT_WEBHOOK_SECRET
+ENABLE_REAL_PAYMENT_PROVIDER=true
+REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true
+ENABLE_PROVIDER_DRY_RUN=false
 ```
 
 Production forbids:

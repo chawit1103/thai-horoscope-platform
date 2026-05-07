@@ -65,7 +65,7 @@ EMAIL_AUDIT_HASH_SECRET
 LINE_AUDIT_HASH_SECRET when LINE is not disabled
 ```
 
-Real provider modes require their provider credentials even in staging.
+Real provider modes require their provider credentials even in staging. Use `ENABLE_PROVIDER_DRY_RUN=true` to validate real provider readiness without allowing real provider network calls.
 
 ## Production
 
@@ -98,6 +98,7 @@ EMAIL_PROVIDER_ENDPOINT
 EMAIL_PROVIDER_API_KEY
 EMAIL_WEBHOOK_SECRET
 EMAIL_AUDIT_HASH_SECRET
+EMAIL_VERIFIED_SENDER_DOMAIN
 ```
 
 LINE:
@@ -127,6 +128,18 @@ PAYMENT_PROVIDER_CHECKOUT_ENDPOINT
 PAYMENT_PROVIDER_API_KEY
 PAYMENT_WEBHOOK_SECRET
 ```
+
+Real provider activation flags:
+
+```text
+ENABLE_REAL_EMAIL_SENDS=false|true
+ENABLE_REAL_LINE_SENDS=false|true
+ENABLE_REAL_PAYMENT_PROVIDER=false|true
+ENABLE_PROVIDER_DRY_RUN=true|false
+REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true|false
+```
+
+When a provider mode is `http`, environment validation fails closed unless required provider config exists. With `ENABLE_PROVIDER_DRY_RUN=true`, readiness can report sanitized dry-run warnings while keeping provider network calls blocked. With dry-run disabled, real provider mode also requires the matching `ENABLE_REAL_*` flag and `REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true`.
 
 Notification scheduler:
 
@@ -194,6 +207,7 @@ It must not contain raw values. Safe example:
 - real email mode required config
 - real LINE mode required config
 - real payment mode required config
+- real provider activation flags and dry-run guardrails
 - Swiss Ephemeris production license/path guard
 - sanitized health/config output
 - sanitized missing-config errors

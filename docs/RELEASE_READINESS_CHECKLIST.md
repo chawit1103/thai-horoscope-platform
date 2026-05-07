@@ -26,6 +26,9 @@ Runtime ephemeris downloads: prohibited
 - [Launch risk register](LAUNCH_RISK_REGISTER.md)
 - [Rollback checklist](ROLLBACK_CHECKLIST.md)
 - [Beta dry run report](BETA_DRY_RUN_REPORT.md)
+- [Real provider activation runbook](REAL_PROVIDER_ACTIVATION_RUNBOOK.md)
+- [Provider activation checklist](PROVIDER_ACTIVATION_CHECKLIST.md)
+- [Provider dry run](PROVIDER_DRY_RUN.md)
 
 ## Security readiness
 
@@ -72,6 +75,7 @@ Runtime ephemeris downloads: prohibited
 [ ] Receipt hook behavior is sandboxed and deduplicated
 [ ] Card data is never stored in application state, audit logs, health checks, logs, or alerts
 [ ] Real provider activation checklist is completed and approved by a human owner
+[ ] Real payment activation requires ENABLE_REAL_PAYMENT_PROVIDER=true and REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true
 ```
 
 ## Notification readiness
@@ -79,6 +83,7 @@ Runtime ephemeris downloads: prohibited
 ```text
 [ ] Email gateway supports sandbox mode and configured HTTP mode
 [ ] LINE gateway supports sandbox mode, configured HTTP mode, and disabled mode where allowed
+[ ] Real Email and LINE sends require explicit ENABLE_REAL_* flags and human approval gate configuration
 [ ] Notification scheduler supports disabled, dry_run, and enabled modes
 [ ] Enabled scheduler requires an internal scheduler token outside local development
 [ ] Duplicate-send prevention is keyed by user/topic/period
@@ -116,6 +121,8 @@ Runtime ephemeris downloads: prohibited
 [ ] Production variables are listed but not added to the repository
 [ ] Mock/sandbox modes are visible in health warnings
 [ ] Real provider modes fail closed without their required secrets
+[ ] Real provider modes fail closed without explicit ENABLE_REAL_* flags when dry-run is disabled
+[ ] Provider dry-run validates readiness without network calls or real state mutation
 [ ] Production blocks sandbox email, sandbox LINE, mock payment, mock astro, disabled LINE, and MOCK_ADMIN_TOKEN
 [ ] Swiss Ephemeris production blocks non-professional license mode and missing ephemeris path
 [ ] GET /api/health returns sanitized component status

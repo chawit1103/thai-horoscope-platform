@@ -158,6 +158,64 @@ input {
   padding: 5px 9px;
 }
 
+.operator-tabs {
+  margin: 20px 0 8px;
+}
+
+.operator-grid {
+  align-items: stretch;
+}
+
+.status-card {
+  display: grid;
+  gap: 12px;
+}
+
+.status-ok {
+  border-color: #76a888;
+}
+
+.status-warning {
+  border-color: #d0a23d;
+}
+
+.status-error {
+  border-color: #c05b5b;
+}
+
+.status-meta {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.status-meta div {
+  background: #f7f3ea;
+  border: 1px solid #ded5c4;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.status-meta dt {
+  color: #6b7280;
+  font-size: 0.78rem;
+  font-weight: 800;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.status-meta dd {
+  font-weight: 800;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.button-link.secondary {
+  background: #ffffff;
+  color: #0f766e;
+}
+
 .plain-list {
   display: grid;
   gap: 10px;

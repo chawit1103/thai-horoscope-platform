@@ -65,6 +65,7 @@ Real staging/test mode:
 [ ] EMAIL_VERIFIED_SENDER_DOMAIN is verified for the intended sender/domain
 [ ] ENABLE_REAL_EMAIL_SENDS=true only after human approval
 [ ] REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true before activation
+[ ] ENABLE_PROVIDER_DRY_RUN=false only after dry-run passes
 [ ] EMAIL_WEBHOOK_SECRET is configured
 [ ] Test webhook signature verification passes with staging secret
 [ ] Invalid webhook signature fails closed
@@ -88,6 +89,7 @@ Real staging/test mode:
 [ ] LINE_CHANNEL_ACCESS_TOKEN is staging/test only
 [ ] ENABLE_REAL_LINE_SENDS=true only after human approval
 [ ] REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true before activation
+[ ] ENABLE_PROVIDER_DRY_RUN=false only after dry-run passes
 [ ] Invalid webhook signature fails closed
 [ ] Test account only receives approved test messages
 ```
@@ -112,6 +114,7 @@ Real staging/test mode:
 [ ] PAYMENT_WEBHOOK_SECRET is configured
 [ ] ENABLE_REAL_PAYMENT_PROVIDER=true only after human approval
 [ ] REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true before activation
+[ ] ENABLE_PROVIDER_DRY_RUN=false only after dry-run passes
 [ ] Webhook idempotency is verified
 [ ] Duplicate webhook does not duplicate subscription, receipt, or audit side effects
 ```

@@ -1,10 +1,10 @@
 import { approveContentBatchAction, rejectContentBatchAction, requireAdminSession } from "../../actions";
-import { ensureContentPreviewBatchesForApprovedResults, listContentPreviewBatches } from "../../../src/mvp/content-preview-approval";
+import { CONTENT_PREVIEW_APPROVAL_SESSION_ID, ensureContentPreviewBatchesForApprovedResults, listContentPreviewBatches } from "../../../src/mvp/content-preview-approval";
 
 export default async function AdminContentPreviewPage() {
   const adminSession = await requireAdminSession("/admin/content-preview");
-  ensureContentPreviewBatchesForApprovedResults({ sessionId:adminSession.sessionId });
-  const batches = listContentPreviewBatches(adminSession.sessionId);
+  ensureContentPreviewBatchesForApprovedResults({ sessionId:adminSession.sessionId, approvalSessionId:CONTENT_PREVIEW_APPROVAL_SESSION_ID });
+  const batches = listContentPreviewBatches(CONTENT_PREVIEW_APPROVAL_SESSION_ID);
 
   return (
     <section className="page">

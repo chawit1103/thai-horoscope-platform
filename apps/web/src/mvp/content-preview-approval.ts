@@ -7,6 +7,7 @@ export type ContentPreviewItemStatus = ContentPreviewApprovalStatus|"queued"|"se
 export type ContentPreviewTopic = "daily_horoscope"|"weekly_horoscope"|"monthly_horoscope"|"yearly_horoscope";
 export type ContentPreviewChannel = "line"|"email";
 export type ContentPreviewAuditAction = "admin_content_batch_approved"|"admin_content_batch_rejected";
+export const CONTENT_PREVIEW_APPROVAL_SESSION_ID = "__content_preview_approval__";
 
 export interface ContentPreviewRuleHit {
   ruleId:string;
@@ -68,6 +69,7 @@ export interface ContentPreviewAuditLogEntry {
 
 interface InternalContentPreviewBatch extends ContentPreviewBatch {
   sourceResultId:string;
+  contentHash:string;
 }
 
 interface ContentPreviewApprovalState {
@@ -109,9 +111,19 @@ export function ensureContentPreviewBatch(input:{ sessionId?:string; horoscopeRe
   const batchId = batchIdFor(sessionId, input.horoscopeResult.id);
   const existing = state.batches.find((batch)=>batch.batchId===batchId);
   const nowIso = (input.now ?? new Date()).toISOString();
-  const item = buildPreviewItem(input.horoscopeResult, input.topicCode, input.deliveryPayload, input.deliveryChannels, existing?.approvalStatus ?? "pending_review");
+  const contentHash = input.deliveryPayload.content.content_hash;
+  const nextApprovalStatus = existing && existing.contentHash === contentHash ? existing.approvalStatus : "pending_review";
+  const item = buildPreviewItem(input.horoscopeResult, input.topicCode, input.deliveryPayload, input.deliveryChannels, nextApprovalStatus);
 
   if (existing) {
+    if (existing.contentHash !== contentHash) {
+      existing.approvalStatus = "pending_review";
+      existing.approvedAt = undefined;
+      existing.approvedBy = undefined;
+      existing.rejectedAt = undefined;
+      existing.rejectedBy = undefined;
+    }
+    existing.contentHash = contentHash;
     existing.items = [item];
     existing.updatedAt = nowIso;
     return publicBatch(existing);
@@ -120,6 +132,7 @@ export function ensureContentPreviewBatch(input:{ sessionId?:string; horoscopeRe
   const batch:InternalContentPreviewBatch = {
     batchId,
     sourceResultId: input.horoscopeResult.id,
+    contentHash,
     approvalStatus:"pending_review",
     createdAt:nowIso,
     updatedAt:nowIso,
@@ -129,16 +142,17 @@ export function ensureContentPreviewBatch(input:{ sessionId?:string; horoscopeRe
   return publicBatch(batch);
 }
 
-export function ensureContentPreviewBatchesForApprovedResults(input:{ sessionId?:string; now?:Date } = {}):ContentPreviewBatch[] {
-  const sessionId = input.sessionId ?? "dev-default";
-  const mockState = getMockMvpState(sessionId);
+export function ensureContentPreviewBatchesForApprovedResults(input:{ sessionId?:string; approvalSessionId?:string; now?:Date } = {}):ContentPreviewBatch[] {
+  const sourceSessionId = input.sessionId ?? "dev-default";
+  const approvalSessionId = input.approvalSessionId ?? input.sessionId ?? "dev-default";
+  const mockState = getMockMvpState(sourceSessionId);
   const batches:ContentPreviewBatch[] = [];
   for (const result of mockState.horoscopeResults.filter((item)=>item.status==="approved")) {
     const chart = mockState.chartSnapshots.find((snapshot)=>snapshot.id===result.chartSnapshotId&&snapshot.userId===result.userId&&snapshot.birthProfileId===result.birthProfileId);
     if (!chart) continue;
     const topicCode = `${result.periodType}_horoscope` as ContentPreviewTopic;
     const payload = generateHoroscopeDeliveryPayload({ topicCode, periodType:result.periodType, periodKey:result.periodKey, chartSnapshot:chart });
-    batches.push(ensureContentPreviewBatch({ sessionId, horoscopeResult:result, topicCode, deliveryPayload:payload, deliveryChannels:["line", "email"], now:input.now }));
+    batches.push(ensureContentPreviewBatch({ sessionId:approvalSessionId, horoscopeResult:result, topicCode, deliveryPayload:payload, deliveryChannels:["line", "email"], now:input.now }));
   }
   return batches;
 }
@@ -212,7 +226,7 @@ function buildPreviewItem(result:HoroscopeResult, topicCode:ContentPreviewTopic,
 }
 
 function publicBatch(batch:InternalContentPreviewBatch):ContentPreviewBatch {
-  const { sourceResultId:_, ...safe } = batch;
+  const { sourceResultId:_, contentHash:__, ...safe } = batch;
   return structuredClone(safe);
 }
 

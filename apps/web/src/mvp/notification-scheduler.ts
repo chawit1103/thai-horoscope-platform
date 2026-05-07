@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ensureContentPreviewBatch, getContentPreviewApprovalForResult } from "./content-preview-approval";
+import { CONTENT_PREVIEW_APPROVAL_SESSION_ID, ensureContentPreviewBatch, getContentPreviewApprovalForResult } from "./content-preview-approval";
 import { EmailGateway, type EmailChannelAccount, type EmailDeliveryResult, type EmailMessage } from "./email-gateway";
 import { generateHoroscopeDeliveryPayload, horoscopeContentToEmailMessage, horoscopeContentToLineMessage, type HoroscopeDeliveryPayload } from "./horoscope-delivery-integration";
 import { type HoroscopeContentOutput } from "./horoscope-content-engine";
@@ -114,7 +114,7 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
       }
 
       const approval = input.betaApprovalMode ? ensureContentPreviewBatch({
-        sessionId,
+        sessionId:CONTENT_PREVIEW_APPROVAL_SESSION_ID,
         horoscopeResult:result,
         topicCode,
         deliveryPayload,
@@ -215,7 +215,7 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
     }
 
     if (input.betaApprovalMode || messageRequiresContentApproval(message)) {
-      const approval = getContentPreviewApprovalForResult(sessionId, message.horoscopeResultId);
+      const approval = getContentPreviewApprovalForResult(CONTENT_PREVIEW_APPROVAL_SESSION_ID, message.horoscopeResultId);
       if (!approval || approval.approvalStatus === "rejected") {
         const attempt = recordAttempt(message, message.channel, "suppressed", now, false, approval ? "content_rejected" : "content_approval_missing");
         attempts.push(attempt);

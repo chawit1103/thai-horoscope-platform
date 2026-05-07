@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { createAdminSessionCookie, approveContentBatchWithAdminCookie, rejectContentBatchWithAdminCookie } from "../src/mvp/admin-auth";
-import { getContentPreviewApprovalState, getContentPreviewBatch, resetContentPreviewApprovalState } from "../src/mvp/content-preview-approval";
+import { CONTENT_PREVIEW_APPROVAL_SESSION_ID, ensureContentPreviewBatch, getContentPreviewApprovalState, getContentPreviewBatch, resetContentPreviewApprovalState } from "../src/mvp/content-preview-approval";
 import { EmailGateway, SandboxEmailProvider, createEmailChannelAccount, type EmailAuditLogEntry } from "../src/mvp/email-gateway";
+import { generateHoroscopeDeliveryPayload } from "../src/mvp/horoscope-delivery-integration";
 import { LineGateway, SandboxLineProvider, createLineChannelAccount, type LineAuditLogEntry } from "../src/mvp/line-gateway";
 import { approveDraft, callMockAstroCalc, deleteBirthProfile, generateHoroscopeResult, getMockMvpState, resetMockMvpState, saveBirthProfile, setMockUserPlan, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
 import { dispatchQueuedNotifications, getNotificationPeriodKey, getNotificationSchedulerState, resetNotificationSchedulerState, runNotificationSchedulerJob, type NotificationSchedulerUser, type NotificationTopic } from "../src/mvp/notification-scheduler";
 import { processMockSubscriptionWebhook, resetMockSubscriptionState, type MockSubscriptionWebhookEvent, type SubscriptionRecord } from "../src/mvp/subscription-lifecycle";
 
 const sessionId = "content_preview_test";
+const approvalSessionId = CONTENT_PREVIEW_APPROVAL_SESSION_ID;
 const adminSecret = "test-admin-session-secret";
 const adminCookie = createAdminSessionCookie({ actorId:"admin_preview_test", role:"admin", sessionSecret:adminSecret, ttlMs:30 * 24 * 60 * 60 * 1000 });
 const now = new Date("2026-05-03T00:30:00.000Z");
@@ -88,11 +90,11 @@ function gateways() {
 async function createPendingPreviewBatch(userId:string, topicCode:NotificationTopic = "daily_horoscope"):Promise<string> {
   approveHoroscopeArtifact({ userId, topicCode });
   const schedulerUser = user({ userId, subscription:await activeSubscription(userId) });
-  const beforeCount = getContentPreviewApprovalState(sessionId).batches.length;
+  const beforeCount = getContentPreviewApprovalState(approvalSessionId).batches.length;
   const result = runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:[topicCode], now, betaApprovalMode:true });
   assert.equal(result.queued.length, 1);
   assert.equal(result.deferred, 1);
-  const batch = getContentPreviewApprovalState(sessionId).batches[beforeCount];
+  const batch = getContentPreviewApprovalState(approvalSessionId).batches[beforeCount];
   assert.ok(batch);
   return batch.batchId;
 }
@@ -108,39 +110,60 @@ describe("beta content preview approval", () => {
   it("requires admin auth for approval actions", async () => {
     const batchId = await createPendingPreviewBatch("preview_auth_user");
 
-    assert.throws(() => approveContentBatchWithAdminCookie({ sessionId, batchId, sessionCookie:undefined, sessionSecret:adminSecret }), /Unauthorized/);
-    assert.equal(getContentPreviewBatch(sessionId, batchId)?.approvalStatus, "pending_review");
+    assert.throws(() => approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId, sessionCookie:undefined, sessionSecret:adminSecret }), /Unauthorized/);
+    assert.equal(getContentPreviewBatch(approvalSessionId, batchId)?.approvalStatus, "pending_review");
   });
 
   it("allows an admin to approve and reject content batches", async () => {
     const approvedBatchId = await createPendingPreviewBatch("preview_approve_user");
-    approveContentBatchWithAdminCookie({ sessionId, batchId:approvedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
-    assert.equal(getContentPreviewBatch(sessionId, approvedBatchId)?.approvalStatus, "approved");
+    approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId:approvedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    assert.equal(getContentPreviewBatch(approvalSessionId, approvedBatchId)?.approvalStatus, "approved");
 
     resetNotificationSchedulerState();
     const rejectedBatchId = await createPendingPreviewBatch("preview_reject_user");
-    rejectContentBatchWithAdminCookie({ sessionId, batchId:rejectedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
-    assert.equal(getContentPreviewBatch(sessionId, rejectedBatchId)?.approvalStatus, "rejected");
+    rejectContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId:rejectedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    assert.equal(getContentPreviewBatch(approvalSessionId, rejectedBatchId)?.approvalStatus, "rejected");
   });
 
   it("keeps duplicate approval and rejection calls idempotent", async () => {
     const approvedBatchId = await createPendingPreviewBatch("preview_duplicate_approve_user");
-    approveContentBatchWithAdminCookie({ sessionId, batchId:approvedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
-    approveContentBatchWithAdminCookie({ sessionId, batchId:approvedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
-    assert.equal(getContentPreviewApprovalState(sessionId).auditLogs.filter((log)=>log.action==="admin_content_batch_approved").length, 1);
+    approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId:approvedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId:approvedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    assert.equal(getContentPreviewApprovalState(approvalSessionId).auditLogs.filter((log)=>log.action==="admin_content_batch_approved").length, 1);
 
     resetNotificationSchedulerState();
     const rejectedBatchId = await createPendingPreviewBatch("preview_duplicate_reject_user");
-    rejectContentBatchWithAdminCookie({ sessionId, batchId:rejectedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
-    rejectContentBatchWithAdminCookie({ sessionId, batchId:rejectedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
-    assert.equal(getContentPreviewApprovalState(sessionId).auditLogs.filter((log)=>log.action==="admin_content_batch_rejected").length, 1);
+    rejectContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId:rejectedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    rejectContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId:rejectedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    assert.equal(getContentPreviewApprovalState(approvalSessionId).auditLogs.filter((log)=>log.action==="admin_content_batch_rejected").length, 1);
   });
 
   it("does not allow approval after rejection without regeneration", async () => {
     const batchId = await createPendingPreviewBatch("preview_reject_then_approve_user");
-    rejectContentBatchWithAdminCookie({ sessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    rejectContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
 
-    assert.throws(() => approveContentBatchWithAdminCookie({ sessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret }), /regeneration/);
+    assert.throws(() => approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret }), /regeneration/);
+  });
+
+  it("resets approval when regenerated preview content changes", async () => {
+    const userId = "preview_content_change_user";
+    const batchId = await createPendingPreviewBatch(userId);
+    approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    const mockState = getMockMvpState(sessionId);
+    const result = mockState.horoscopeResults.find((item)=>item.userId===userId&&item.periodType==="daily");
+    assert.ok(result);
+    const chart = mockState.chartSnapshots.find((item)=>item.id===result.chartSnapshotId);
+    assert.ok(chart);
+    const payload = generateHoroscopeDeliveryPayload({ topicCode:"daily_horoscope", periodType:"daily", periodKey:result.periodKey, chartSnapshot:chart });
+    const changedPayload = {
+      ...payload,
+      content:{ ...payload.content, overview:`${payload.content.overview} updated`, content_hash:"b".repeat(64) },
+    };
+
+    const refreshed = ensureContentPreviewBatch({ sessionId:approvalSessionId, horoscopeResult:result, topicCode:"daily_horoscope", deliveryPayload:changedPayload, deliveryChannels:["line"], now });
+
+    assert.equal(refreshed.approvalStatus, "pending_review");
+    assert.equal(refreshed.approvedAt, undefined);
   });
 
   it("holds unapproved beta content without dispatching and suppresses rejected content", async () => {
@@ -151,8 +174,8 @@ describe("beta content preview approval", () => {
     assert.equal(pending.deferred, 1);
     assert.equal(getNotificationSchedulerState().outboundMessages.length, 1);
 
-    const rejectedBatchId = getContentPreviewApprovalState(sessionId).batches[0]!.batchId;
-    rejectContentBatchWithAdminCookie({ sessionId, batchId:rejectedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    const rejectedBatchId = getContentPreviewApprovalState(approvalSessionId).batches[0]!.batchId;
+    rejectContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId:rejectedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
     const g = gateways();
     const rejected = await dispatchQueuedNotifications({ sessionId, users:[pendingUser], emailGateway:g.emailGateway, lineGateway:g.lineGateway, now, betaApprovalMode:true });
     assert.equal(rejected.sent, 0);
@@ -164,7 +187,7 @@ describe("beta content preview approval", () => {
     const userId = "preview_dispatch_user";
     const batchId = await createPendingPreviewBatch(userId);
     const schedulerUser = user({ userId, subscription:await activeSubscription(userId) });
-    approveContentBatchWithAdminCookie({ sessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
 
     const g = gateways();
     const dispatched = await dispatchQueuedNotifications({ sessionId, users:[schedulerUser], emailGateway:g.emailGateway, lineGateway:g.lineGateway, now, betaApprovalMode:true });
@@ -180,7 +203,7 @@ describe("beta content preview approval", () => {
     const userId = "preview_dispatch_missing_approval_user";
     const batchId = await createPendingPreviewBatch(userId);
     const schedulerUser = user({ userId, subscription:await activeSubscription(userId) });
-    approveContentBatchWithAdminCookie({ sessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
     runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
     resetContentPreviewApprovalState();
 
@@ -227,7 +250,7 @@ describe("beta content preview approval", () => {
 
   it("redacts PII while keeping rule hits safety flags warnings and source metadata visible", async () => {
     const batchId = await createPendingPreviewBatch("preview_redaction_user");
-    const batch = getContentPreviewBatch(sessionId, batchId);
+    const batch = getContentPreviewBatch(approvalSessionId, batchId);
     assert.ok(batch);
     const previewJson = JSON.stringify(batch);
 
@@ -241,7 +264,7 @@ describe("beta content preview approval", () => {
     approveHoroscopeArtifact({ userId:"preview_warning_user", birthTimeUnknown:true });
     const schedulerUser = user({ userId:"preview_warning_user", subscription:await activeSubscription("preview_warning_user") });
     runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
-    const batch = getContentPreviewApprovalState(sessionId).batches[0];
+    const batch = getContentPreviewApprovalState(approvalSessionId).batches[0];
 
     assert.ok(batch?.items[0]?.warnings.some((warning)=>warning.code.includes("UNKNOWN_BIRTH_TIME")));
   });
@@ -251,8 +274,8 @@ describe("beta content preview approval", () => {
     const birthProfileId = approveHoroscopeArtifact({ userId });
     const schedulerUser = user({ userId, subscription:await activeSubscription(userId) });
     runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
-    const batchId = getContentPreviewApprovalState(sessionId).batches[0]!.batchId;
-    approveContentBatchWithAdminCookie({ sessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    const batchId = getContentPreviewApprovalState(approvalSessionId).batches[0]!.batchId;
+    approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
     deleteBirthProfile({ sessionId, userId }, birthProfileId, new Date("2026-05-02T00:00:00.000Z"));
 
     const g = gateways();
@@ -263,8 +286,8 @@ describe("beta content preview approval", () => {
 
   it("keeps approval audit logs free of raw birth data email line IDs and secrets", async () => {
     const batchId = await createPendingPreviewBatch("preview_audit_user");
-    approveContentBatchWithAdminCookie({ sessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
-    const auditJson = JSON.stringify(getContentPreviewApprovalState(sessionId).auditLogs);
+    approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+    const auditJson = JSON.stringify(getContentPreviewApprovalState(approvalSessionId).auditLogs);
 
     assert.doesNotMatch(auditJson, /1992-08-15|07:30|Bangkok|preview_audit_user@example\.test|Upreview_audit_user|secret|token/i);
   });

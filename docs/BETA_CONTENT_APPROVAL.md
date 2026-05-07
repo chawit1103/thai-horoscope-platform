@@ -20,6 +20,16 @@ again and contains beta approval metadata, or dispatch is explicitly run in beta
 approval mode, the approval record is rechecked. Missing, pending, or rejected
 approval suppresses or defers dispatch before any provider gateway is called.
 
+Approval records use a shared beta content approval scope instead of an
+individual admin browser session. This keeps the `/admin/content-preview` page,
+server actions, scheduler queueing, and dispatch checks pointed at the same
+batch records.
+
+If regenerated content for the same source horoscope changes its deterministic
+content hash, any prior approval or rejection is cleared and the batch returns
+to `pending_review`. Operators must review the changed preview again before it
+can be sent.
+
 ## Who can approve or reject
 
 Only an authenticated admin can approve or reject a content preview batch.

@@ -184,6 +184,33 @@ PR18 is an engine foundation, not a full production astrology launch.
 - Applying/separating hints are prototype-level and should be reviewed against the selected production ephemeris engine.
 - The engine returns structures and numbers only; horoscope interpretation text belongs in a separate content layer.
 
+## Content rules boundary
+
+PR25 adds the first horoscope content rules engine in the Next.js MVP layer.
+That engine consumes chart snapshots and transit comparison structures returned
+by this service, but it does not calculate or change planetary positions.
+
+The astro-calc service remains responsible for:
+
+- planet positions
+- aspects
+- houses and ascendant reliability
+- transit-to-natal structured hits
+- warning codes
+- calculation hashes
+
+The content engine remains responsible for:
+
+- deterministic rule-hit selection
+- approved Thai template rendering
+- safety filtering
+- warning-aware softer phrasing
+- content hashes
+
+If `UNKNOWN_BIRTH_TIME` or `UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE` appears, the
+content engine must not use house-specific or ascendant-specific claims unless a
+future calculation profile explicitly supplies reliable alternatives.
+
 ## Service layout
 
 ```text

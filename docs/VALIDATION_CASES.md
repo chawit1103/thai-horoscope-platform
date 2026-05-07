@@ -179,6 +179,27 @@ Expected behavior:
 - ascendant/houses may be omitted or marked unreliable
 - rule engine must not generate confident house/lัคนา interpretation
 
+## PR25 content engine validation
+
+The content engine has its own deterministic validation suite in
+`apps/web/tests/horoscope-content-engine.test.ts`.
+
+Required content cases:
+
+| Case ID | Scenario | Expected behavior |
+| --- | --- | --- |
+| HC-001 | Same chart snapshot, period, and content profile | Identical content JSON and content hash |
+| HC-002 | Different `content_profile_code` | Different profile and content hash |
+| HC-003 | Unknown birth time or unreliable houses | Lower-confidence warning, softer wording, no house-specific rule hits |
+| HC-004 | Unsafe phrase examples | Safety filter flags medical, legal, financial, death/accident, guarantee, fear, ritual, relationship coercion, and PII/secret patterns |
+| HC-005 | Daily/weekly/monthly/yearly periods | Required output sections validate for every period |
+| HC-006 | Explainable rule hits | Every hit includes `rule_id`, `trigger`, `category`, `weight`, and `source_points` |
+| HC-007 | PII exclusion | Raw birth date, birth time, birth place, email, LINE user ID, payment payload, and secrets never appear in generated content |
+| HC-008 | No external generation | No LLM or network call occurs during content generation |
+
+Content validation complements astro golden cases. It must not replace astro
+golden validation and must not calculate planetary positions.
+
 ## Timezone validation
 
 Test:

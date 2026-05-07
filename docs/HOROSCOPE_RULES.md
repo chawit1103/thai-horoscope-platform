@@ -67,6 +67,74 @@ The engine should return:
 }
 ```
 
+PR25 implements the first TypeScript MVP rule engine in
+`apps/web/src/mvp/horoscope-content-engine.ts`. It consumes structured chart
+snapshots and optional transit comparison structures only. It must not consume
+raw birth date, birth time, birth place, email, LINE user ID, payment payload,
+or any production secret.
+
+## PR25 content output
+
+The content renderer returns one deterministic JSON object per
+`period_type + period_key + calculation_hash + content_profile_code`.
+
+Required output fields:
+
+```json
+{
+  "period_type": "daily",
+  "period_key": "2026-05-03",
+  "overview": "Thai overview text",
+  "work": "Thai work text",
+  "money": "Thai money text",
+  "relationship": "Thai relationship text",
+  "wellness": "Thai wellness text",
+  "advice": "Thai advice text",
+  "caution": "Thai caution text",
+  "lucky_window": "optional Thai timing label",
+  "reflection_question": "optional Thai reflection prompt",
+  "rule_hits": [],
+  "safety_flags": [],
+  "content_profile_code": "TH_SAFE_REFLECTION_V1",
+  "generated_at": "2026-05-03T00:00:00.000Z",
+  "source_chart_snapshot_id": "chart_...",
+  "calculation_hash": "sha256...",
+  "content_hash": "sha256...",
+  "warnings": []
+}
+```
+
+`content_hash` is for audit/replay of the rendered content. A different
+`content_profile_code` must produce a different content profile and hash.
+
+## Explainable rule hits
+
+Each rule hit must include:
+
+```json
+{
+  "rule_id": "NATAL_DAILY_MOON_VENUS_SUPPORT",
+  "trigger": "moon_venus_supportive_aspect",
+  "category": "relationship",
+  "weight": 2,
+  "source_points": ["moon", "venus"]
+}
+```
+
+Rules may use:
+
+- natal aspect structures already returned by astro-calc
+- planet sign indices already present in the chart snapshot
+- planet house numbers only when `houses.reliable=true`
+- transit-to-natal structured hits and their category/weight hints
+
+Rules must not:
+
+- calculate or alter planetary positions
+- infer houses when the chart marks houses unreliable
+- invent missing ascendant, Lagna, or transit data
+- call an LLM or network API
+
 ## Categories
 
 Supported categories:

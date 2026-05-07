@@ -61,16 +61,29 @@ def parse_datetime_utc(value: str, error_code: str = "INVALID_DATETIME_UTC") -> 
     return parsed.astimezone(UTC)
 
 
-def parse_timezone(timezone: str) -> ZoneInfo:
+def validate_timezone(timezone: str) -> str:
+    if timezone.startswith(("/", "\\")) or ".." in timezone:
+        raise ValueError("INVALID_TIMEZONE")
     invalid_timezone = False
-    tz: ZoneInfo | None = None
     try:
-        tz = ZoneInfo(timezone)
+        ZoneInfo(timezone)
     except (ValueError, ZoneInfoNotFoundError):
         invalid_timezone = True
     if invalid_timezone:
         raise ValueError("INVALID_TIMEZONE")
-    assert tz is not None
+    return timezone
+
+
+def parse_timezone(timezone: str) -> ZoneInfo:
+    validated_timezone = validate_timezone(timezone)
+    tz: ZoneInfo | None = None
+    try:
+        tz = ZoneInfo(validated_timezone)
+    except (ValueError, ZoneInfoNotFoundError):
+        # validate_timezone already checked this value; keep the fallback sanitized.
+        pass
+    if tz is None:
+        raise ValueError("INVALID_TIMEZONE")
     return tz
 
 

@@ -718,6 +718,28 @@ class AstroCoreTests(unittest.TestCase):
                     )
                 self.assert_sanitized_timezone_error(raised.exception, raw_timezone, ["1971-03-11", "08:17", "secret"])
 
+    def test_snapshot_datetime_invalid_timezones_are_sanitized(self) -> None:
+        raw_timezones = [
+            "Not/AZone?token=secret",
+            "../1971-03-11T08:17:00-secret",
+            "/tmp/1971-03-11T08:17:00-secret",
+        ]
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        for raw_timezone in raw_timezones:
+            invalid_snapshot = replace(natal, datetime=replace(natal.datetime, timezone=raw_timezone))
+            with self.subTest(raw_timezone=raw_timezone):
+                with self.assertRaisesRegex(ValueError, "^INVALID_TIMEZONE$") as raised:
+                    service.calculate_transit_to_natal(
+                        TransitSnapshotRequest(
+                            natal_chart_snapshot=invalid_snapshot,
+                            transit_datetime_utc="2026-05-06T05:00:00Z",
+                            calculation_profile_code="TH_NIRAYANA_V1",
+                            transit_location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                        )
+                    )
+                self.assert_sanitized_timezone_error(raised.exception, raw_timezone, ["1971-03-11", "08:17", "token", "secret", "../", "/tmp"])
+
     def test_valid_second_precision_transit_datetime_utc_still_works(self) -> None:
         service = AstroCoreService()
         natal = service.calculate_natal_chart(bangkok_request())
@@ -950,6 +972,45 @@ class AstroCoreTests(unittest.TestCase):
 
         self.assert_sanitized_timezone_error(raised.exception, raw_timezone, ["1971-03-11", "08:17", "secret"])
 
+    def test_hourly_timing_utc_range_invalid_request_timezone_is_sanitized(self) -> None:
+        raw_timezone = "Not/AZone?token=secret"
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+
+        with self.assertRaisesRegex(ValueError, "^INVALID_TIMEZONE$") as raised:
+            service.calculate_hourly_timing(
+                HourlyTimingRequest(
+                    natal_chart_snapshot=natal,
+                    start_datetime_utc="2026-05-06T00:00:00Z",
+                    end_datetime_utc="2026-05-06T06:00:00Z",
+                    timezone=raw_timezone,
+                    location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    enabled_aspect_types=[],
+                )
+            )
+
+        self.assert_sanitized_timezone_error(raised.exception, raw_timezone, ["Not/AZone", "token", "secret"])
+
+    def test_hourly_timing_utc_range_result_timezone_is_validated_without_hits(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+
+        result = service.calculate_hourly_timing(
+            HourlyTimingRequest(
+                natal_chart_snapshot=natal,
+                start_datetime_utc="2026-05-06T00:00:00Z",
+                end_datetime_utc="2026-05-06T06:00:00Z",
+                timezone="Asia/Bangkok",
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+                enabled_aspect_types=[],
+            )
+        )
+
+        self.assertEqual(result.timezone, "Asia/Bangkok")
+        self.assertEqual(result.timing_windows, [])
+
     def test_hourly_timing_location_invalid_timezone_is_sanitized_for_utc_ranges(self) -> None:
         raw_timezone = "/tmp/1971-03-11T08:17:00-secret"
         service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
@@ -1120,6 +1181,24 @@ class AstroCoreTests(unittest.TestCase):
                     natal_chart_snapshot=natal,
                     solar_return_year=2026,
                     location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone=raw_timezone),
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+
+        self.assert_sanitized_timezone_error(raised.exception, raw_timezone, ["1990-05-12", "08:30", "secret"])
+
+    def test_solar_return_rejects_invalid_snapshot_timezone(self) -> None:
+        raw_timezone = "../1990-05-12T08:30:00-secret"
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        invalid_snapshot = replace(natal, datetime=replace(natal.datetime, timezone=raw_timezone))
+
+        with self.assertRaisesRegex(ValueError, "^INVALID_TIMEZONE$") as raised:
+            service.calculate_solar_return(
+                SolarReturnRequest(
+                    natal_chart_snapshot=invalid_snapshot,
+                    solar_return_year=2026,
+                    location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
                     calculation_profile_code="TH_NIRAYANA_V1",
                 )
             )

@@ -19,6 +19,7 @@ from app.core.time import (
     parse_datetime_utc,
     parse_timezone,
     utc_to_iso,
+    validate_timezone,
 )
 from app.core.zodiac import degree_in_sign, sign_name_en, sign_name_th, whole_sign_house_number
 from app.engines.base import AstroEngine
@@ -95,7 +96,8 @@ class AstroCoreService:
 
     def calculate_transit_comparison(self, request: TransitRequest) -> TransitComparison:
         natal = self.calculate_natal_chart(request.natal)
-        transit_utc = utc_to_iso(local_to_utc(request.transit_datetime_local, request.transit_timezone))
+        transit_timezone = validate_timezone(request.transit_timezone)
+        transit_utc = utc_to_iso(local_to_utc(request.transit_datetime_local, transit_timezone))
         return self.calculate_transit_to_natal(
             TransitSnapshotRequest(
                 natal_chart_snapshot=natal,
@@ -104,7 +106,7 @@ class AstroCoreService:
                 transit_location=TransitLocation(
                     latitude=request.natal.latitude,
                     longitude=request.natal.longitude,
-                    timezone=request.transit_timezone,
+                    timezone=transit_timezone,
                     elevation_m=request.natal.elevation_m,
                 ),
             )
@@ -115,8 +117,7 @@ class AstroCoreService:
         validated_natal_datetime = validate_chart_snapshot_datetimes(natal)
         profile = get_profile(request.calculation_profile_code)
         transit_utc = parse_transit_datetime_utc(request.transit_datetime_utc)
-        transit_location = request.transit_location
-        validate_transit_location_timezone(transit_location)
+        transit_location = validated_transit_location(request.transit_location)
         transit_request = ChartRequest(
             calculation_profile_code=request.calculation_profile_code,
             datetime_local=transit_utc.replace(tzinfo=None).isoformat(timespec="seconds"),
@@ -175,7 +176,7 @@ class AstroCoreService:
         profile_code = request.calculation_profile_code or natal.calculation_profile_code
         profile = get_profile(profile_code)
         target = sun_reference_longitude(natal, profile.zodiac_type)
-        location = request.location or location_from_natal_request(request.natal)
+        location = validated_transit_location(request.location) or location_from_natal_request(request.natal)
         bracket_center = solar_return_search_center(validated_natal_datetime.local, year, location)
         search = self._find_solar_return(
             target=target,
@@ -235,8 +236,9 @@ class AstroCoreService:
         aspect_orbs = request.orb_thresholds or profile.aspect_orbs_deg
         enabled_aspects = set(request.enabled_aspect_types)
         propagated_warnings = timing_warnings_from_natal(natal)
-        validate_transit_location_timezone(request.location)
-        range_result = resolve_timing_range(request)
+        timezone = validate_timezone(request.timezone)
+        location = validated_transit_location(request.location)
+        range_result = resolve_timing_range(request, timezone)
         if range_result.warning:
             warnings = dedupe_warnings([range_result.warning, *propagated_warnings])
             calculation_hash = stable_hash(
@@ -247,12 +249,13 @@ class AstroCoreService:
                     "natal_datetime_utc": utc_to_iso(validated_natal_datetime.utc),
                     "range_warning": asdict(range_result.warning),
                     "profile": profile_code,
+                    "timezone": timezone,
                     "warnings": [asdict(warning) for warning in warnings],
                 }
             )
             return HourlyTimingResult(
                 date_local=request.date_local,
-                timezone=request.timezone,
+                timezone=timezone,
                 timing_windows=[],
                 windows=[],
                 warnings=warnings,
@@ -261,8 +264,8 @@ class AstroCoreService:
         timing_windows = self._calculate_timing_windows(
             natal=natal,
             profile_code=profile_code,
-            timezone=request.timezone,
-            location=request.location,
+            timezone=timezone,
+            location=location,
             start_utc=range_result.start_utc,
             end_utc=range_result.end_utc,
             aspect_orbs=aspect_orbs,
@@ -276,8 +279,8 @@ class AstroCoreService:
                 "natal_datetime_utc": utc_to_iso(validated_natal_datetime.utc),
                 "start": utc_to_iso(range_result.start_utc),
                 "end": utc_to_iso(range_result.end_utc),
-                "timezone": request.timezone,
-                "location": asdict(request.location) if request.location else None,
+                "timezone": timezone,
+                "location": asdict(location) if location else None,
                 "profile": profile_code,
                 "enabled_aspects": sorted(enabled_aspects),
                 "aspect_orbs": aspect_orbs,
@@ -287,7 +290,7 @@ class AstroCoreService:
         )
         return HourlyTimingResult(
             date_local=request.date_local,
-            timezone=request.timezone,
+            timezone=timezone,
             timing_windows=timing_windows,
             windows=timing_windows,
             warnings=propagated_warnings,
@@ -424,11 +427,12 @@ class AstroCoreService:
     def _calculate_chart(self, request: ChartRequest) -> ChartSnapshot:
         profile = get_profile(request.calculation_profile_code)
         validate_profile_engine_compatibility(profile, self.engine.name)
+        timezone = validate_timezone(request.timezone)
         datetime_local = resolve_datetime_local(request)
         parsed_datetime_local = parse_datetime_local(datetime_local)
         canonical_datetime_local = parsed_datetime_local.isoformat(timespec="seconds")
         warnings = validate_request_warnings(request, parsed_datetime_local)
-        utc_dt = local_to_utc(canonical_datetime_local, request.timezone)
+        utc_dt = local_to_utc(canonical_datetime_local, timezone)
         jd_ut = round(julian_day_ut(utc_dt), 8)
         ayanamsha_value = self.engine.ayanamsha_deg(jd_ut, profile.ayanamsha)
         planets = self.engine.planet_positions(jd_ut, profile.planets, profile.ayanamsha, profile.node_type)
@@ -482,9 +486,9 @@ class AstroCoreService:
             calculation_profile_code=profile.code,
             calculation_profile=profile,
             datetime=DateTimeInfo(
-                local=local_with_offset_iso(canonical_datetime_local, request.timezone),
+                local=local_with_offset_iso(canonical_datetime_local, timezone),
                 utc=utc_to_iso(utc_dt),
-                timezone=request.timezone,
+                timezone=timezone,
                 julian_day_ut=jd_ut,
             ),
             datetime_local=canonical_datetime_local,
@@ -557,12 +561,19 @@ def chart_request_for_utc(profile_code: str, value_utc: datetime, location: Tran
     )
 
 
-def validate_transit_location_timezone(location: TransitLocation | None) -> None:
-    if location is not None:
-        parse_timezone(location.timezone)
+def validated_transit_location(location: TransitLocation | None) -> TransitLocation | None:
+    if location is None:
+        return None
+    timezone = validate_timezone(location.timezone)
+    return TransitLocation(
+        latitude=location.latitude,
+        longitude=location.longitude,
+        timezone=timezone,
+        elevation_m=location.elevation_m,
+    )
 
 
-def resolve_timing_range(request: HourlyTimingRequest) -> TimingRangeResult:
+def resolve_timing_range(request: HourlyTimingRequest, timezone: str) -> TimingRangeResult:
     fallback = datetime(1970, 1, 1, tzinfo=UTC)
     if request.period_granularity != "hourly":
         return TimingRangeResult(
@@ -574,11 +585,11 @@ def resolve_timing_range(request: HourlyTimingRequest) -> TimingRangeResult:
         start = parse_transit_datetime_utc(request.start_datetime_utc)
         end = parse_transit_datetime_utc(request.end_datetime_utc)
     elif request.start_datetime_local and request.end_datetime_local:
-        start = local_to_utc(request.start_datetime_local, request.timezone)
-        end = local_to_utc(request.end_datetime_local, request.timezone)
+        start = local_to_utc(request.start_datetime_local, timezone)
+        end = local_to_utc(request.end_datetime_local, timezone)
     elif request.date_local:
-        start = local_to_utc(f"{request.date_local}T00:00:00", request.timezone)
-        end = local_to_utc(f"{request.date_local}T23:59:59", request.timezone) + timedelta(seconds=1)
+        start = local_to_utc(f"{request.date_local}T00:00:00", timezone)
+        end = local_to_utc(f"{request.date_local}T23:59:59", timezone) + timedelta(seconds=1)
     else:
         return TimingRangeResult(
             fallback,
@@ -633,6 +644,7 @@ def build_hourly_timing_window(
 
 
 def validate_chart_snapshot_datetimes(natal: ChartSnapshot) -> SnapshotDateTimeValidation:
+    validate_timezone(natal.datetime.timezone)
     parsed_local = parse_datetime_local(natal.datetime_local, "INVALID_DATETIME")
     parsed_utc = parse_datetime_utc(natal.datetime_utc, "INVALID_DATETIME")
     nested_local = parse_datetime_snapshot_local(natal.datetime.local, "INVALID_DATETIME")
@@ -649,10 +661,11 @@ def validate_chart_snapshot_datetimes(natal: ChartSnapshot) -> SnapshotDateTimeV
 def location_from_natal_request(request: ChartRequest | None) -> TransitLocation | None:
     if request is None:
         return None
+    timezone = validate_timezone(request.timezone)
     return TransitLocation(
         latitude=request.latitude,
         longitude=request.longitude,
-        timezone=request.timezone,
+        timezone=timezone,
         elevation_m=request.elevation_m,
     )
 

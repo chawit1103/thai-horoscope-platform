@@ -182,10 +182,12 @@ After human staging deploy:
 
 1. Open `/api/health`.
 2. Confirm status is `ok` or warnings are explicitly accepted for sandbox/mock modes.
-3. Trigger only mock or sandbox payment, email, LINE, and scheduler flows.
-4. Confirm structured monitoring events are emitted with sanitized metadata.
-5. Confirm mock alert hooks record alerts without network calls in tests.
-6. Confirm no real payment, email, LINE, or alert provider calls occur.
+3. Confirm the PR32 release candidate packet is filled: `docs/BETA_RELEASE_CANDIDATE.md`, `docs/E2E_BETA_SMOKE_TEST_MATRIX.md`, and `docs/FINAL_GO_NO_GO_CHECKLIST.md`.
+4. Confirm PR29 and PR31 are merged or explicitly marked pending before any real provider activation or beta invite decision.
+5. Trigger only mock or sandbox payment, email, LINE, and scheduler flows.
+6. Confirm structured monitoring events are emitted with sanitized metadata.
+7. Confirm mock alert hooks record alerts without network calls in tests.
+8. Confirm no real payment, email, LINE, or alert provider calls occur.
 
 ## Production prerequisites
 

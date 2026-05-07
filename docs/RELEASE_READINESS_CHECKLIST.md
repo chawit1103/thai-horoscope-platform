@@ -20,6 +20,10 @@ Runtime ephemeris downloads: prohibited
 
 ## Related readiness docs
 
+- [Beta release candidate](BETA_RELEASE_CANDIDATE.md)
+- [E2E beta smoke test matrix](E2E_BETA_SMOKE_TEST_MATRIX.md)
+- [Beta release notes template](BETA_RELEASE_NOTES_TEMPLATE.md)
+- [Final go/no-go checklist](FINAL_GO_NO_GO_CHECKLIST.md)
 - [Beta launch plan](BETA_LAUNCH_PLAN.md)
 - [Beta smoke tests](BETA_SMOKE_TESTS.md)
 - [Go/no-go criteria](GO_NO_GO_CRITERIA.md)
@@ -151,12 +155,17 @@ Runtime ephemeris downloads: prohibited
 
 ```text
 [ ] Required checks pass on the release branch
+[ ] Beta release candidate packet is complete
+[ ] End-to-end beta smoke test matrix has evidence for every E2E-01 through E2E-20 row
 [ ] Staging deploy is performed by a human operator
 [ ] Staging health is ok or warnings are explicitly accepted for beta
 [ ] Manual beta smoke tests pass
+[ ] Final go/no-go checklist is signed by the human owner
 [ ] Known limitations are accepted and visible to operators/support
 [ ] Rollback target and owner are recorded
 [ ] Beta communication and support process are ready
+[ ] PR29 real provider activation guardrails are merged or marked as a pending dependency
+[ ] PR31 beta invite/content management is merged or marked as a pending dependency
 ```
 
 ## No-go criteria
@@ -171,6 +180,8 @@ Runtime ephemeris downloads: prohibited
 [ ] Payment webhook signature verification or idempotency is bypassed
 [ ] Deleted, deactivated, unsubscribed, blocked, or bounced users can still receive sends
 [ ] Rollback owner or rollback target is unknown
+[ ] PR29 is pending but real provider activation is described as ready
+[ ] PR31 is pending but beta invite/enrollment readiness is described as ready
 ```
 
 ## Proof commands

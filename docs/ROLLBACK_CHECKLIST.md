@@ -110,3 +110,15 @@ Decision:
 [ ] Support owner confirms user communication is complete
 [ ] Follow-up issue or PR is opened for the root cause
 ```
+
+## Release candidate rollback evidence
+
+```text
+[ ] Rollback owner is recorded in docs/BETA_RELEASE_CANDIDATE.md
+[ ] Rollback target commit or deployment artifact is recorded
+[ ] Provider modes after rollback are recorded
+[ ] Scheduler mode after rollback is disabled or dry_run unless approved
+[ ] Payment mode after rollback is mock or disabled unless approved
+[ ] PR29/PR31 dependency status is revisited before resuming beta invite or real provider activation
+[ ] Final go/no-go checklist is reset to pending after rollback
+```

@@ -20,7 +20,7 @@ The dry run checks:
 - payment remains mock
 - notification scheduler is `dry_run`
 - astro-calc mock health passes without an ephemeris path
-- `docs/RELEASE_READINESS_CHECKLIST.md` links to required beta readiness docs
+- `docs/RELEASE_READINESS_CHECKLIST.md` links to required beta release-candidate readiness docs
 - `docs/ROLLBACK_CHECKLIST.md` exists
 
 The command does not deploy, send messages, activate payments, download ephemeris files, or require production secrets.
@@ -62,6 +62,10 @@ Date:
 
 ## Required linked readiness docs
 
+- [Beta release candidate](BETA_RELEASE_CANDIDATE.md)
+- [E2E beta smoke test matrix](E2E_BETA_SMOKE_TEST_MATRIX.md)
+- [Beta release notes template](BETA_RELEASE_NOTES_TEMPLATE.md)
+- [Final go/no-go checklist](FINAL_GO_NO_GO_CHECKLIST.md)
 - [Release readiness checklist](RELEASE_READINESS_CHECKLIST.md)
 - [Beta launch plan](BETA_LAUNCH_PLAN.md)
 - [Beta smoke tests](BETA_SMOKE_TESTS.md)

@@ -149,9 +149,9 @@ pnpm install
 pnpm lint
 pnpm typecheck
 pnpm test
-cd services/astro-calc && python3 -m pytest
-cd services/astro-calc && python3 -m ruff check .
-cd services/astro-calc && python3 -m mypy .
+(cd services/astro-calc && python3 -m pytest)
+(cd services/astro-calc && python3 -m ruff check .)
+(cd services/astro-calc && python3 -m mypy .)
 git diff --check
 ```
 

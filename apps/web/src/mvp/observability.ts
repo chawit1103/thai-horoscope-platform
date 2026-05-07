@@ -94,7 +94,8 @@ const SAFE_KEY_ALLOWLIST = new Set(["eventType", "status", "reason", "errorCode"
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const LINE_USER_ID_PATTERN = /\bU[0-9A-Za-z]{8,}\b/g;
 const CARD_PATTERN = /\b(?:\d[ -]?){12,19}\b/g;
-const API_KEY_PATTERN = /\b(?:sk|pk|rk|whsec|key|token|secret)_[A-Za-z0-9_-]{8,}\b/gi;
+const API_KEY_PATTERN = /\b(?:sk|pk|rk|whsec|key|token|secret)[_-][A-Za-z0-9_-]{8,}\b/gi;
+const AUTH_TOKEN_PATTERN = /\b(?:authorization|bearer)\s*[:=]?\s+[A-Za-z0-9._~+/=-]{8,}\b/gi;
 const ISO_DATE_PATTERN = /(?<!\d)(?:19|20)\d{2}-\d{2}-\d{2}(?!\d)/g;
 const TIME_PATTERN = /(?<!\d)(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:\.\d+)?(?!\d)/g;
 const SECRET_WORD_PATTERN = /\b(?:bearer|secret|token|api[_-]?key|webhook[_-]?secret|authorization)\b/gi;
@@ -271,6 +272,7 @@ function redactString(value:string):string {
     .replace(LINE_USER_ID_PATTERN, "[REDACTED_LINE_USER]")
     .replace(CARD_PATTERN, "[REDACTED_CARD]")
     .replace(API_KEY_PATTERN, "[REDACTED_SECRET]")
+    .replace(AUTH_TOKEN_PATTERN, "[REDACTED_SECRET]")
     .replace(ISO_DATE_PATTERN, "[REDACTED_DATE]")
     .replace(TIME_PATTERN, "[REDACTED_TIME]")
     .replace(SECRET_WORD_PATTERN, "[REDACTED_SECRET]");

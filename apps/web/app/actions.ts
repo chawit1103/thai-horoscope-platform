@@ -134,9 +134,8 @@ export async function selectMockPlanAction(formData: FormData): Promise<void> {
 export async function enrollBetaUserAction(formData: FormData): Promise<void> {
   const { sessionId, userId } = await getOrCreateSessionContext();
   const inviteCode = String(formData.get("inviteCode") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
   try {
-    enrollBetaUser({ sessionId, userId, inviteCode:inviteCode || undefined, email:email || undefined });
+    enrollBetaUser({ sessionId, userId, inviteCode:inviteCode || undefined });
   } catch {
     throw new Error("Invalid beta invite.");
   }

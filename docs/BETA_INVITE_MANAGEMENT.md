@@ -30,6 +30,11 @@ different tester browser/session. The admin page lists invite IDs, kind, status,
 and timestamps only. It must not display raw invite codes or raw email
 addresses.
 
+Email allowlists are a policy foundation only until a verified session email is
+available. The public beta page does not accept a typed email as proof of
+identity; email-based enrollment must be called only from a trusted flow that
+has already verified the email address.
+
 The helper is local/mock-safe and does not send real invite emails or LINE
 messages.
 
@@ -59,7 +64,8 @@ Beta users can access:
 
 - `/beta` landing content
 - beta-only onboarding entry when invited or enrolled
-- invite-code or allowlisted-email redemption through the beta page
+- invite-code redemption through the beta page
+- allowlisted-email redemption only from a trusted verified-email flow
 - content previews that are otherwise allowed by subscription entitlement
 - privacy/export/delete/unsubscribe controls
 - notification preference controls

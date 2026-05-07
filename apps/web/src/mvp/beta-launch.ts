@@ -157,7 +157,7 @@ export function validateBetaInviteCode(input:{ sessionId?:string; inviteCode:str
   return { ok:true, status:"invited", inviteId:invite.id };
 }
 
-export function enrollBetaUser(input:{ sessionId?:string; inviteSessionId?:string; userId:string; inviteCode?:string; email?:string; now?:Date }):BetaEnrollment {
+export function enrollBetaUser(input:{ sessionId?:string; inviteSessionId?:string; userId:string; inviteCode?:string; email?:string; emailVerified?:boolean; now?:Date }):BetaEnrollment {
   const state = getState(input.sessionId);
   const existing = state.enrollments.find((item)=>item.userId === input.userId);
   if (existing?.status === "enrolled") return structuredClone(existing);
@@ -181,7 +181,7 @@ export function setBetaEnrollmentStatus(input:{ sessionId?:string; userId:string
   return structuredClone(enrollment);
 }
 
-export function isBetaUserAllowed(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId:string; email?:string }):BetaAccessStatus {
+export function isBetaUserAllowed(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId:string; email?:string; emailVerified?:boolean }):BetaAccessStatus {
   if (input.state?.deactivatedUserIds[input.userId]) return "disabled";
   const state = getState(input.sessionId);
   const enrollment = state.enrollments.find((item)=>item.userId === input.userId);
@@ -189,7 +189,7 @@ export function isBetaUserAllowed(input:{ state?:MockMvpState; sessionId?:string
   if (enrollment) return statusFromEnrollment(enrollment, inviteState);
   const userInvite = inviteState.invites.find((item)=>item.kind === "allowlisted_user" && item.userId === input.userId);
   if (userInvite) return userInvite.status;
-  if (input.email) {
+  if (input.email && input.emailVerified) {
     const emailHash = hashEmail(input.email);
     const emailInvite = inviteState.invites.find((item)=>item.kind === "allowlisted_email" && item.emailHash && constantTimeEqual(item.emailHash, emailHash));
     if (emailInvite) return emailInvite.status;
@@ -204,7 +204,7 @@ function statusFromEnrollment(enrollment:BetaEnrollment, inviteState:BetaLaunchS
   return invite.status === "invited" ? "enrolled" : invite.status;
 }
 
-export function canAccessBetaOnlyFlow(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId:string; email?:string }):boolean {
+export function canAccessBetaOnlyFlow(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId:string; email?:string; emailVerified?:boolean }):boolean {
   const status = isBetaUserAllowed(input);
   return status === "enrolled" || status === "invited";
 }
@@ -215,8 +215,8 @@ export function canAccessBetaEntitledPeriod(input:{ state:MockMvpState; sessionI
   return canAccessPeriod({ subscription:input.subscription, planCode:summary.planCode, periodType:input.periodType, now:input.now });
 }
 
-export function buildBetaLaunchView(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId?:string; email?:string; horoscope?:SafeHoroscopeView; birthTimeUnknown?:boolean } = {}):BetaLaunchView {
-  const accessStatus = input.userId ? isBetaUserAllowed({ state:input.state, sessionId:input.sessionId, inviteSessionId:input.inviteSessionId, userId:input.userId, email:input.email }) : "not_invited";
+export function buildBetaLaunchView(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId?:string; email?:string; emailVerified?:boolean; horoscope?:SafeHoroscopeView; birthTimeUnknown?:boolean } = {}):BetaLaunchView {
+  const accessStatus = input.userId ? isBetaUserAllowed({ state:input.state, sessionId:input.sessionId, inviteSessionId:input.inviteSessionId, userId:input.userId, email:input.email, emailVerified:input.emailVerified }) : "not_invited";
   const allowed = accessStatus === "invited" || accessStatus === "enrolled";
   const copy = getBetaLaunchCopy();
   const view:BetaLaunchView = {
@@ -250,12 +250,12 @@ export function safeBetaInviteForAdmin(invite:BetaInvite):Omit<BetaInvite, "code
   };
 }
 
-function resolveInviteForEnrollment(state:BetaLaunchState, input:{ inviteCode?:string; email?:string; userId:string }):BetaInvite|undefined {
+function resolveInviteForEnrollment(state:BetaLaunchState, input:{ inviteCode?:string; email?:string; emailVerified?:boolean; userId:string }):BetaInvite|undefined {
   if (input.inviteCode) {
     const codeHash = hashInviteCode(input.inviteCode);
     return state.invites.find((item)=>item.kind === "invite_code" && item.codeHash && constantTimeEqual(item.codeHash, codeHash));
   }
-  if (input.email) {
+  if (input.email && input.emailVerified) {
     const emailHash = hashEmail(input.email);
     const emailInvite = state.invites.find((item)=>item.kind === "allowlisted_email" && item.emailHash && constantTimeEqual(item.emailHash, emailHash));
     if (emailInvite) return emailInvite;

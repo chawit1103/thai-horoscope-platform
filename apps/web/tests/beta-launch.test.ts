@@ -91,10 +91,13 @@ describe("beta launch content and invite management", () => {
     assert.equal(getBetaLaunchState().invites.length, 1);
   });
 
-  it("email allowlisted users can enroll without an invite code", () => {
+  it("email allowlisted users can enroll only with a verified session email", () => {
     createBetaInvite({ email:"beta@example.test" });
 
-    const enrollment = enrollBetaUser({ sessionId, userId, email:"beta@example.test" });
+    assert.throws(() => enrollBetaUser({ sessionId, userId, email:"beta@example.test" }), /Invalid beta invite/);
+    assert.equal(isBetaUserAllowed({ sessionId, userId, email:"beta@example.test" }), "not_invited");
+
+    const enrollment = enrollBetaUser({ sessionId, userId, email:"beta@example.test", emailVerified:true });
 
     assert.equal(enrollment.status, "enrolled");
     assert.equal(isBetaUserAllowed({ sessionId, userId }), "enrolled");
@@ -108,6 +111,19 @@ describe("beta launch content and invite management", () => {
 
     assert.equal(isBetaUserAllowed({ sessionId, userId }), "revoked");
     assert.equal(canAccessBetaOnlyFlow({ sessionId, userId }), false);
+  });
+
+  it("revoking a redeemed invite removes entitled horoscope period access", async () => {
+    const invite = createBetaInvite({ inviteCode:"REVOKED-PERIOD" });
+    enrollBetaUser({ sessionId, userId, inviteCode:"REVOKED-PERIOD" });
+    setMockUserPlan(userId, "premium", sessionId);
+    const subscription = await activatePremiumSubscription();
+
+    assert.equal(canAccessBetaEntitledPeriod({ state:getMockMvpState(sessionId), sessionId, userId, periodType:"yearly", subscription, now }), true);
+
+    revokeBetaInvite({ inviteId:invite.id });
+
+    assert.equal(canAccessBetaEntitledPeriod({ state:getMockMvpState(sessionId), sessionId, userId, periodType:"yearly", subscription, now }), false);
   });
 
   it("beta enrollment does not grant premium subscription entitlement by itself", () => {

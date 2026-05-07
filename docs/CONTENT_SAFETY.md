@@ -145,7 +145,46 @@ guaranteed_outcome
 fear_based_language
 ritual_upsell
 relationship_coercion
+pii_or_secret_leak
 ```
+
+## PR25 automated safety filter
+
+`apps/web/src/mvp/horoscope-content-engine.ts` includes the first deterministic
+content safety filter for generated horoscope text. It scans rendered Thai
+sections, caution text, lucky windows, and reflection questions before the
+output is considered valid.
+
+The filter must catch examples from these groups:
+
+- medical claims or treatment instructions
+- legal strategy or case instructions
+- specific investment, stock, crypto, lottery, or guaranteed money claims
+- death or accident predictions
+- guaranteed outcomes, including 100% accuracy language
+- fear-based pressure or fate urgency
+- ritual/product upsell pressure
+- relationship coercion
+- raw PII or secret-shaped values, including email addresses, LINE user IDs,
+  birth date/time strings, API keys, tokens, and webhook secrets
+
+If any safety flag appears, the content must be rejected, held for manual
+review, or regenerated from approved templates. Tests must cover banned phrase
+examples and verify the production renderer does not emit those categories.
+
+## Unknown birth time policy
+
+When chart warnings include `UNKNOWN_BIRTH_TIME` or
+`UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE`, or when `houses.reliable=false`, the
+content engine must:
+
+- lower confidence in the output warnings
+- use softer Thai phrasing such as "แนวโน้มกว้าง ๆ"
+- avoid house-specific or ascendant-specific claims
+- keep generated text advisory and reflective
+
+The engine may mention that confidence is lowered, but it must not invent a
+house, ascendant, Lagna, or precise timing claim.
 
 ## Thai tone examples
 

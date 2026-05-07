@@ -55,7 +55,9 @@ The implementation lives in:
 
 ```text
 apps/web/src/mvp/horoscope-content-engine.ts
+apps/web/src/mvp/horoscope-delivery-integration.ts
 apps/web/tests/horoscope-content-engine.test.ts
+apps/web/tests/horoscope-delivery-integration.test.ts
 ```
 
 ## Determinism
@@ -118,6 +120,41 @@ engine must:
 - avoid ascendant/Lagna/house claims
 
 This keeps output useful without overstating precision.
+
+## Delivery Integration
+
+PR26 connects approved horoscope artifacts to notification delivery without
+changing astrology calculation logic. The scheduler looks up the approved
+horoscope result and its existing chart snapshot, then calls the content engine
+with structured chart data only.
+
+The delivery adapter turns `HoroscopeContentOutput` into:
+
+- Email subject, text, and escaped HTML
+- LINE title/body preview for the existing Flex preview renderer
+- audit-safe delivery metadata
+
+Delivery metadata is limited to operational identifiers:
+
+```text
+topicCode
+periodType
+periodKey
+contentProfileCode
+calculationHash
+chartSnapshotId
+contentHash
+safetyFlags
+ruleHitIds
+warningCodes
+```
+
+It must not include raw birth date, birth time, birth place, email address, LINE
+user ID, payment identifiers, provider payloads, API keys, tokens, or secrets.
+
+The final delivery adapter reruns content validation and safety scanning before
+building Email or LINE messages. If content has safety flags or validation
+errors, it is blocked before provider dispatch.
 
 ## Safety Policy
 

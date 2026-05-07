@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, approveContentBatchWithAdminCookie, authorizeAdminRoute, createBetaInviteWithAdminCookie, recordAdminSessionStartedWithAdminCookie, rejectContentBatchWithAdminCookie, rejectDraftWithAdminCookie, revokeBetaInviteWithAdminCookie, startDevMockAdminSessionForToken } from "../src/mvp/admin-auth";
-import { enrollBetaUser } from "../src/mvp/beta-launch";
+import { BETA_INVITE_SCOPE_ID, canAccessBetaOnlyFlow, enrollBetaUser } from "../src/mvp/beta-launch";
 import { buildBetaMockSubscriptionWindow, validateOnboardingFields } from "../src/mvp/beta-user-ux";
 import { CONTENT_PREVIEW_APPROVAL_SESSION_ID } from "../src/mvp/content-preview-approval";
 import { readDeploymentEnvironment } from "../src/mvp/environment-validation";
@@ -87,6 +87,7 @@ export async function requireAdminSession(path = "/admin"): Promise<{ actorId: s
 export async function saveOnboardingAction(formData: FormData): Promise<void> {
   const { sessionId, userId } = await getOrCreateSessionContext();
   const state = getMockMvpState(sessionId);
+  if (!canAccessBetaOnlyFlow({ state, sessionId, userId })) throw new Error("Beta invite is required before onboarding.");
   if (!state.userPlans[userId]) setMockUserPlan(userId, "free", sessionId);
   const validation = validateOnboardingFields({
     birthDate:formData.get("birthDate"),
@@ -133,8 +134,9 @@ export async function selectMockPlanAction(formData: FormData): Promise<void> {
 export async function enrollBetaUserAction(formData: FormData): Promise<void> {
   const { sessionId, userId } = await getOrCreateSessionContext();
   const inviteCode = String(formData.get("inviteCode") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim();
   try {
-    enrollBetaUser({ sessionId, userId, inviteCode });
+    enrollBetaUser({ sessionId, userId, inviteCode:inviteCode || undefined, email:email || undefined });
   } catch {
     throw new Error("Invalid beta invite.");
   }
@@ -227,7 +229,7 @@ export async function createBetaInviteAction(formData: FormData): Promise<void> 
   const c = await cookies();
   const adminSession = await requireAdminSession("/admin/beta");
   createBetaInviteWithAdminCookie({
-    sessionId: adminSession.sessionId,
+    sessionId: BETA_INVITE_SCOPE_ID,
     inviteCode: String(formData.get("inviteCode") ?? "").trim() || undefined,
     email: String(formData.get("email") ?? "").trim() || undefined,
     userId: String(formData.get("userId") ?? "").trim() || undefined,
@@ -241,7 +243,7 @@ export async function revokeBetaInviteAction(formData: FormData): Promise<void> 
   const c = await cookies();
   const adminSession = await requireAdminSession("/admin/beta");
   revokeBetaInviteWithAdminCookie({
-    sessionId: adminSession.sessionId,
+    sessionId: BETA_INVITE_SCOPE_ID,
     inviteId: String(formData.get("inviteId") ?? ""),
     sessionCookie: c.get(ADMIN_COOKIE_NAME)?.value,
     sessionSecret: process.env.ADMIN_SESSION_SECRET,

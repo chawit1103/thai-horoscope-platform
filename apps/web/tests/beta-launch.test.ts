@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { createAdminSessionCookie, createBetaInviteWithAdminCookie } from "../src/mvp/admin-auth";
-import { assertBetaCopySafe, buildBetaLaunchView, canAccessBetaEntitledPeriod, canAccessBetaOnlyFlow, createBetaInvite, enrollBetaUser, getBetaDisclaimers, getBetaLaunchCopy, getBetaLaunchState, isBetaUserAllowed, resetBetaLaunchState, setBetaEnrollmentStatus, validateBetaInviteCode } from "../src/mvp/beta-launch";
+import { BETA_INVITE_SCOPE_ID, assertBetaCopySafe, buildBetaLaunchView, canAccessBetaEntitledPeriod, canAccessBetaOnlyFlow, createBetaInvite, enrollBetaUser, getBetaDisclaimers, getBetaLaunchCopy, getBetaLaunchState, isBetaUserAllowed, resetBetaLaunchState, setBetaEnrollmentStatus, validateBetaInviteCode } from "../src/mvp/beta-launch";
 import { ENTERTAINMENT_DISCLAIMER } from "../src/mvp/beta-user-ux";
 import { getMockMvpState, requestAccountDeletion, resetMockMvpState, setMockUserPlan } from "../src/mvp/mock-flow";
 import { processMockSubscriptionWebhook, resetMockSubscriptionState, type MockSubscriptionWebhookEvent } from "../src/mvp/subscription-lifecycle";
@@ -34,14 +34,15 @@ describe("beta launch content and invite management", () => {
   beforeEach(() => {
     resetMockMvpState("free");
     resetMockSubscriptionState();
+    resetBetaLaunchState();
     resetBetaLaunchState(sessionId);
     setMockUserPlan(userId, "free", sessionId);
   });
 
   it("valid invite code enrolls a beta user", () => {
-    createBetaInvite({ sessionId, inviteCode:"PR31-READY" });
+    createBetaInvite({ inviteCode:"PR31-READY" });
 
-    const validation = validateBetaInviteCode({ sessionId, inviteCode:" pr31-ready " });
+    const validation = validateBetaInviteCode({ inviteCode:" pr31-ready " });
     const enrollment = enrollBetaUser({ sessionId, userId, inviteCode:"PR31-READY" });
 
     assert.equal(validation.ok, true);
@@ -59,7 +60,7 @@ describe("beta launch content and invite management", () => {
   });
 
   it("revoked invite cannot enroll", () => {
-    createBetaInvite({ sessionId, inviteCode:"REVOKED-CODE", status:"revoked" });
+    createBetaInvite({ inviteCode:"REVOKED-CODE", status:"revoked" });
 
     assert.throws(() => enrollBetaUser({ sessionId, userId, inviteCode:"REVOKED-CODE" }), /Beta invite is unavailable/);
     assert.equal(isBetaUserAllowed({ sessionId, userId }), "not_invited");
@@ -74,14 +75,33 @@ describe("beta launch content and invite management", () => {
   });
 
   it("allowlisted users can enter beta-only flow without a raw invite code", () => {
-    createBetaInvite({ sessionId, userId });
+    createBetaInvite({ userId });
 
     assert.equal(isBetaUserAllowed({ sessionId, userId }), "invited");
     assert.equal(canAccessBetaOnlyFlow({ sessionId, userId }), true);
   });
 
+  it("admin-created shared invite code is redeemable from a different user session", () => {
+    createBetaInviteWithAdminCookie({ sessionId:BETA_INVITE_SCOPE_ID, inviteCode:"SHARED-CODE", sessionCookie:adminCookie, sessionSecret:adminSecret });
+
+    const enrollment = enrollBetaUser({ sessionId:"tester_different_session", userId:"tester_different_user", inviteCode:"SHARED-CODE" });
+
+    assert.equal(enrollment.status, "enrolled");
+    assert.equal(getBetaLaunchState("tester_different_session").enrollments.some((item)=>item.userId === "tester_different_user"), true);
+    assert.equal(getBetaLaunchState().invites.length, 1);
+  });
+
+  it("email allowlisted users can enroll without an invite code", () => {
+    createBetaInvite({ email:"beta@example.test" });
+
+    const enrollment = enrollBetaUser({ sessionId, userId, email:"beta@example.test" });
+
+    assert.equal(enrollment.status, "enrolled");
+    assert.equal(isBetaUserAllowed({ sessionId, userId }), "enrolled");
+  });
+
   it("beta enrollment does not grant premium subscription entitlement by itself", () => {
-    createBetaInvite({ sessionId, inviteCode:"ENTITLEMENT-CHECK" });
+    createBetaInvite({ inviteCode:"ENTITLEMENT-CHECK" });
     enrollBetaUser({ sessionId, userId, inviteCode:"ENTITLEMENT-CHECK" });
 
     const allowed = canAccessBetaEntitledPeriod({ state:getMockMvpState(sessionId), sessionId, userId, periodType:"monthly", now });
@@ -90,7 +110,7 @@ describe("beta launch content and invite management", () => {
   });
 
   it("beta enrollment composes with paid subscription entitlement", async () => {
-    createBetaInvite({ sessionId, inviteCode:"PAID-CHECK" });
+    createBetaInvite({ inviteCode:"PAID-CHECK" });
     enrollBetaUser({ sessionId, userId, inviteCode:"PAID-CHECK" });
     setMockUserPlan(userId, "premium", sessionId);
     const subscription = await activatePremiumSubscription();
@@ -101,7 +121,7 @@ describe("beta launch content and invite management", () => {
   });
 
   it("beta enrollment does not bypass privacy deletion or deactivation controls", () => {
-    createBetaInvite({ sessionId, inviteCode:"PRIVACY-CHECK" });
+    createBetaInvite({ inviteCode:"PRIVACY-CHECK" });
     enrollBetaUser({ sessionId, userId, inviteCode:"PRIVACY-CHECK" });
     requestAccountDeletion({ sessionId, userId }, now);
 
@@ -143,8 +163,8 @@ describe("beta launch content and invite management", () => {
   });
 
   it("admin beta invite action stores hashes and never stores raw invite code or email", () => {
-    const inviteId = createBetaInviteWithAdminCookie({ sessionId, inviteCode:"ADMIN-CODE", email:"beta@example.test", sessionCookie:adminCookie, sessionSecret:adminSecret });
-    const state = getBetaLaunchState(sessionId);
+    const inviteId = createBetaInviteWithAdminCookie({ sessionId:BETA_INVITE_SCOPE_ID, inviteCode:"ADMIN-CODE", email:"beta@example.test", sessionCookie:adminCookie, sessionSecret:adminSecret });
+    const state = getBetaLaunchState();
 
     assert.equal(state.invites.some((invite)=>invite.id === inviteId), true);
     assert.equal(JSON.stringify(state).includes("ADMIN-CODE"), false);

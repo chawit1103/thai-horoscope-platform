@@ -54,6 +54,8 @@ export interface BetaLaunchState {
   nextInviteSeq:number;
 }
 
+export const BETA_INVITE_SCOPE_ID = "__beta_invites__";
+
 const MOCK_INVITE_HASH_NAMESPACE = "mock-beta-invite-v1";
 const MOCK_EMAIL_HASH_NAMESPACE = "mock-beta-email-v1";
 const betaStates = new Map<string, BetaLaunchState>();
@@ -84,11 +86,11 @@ const prohibitedUnsafeCopyPatterns = [
   /วินิจฉัย/u,
 ];
 
-export function resetBetaLaunchState(sessionId = "dev-default"):void {
+export function resetBetaLaunchState(sessionId = BETA_INVITE_SCOPE_ID):void {
   betaStates.set(sessionId, { invites:[], enrollments:[], nextInviteSeq:1 });
 }
 
-export function getBetaLaunchState(sessionId = "dev-default"):BetaLaunchState {
+export function getBetaLaunchState(sessionId = BETA_INVITE_SCOPE_ID):BetaLaunchState {
   return structuredClone(getState(sessionId));
 }
 
@@ -113,7 +115,7 @@ export function assertBetaCopySafe(copy:unknown = betaLaunchCopy):void {
 }
 
 export function createBetaInvite(input:{ sessionId?:string; inviteCode?:string; email?:string; userId?:string; status?:BetaInvite["status"]; now?:Date }):BetaInvite {
-  const state = getState(input.sessionId);
+  const state = getState(input.sessionId ?? BETA_INVITE_SCOPE_ID);
   const nowIso = (input.now ?? new Date("2026-05-08T09:00:00.000Z")).toISOString();
   const inviteCode = input.inviteCode ? normalizeInviteCode(input.inviteCode) : undefined;
   const email = input.email?.trim() || undefined;
@@ -138,7 +140,7 @@ export function revokeBetaInvite(input:{ sessionId?:string; inviteId:string; now
 }
 
 export function updateBetaInviteStatus(input:{ sessionId?:string; inviteId:string; status:BetaInvite["status"]; now?:Date }):BetaInvite {
-  const invite = getState(input.sessionId).invites.find((item)=>item.id === input.inviteId);
+  const invite = getState(input.sessionId ?? BETA_INVITE_SCOPE_ID).invites.find((item)=>item.id === input.inviteId);
   if (!invite) throw new Error("Beta invite not found.");
   invite.status = input.status;
   invite.updatedAt = (input.now ?? new Date("2026-05-08T09:01:00.000Z")).toISOString();
@@ -149,17 +151,17 @@ export function validateBetaInviteCode(input:{ sessionId?:string; inviteCode:str
   const normalized = normalizeInviteCode(input.inviteCode);
   if (!normalized) return { ok:false, status:"not_invited", errorCode:"invalid_beta_invite" };
   const codeHash = hashInviteCode(normalized);
-  const invite = getState(input.sessionId).invites.find((item)=>item.kind === "invite_code" && item.codeHash && constantTimeEqual(item.codeHash, codeHash));
+  const invite = getState(input.sessionId ?? BETA_INVITE_SCOPE_ID).invites.find((item)=>item.kind === "invite_code" && item.codeHash && constantTimeEqual(item.codeHash, codeHash));
   if (!invite) return { ok:false, status:"not_invited", errorCode:"invalid_beta_invite" };
   if (invite.status !== "invited") return { ok:false, status:invite.status, inviteId:invite.id, errorCode:"beta_invite_unavailable" };
   return { ok:true, status:"invited", inviteId:invite.id };
 }
 
-export function enrollBetaUser(input:{ sessionId?:string; userId:string; inviteCode?:string; email?:string; now?:Date }):BetaEnrollment {
+export function enrollBetaUser(input:{ sessionId?:string; inviteSessionId?:string; userId:string; inviteCode?:string; email?:string; now?:Date }):BetaEnrollment {
   const state = getState(input.sessionId);
   const existing = state.enrollments.find((item)=>item.userId === input.userId);
   if (existing?.status === "enrolled") return structuredClone(existing);
-  const invite = resolveInviteForEnrollment(state, input);
+  const invite = resolveInviteForEnrollment(getState(input.inviteSessionId ?? BETA_INVITE_SCOPE_ID), input);
   if (!invite) throw new Error("Invalid beta invite.");
   if (invite.status !== "invited") throw new Error("Beta invite is unavailable.");
   const nowIso = (input.now ?? new Date("2026-05-08T09:02:00.000Z")).toISOString();
@@ -179,34 +181,35 @@ export function setBetaEnrollmentStatus(input:{ sessionId?:string; userId:string
   return structuredClone(enrollment);
 }
 
-export function isBetaUserAllowed(input:{ state?:MockMvpState; sessionId?:string; userId:string; email?:string }):BetaAccessStatus {
+export function isBetaUserAllowed(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId:string; email?:string }):BetaAccessStatus {
   if (input.state?.deactivatedUserIds[input.userId]) return "disabled";
   const state = getState(input.sessionId);
   const enrollment = state.enrollments.find((item)=>item.userId === input.userId);
   if (enrollment) return enrollment.status;
-  const userInvite = state.invites.find((item)=>item.kind === "allowlisted_user" && item.userId === input.userId);
+  const inviteState = getState(input.inviteSessionId ?? BETA_INVITE_SCOPE_ID);
+  const userInvite = inviteState.invites.find((item)=>item.kind === "allowlisted_user" && item.userId === input.userId);
   if (userInvite) return userInvite.status;
   if (input.email) {
     const emailHash = hashEmail(input.email);
-    const emailInvite = state.invites.find((item)=>item.kind === "allowlisted_email" && item.emailHash && constantTimeEqual(item.emailHash, emailHash));
+    const emailInvite = inviteState.invites.find((item)=>item.kind === "allowlisted_email" && item.emailHash && constantTimeEqual(item.emailHash, emailHash));
     if (emailInvite) return emailInvite.status;
   }
   return "not_invited";
 }
 
-export function canAccessBetaOnlyFlow(input:{ state?:MockMvpState; sessionId?:string; userId:string; email?:string }):boolean {
+export function canAccessBetaOnlyFlow(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId:string; email?:string }):boolean {
   const status = isBetaUserAllowed(input);
   return status === "enrolled" || status === "invited";
 }
 
-export function canAccessBetaEntitledPeriod(input:{ state:MockMvpState; sessionId?:string; userId:string; periodType:PeriodType; subscription?:SubscriptionRecord; now?:Date }):boolean {
+export function canAccessBetaEntitledPeriod(input:{ state:MockMvpState; sessionId?:string; inviteSessionId?:string; userId:string; periodType:PeriodType; subscription?:SubscriptionRecord; now?:Date }):boolean {
   if (!canAccessBetaOnlyFlow(input)) return false;
   const summary = buildSubscriptionSummary({ state:input.state, userId:input.userId, subscription:input.subscription, now:input.now });
   return canAccessPeriod({ subscription:input.subscription, planCode:summary.planCode, periodType:input.periodType, now:input.now });
 }
 
-export function buildBetaLaunchView(input:{ state?:MockMvpState; sessionId?:string; userId?:string; email?:string; horoscope?:SafeHoroscopeView; birthTimeUnknown?:boolean } = {}):BetaLaunchView {
-  const accessStatus = input.userId ? isBetaUserAllowed({ state:input.state, sessionId:input.sessionId, userId:input.userId, email:input.email }) : "not_invited";
+export function buildBetaLaunchView(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId?:string; email?:string; horoscope?:SafeHoroscopeView; birthTimeUnknown?:boolean } = {}):BetaLaunchView {
+  const accessStatus = input.userId ? isBetaUserAllowed({ state:input.state, sessionId:input.sessionId, inviteSessionId:input.inviteSessionId, userId:input.userId, email:input.email }) : "not_invited";
   const allowed = accessStatus === "invited" || accessStatus === "enrolled";
   const copy = getBetaLaunchCopy();
   const view:BetaLaunchView = {

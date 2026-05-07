@@ -29,6 +29,10 @@ export default async function BetaPage() {
             Invite code
             <input name="inviteCode" autoComplete="off" />
           </label>
+          <label>
+            Allowlisted email
+            <input name="email" type="email" autoComplete="off" />
+          </label>
           <button type="submit">เข้าร่วม beta</button>
         </form>
       ) : (

@@ -23,9 +23,12 @@ Supported invite shapes:
 - allowlisted mock user ID
 - beta enrollment status
 
-Invite codes and allowlisted emails are hashed before storage in the mock MVP
-state. The admin page lists invite IDs, kind, status, and timestamps only. It
-must not display raw invite codes or raw email addresses.
+Invite codes and allowlisted emails are hashed before storage in a shared
+mock beta invite scope. User enrollments remain scoped to the user's mock
+session so invite records can be created by an operator and redeemed from a
+different tester browser/session. The admin page lists invite IDs, kind, status,
+and timestamps only. It must not display raw invite codes or raw email
+addresses.
 
 The helper is local/mock-safe and does not send real invite emails or LINE
 messages.
@@ -56,6 +59,7 @@ Beta users can access:
 
 - `/beta` landing content
 - beta-only onboarding entry when invited or enrolled
+- invite-code or allowlisted-email redemption through the beta page
 - content previews that are otherwise allowed by subscription entitlement
 - privacy/export/delete/unsubscribe controls
 - notification preference controls

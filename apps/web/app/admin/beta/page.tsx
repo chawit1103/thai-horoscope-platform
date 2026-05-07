@@ -4,8 +4,8 @@ import { getBetaLaunchState, safeBetaInviteForAdmin } from "../../../src/mvp/bet
 const BETA_INVITE_DOC_URL = "https://github.com/chawit1103/thai-horoscope-platform/blob/main/docs/BETA_INVITE_MANAGEMENT.md";
 
 export default async function AdminBetaPage() {
-  const adminSession = await requireAdminSession("/admin/beta");
-  const state = getBetaLaunchState(adminSession.sessionId);
+  await requireAdminSession("/admin/beta");
+  const state = getBetaLaunchState();
   const invites = state.invites.map(safeBetaInviteForAdmin);
 
   return (

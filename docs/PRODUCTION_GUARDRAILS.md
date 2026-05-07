@@ -9,7 +9,9 @@ List the fail-closed rules that must hold before production launch.
 - Do not deploy production without human approval.
 - Do not commit `.env` files or production secrets.
 - Do not expose secrets or PII in health checks, logs, audit metadata, or PR comments.
+- Redact email addresses, raw LINE user IDs, birth data, payment payloads, card data, webhook secrets, API keys, ephemeris paths, and ephemeris license data before emitting logs or alerts.
 - Do not send real LINE messages, real email, or real payment requests from tests.
+- Do not send real Slack, LINE, email, webhook, or vendor alert calls from tests; use mock alert hooks only.
 - Do not enable paid production astrology calculations with mock ephemeris output.
 
 ## Admin auth

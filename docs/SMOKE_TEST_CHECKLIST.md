@@ -13,6 +13,16 @@ Validate that staging is operational without sending real provider traffic or ex
 [ ] Missing config errors list variable names only
 ```
 
+## Monitoring and alerting
+
+```text
+[ ] Structured monitoring events use type, severity, source, timestamp, safe reference, dedupe key, and sanitized metadata
+[ ] Mock alert hooks record sanitized alerts only
+[ ] No real Slack, LINE, email, webhook, or vendor alert call occurs in tests
+[ ] Duplicate non-critical alerts are suppressed when a dedupe key is configured
+[ ] Logs and alerts do not include raw payment payloads, card data, birth data, ephemeris paths, or license data
+```
+
 ## Web app
 
 ```text

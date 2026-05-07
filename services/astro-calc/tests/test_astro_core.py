@@ -90,6 +90,22 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn("secret-token", error_message)
         self.assertIsNone(raised.exception.__cause__)
 
+    def test_invalid_path_like_timezones_are_sanitized(self) -> None:
+        raw_timezones = [
+            "../1971-03-11T08:17:00-secret",
+            "/tmp/1971-03-11T08:17:00-secret",
+        ]
+        for raw_timezone in raw_timezones:
+            with self.subTest(raw_timezone=raw_timezone):
+                with self.assertRaisesRegex(ValueError, "^INVALID_TIMEZONE$") as raised:
+                    local_to_utc("2026-01-01T08:30:00", raw_timezone)
+                error_message = str(raised.exception)
+                self.assertNotIn(raw_timezone, error_message)
+                self.assertNotIn("1971-03-11", error_message)
+                self.assertNotIn("08:17", error_message)
+                self.assertNotIn("secret", error_message)
+                self.assertIsNone(raised.exception.__cause__)
+
     def test_malformed_datetime_local_error_is_sanitized(self) -> None:
         raw_datetime = "1990-05-12Tbirth-secret"
         with self.assertRaisesRegex(ValueError, "INVALID_DATETIME_LOCAL") as raised:
@@ -896,7 +912,7 @@ class AstroCoreTests(unittest.TestCase):
         self.assertIsNone(raised.exception.__cause__)
 
     def test_hourly_timing_local_range_invalid_timezone_is_sanitized(self) -> None:
-        raw_timezone = "Not/AZone/1971-03-11T08:17:00-secret"
+        raw_timezone = "../1971-03-11T08:17:00-secret"
         service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
         natal = service.calculate_natal_chart(bangkok_request())
 
@@ -1057,7 +1073,7 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(result.warnings, [])
 
     def test_solar_return_invalid_location_timezone_is_sanitized(self) -> None:
-        raw_timezone = "Not/AZone/1990-05-12T08:30:00-secret"
+        raw_timezone = "/tmp/1990-05-12T08:30:00-secret"
         service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
         natal = service.calculate_natal_chart(bangkok_request())
 

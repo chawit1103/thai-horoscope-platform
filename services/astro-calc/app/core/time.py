@@ -64,7 +64,7 @@ def parse_datetime_utc(value: str, error_code: str = "INVALID_DATETIME_UTC") -> 
 def parse_timezone(timezone: str) -> ZoneInfo:
     try:
         return ZoneInfo(timezone)
-    except ZoneInfoNotFoundError:
+    except (ValueError, ZoneInfoNotFoundError):
         raise ValueError("INVALID_TIMEZONE") from None
 
 

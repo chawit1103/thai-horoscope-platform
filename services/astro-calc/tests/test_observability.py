@@ -29,6 +29,20 @@ def test_redacts_birth_data_and_secret_like_values() -> None:
     assert "4242424242424242" not in serialized
 
 
+def test_redacts_prefixed_secrets_in_allowlisted_astro_strings() -> None:
+    redacted = redact_for_observability(
+        {
+            "reason": "failed with whsec_abcdef1234567890 and sk_live_secret123456",
+            "status": "token_abcdef1234567890",
+            "error_code": "KEY_ABCDEF1234567890",
+        }
+    )
+    serialized = str(redacted)
+
+    for unsafe in ["whsec_abcdef1234567890", "sk_live_secret123456", "token_abcdef1234567890", "KEY_ABCDEF1234567890"]:
+        assert unsafe not in serialized
+
+
 def test_astro_monitoring_event_is_sanitized() -> None:
     event = create_astro_monitoring_event(
         event_type="astro_calc_health_failed",

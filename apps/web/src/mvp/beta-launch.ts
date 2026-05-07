@@ -185,8 +185,8 @@ export function isBetaUserAllowed(input:{ state?:MockMvpState; sessionId?:string
   if (input.state?.deactivatedUserIds[input.userId]) return "disabled";
   const state = getState(input.sessionId);
   const enrollment = state.enrollments.find((item)=>item.userId === input.userId);
-  if (enrollment) return enrollment.status;
   const inviteState = getState(input.inviteSessionId ?? BETA_INVITE_SCOPE_ID);
+  if (enrollment) return statusFromEnrollment(enrollment, inviteState);
   const userInvite = inviteState.invites.find((item)=>item.kind === "allowlisted_user" && item.userId === input.userId);
   if (userInvite) return userInvite.status;
   if (input.email) {
@@ -195,6 +195,13 @@ export function isBetaUserAllowed(input:{ state?:MockMvpState; sessionId?:string
     if (emailInvite) return emailInvite.status;
   }
   return "not_invited";
+}
+
+function statusFromEnrollment(enrollment:BetaEnrollment, inviteState:BetaLaunchState):BetaAccessStatus {
+  if (enrollment.status !== "enrolled" || !enrollment.inviteId) return enrollment.status;
+  const invite = inviteState.invites.find((item)=>item.id === enrollment.inviteId);
+  if (!invite) return "revoked";
+  return invite.status === "invited" ? "enrolled" : invite.status;
 }
 
 export function canAccessBetaOnlyFlow(input:{ state?:MockMvpState; sessionId?:string; inviteSessionId?:string; userId:string; email?:string }):boolean {

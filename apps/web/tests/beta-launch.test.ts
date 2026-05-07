@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { createAdminSessionCookie, createBetaInviteWithAdminCookie } from "../src/mvp/admin-auth";
-import { BETA_INVITE_SCOPE_ID, assertBetaCopySafe, buildBetaLaunchView, canAccessBetaEntitledPeriod, canAccessBetaOnlyFlow, createBetaInvite, enrollBetaUser, getBetaDisclaimers, getBetaLaunchCopy, getBetaLaunchState, isBetaUserAllowed, resetBetaLaunchState, setBetaEnrollmentStatus, validateBetaInviteCode } from "../src/mvp/beta-launch";
+import { BETA_INVITE_SCOPE_ID, assertBetaCopySafe, buildBetaLaunchView, canAccessBetaEntitledPeriod, canAccessBetaOnlyFlow, createBetaInvite, enrollBetaUser, getBetaDisclaimers, getBetaLaunchCopy, getBetaLaunchState, isBetaUserAllowed, resetBetaLaunchState, revokeBetaInvite, setBetaEnrollmentStatus, validateBetaInviteCode } from "../src/mvp/beta-launch";
 import { ENTERTAINMENT_DISCLAIMER } from "../src/mvp/beta-user-ux";
 import { getMockMvpState, requestAccountDeletion, resetMockMvpState, setMockUserPlan } from "../src/mvp/mock-flow";
 import { processMockSubscriptionWebhook, resetMockSubscriptionState, type MockSubscriptionWebhookEvent } from "../src/mvp/subscription-lifecycle";
@@ -98,6 +98,16 @@ describe("beta launch content and invite management", () => {
 
     assert.equal(enrollment.status, "enrolled");
     assert.equal(isBetaUserAllowed({ sessionId, userId }), "enrolled");
+  });
+
+  it("revoking a redeemed invite removes beta-only access", () => {
+    const invite = createBetaInvite({ inviteCode:"LEAKED-CODE" });
+    enrollBetaUser({ sessionId, userId, inviteCode:"LEAKED-CODE" });
+
+    revokeBetaInvite({ inviteId:invite.id });
+
+    assert.equal(isBetaUserAllowed({ sessionId, userId }), "revoked");
+    assert.equal(canAccessBetaOnlyFlow({ sessionId, userId }), false);
   });
 
   it("beta enrollment does not grant premium subscription entitlement by itself", () => {

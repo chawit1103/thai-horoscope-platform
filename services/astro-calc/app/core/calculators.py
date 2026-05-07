@@ -644,7 +644,7 @@ def build_hourly_timing_window(
 
 
 def validate_chart_snapshot_datetimes(natal: ChartSnapshot) -> SnapshotDateTimeValidation:
-    validate_timezone(natal.datetime.timezone)
+    timezone = validate_timezone(natal.datetime.timezone)
     parsed_local = parse_datetime_local(natal.datetime_local, "INVALID_DATETIME")
     parsed_utc = parse_datetime_utc(natal.datetime_utc, "INVALID_DATETIME")
     nested_local = parse_datetime_snapshot_local(natal.datetime.local, "INVALID_DATETIME")
@@ -654,6 +654,9 @@ def validate_chart_snapshot_datetimes(natal: ChartSnapshot) -> SnapshotDateTimeV
     if utc_to_iso(nested_utc) != utc_to_iso(parsed_utc):
         raise ValueError("INVALID_DATETIME")
     if nested_local.tzinfo is not None and utc_to_iso(nested_local) != utc_to_iso(parsed_utc):
+        raise ValueError("INVALID_DATETIME")
+    converted_local_utc = parsed_local.replace(tzinfo=parse_timezone(timezone)).astimezone(UTC)
+    if utc_to_iso(converted_local_utc) != utc_to_iso(parsed_utc):
         raise ValueError("INVALID_DATETIME")
     return SnapshotDateTimeValidation(local=parsed_local, utc=parsed_utc)
 

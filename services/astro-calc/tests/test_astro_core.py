@@ -80,6 +80,17 @@ class AstroCoreTests(unittest.TestCase):
             for fragment in fragments:
                 self.assertNotIn(fragment, context_message)
 
+    def assert_sanitized_datetime_error(self, error: ValueError, fragments: list[str]) -> None:
+        error_message = str(error)
+        self.assertEqual(error_message, "INVALID_DATETIME")
+        self.assertIsNone(error.__cause__)
+        for fragment in fragments:
+            self.assertNotIn(fragment, error_message)
+        if error.__context__ is not None:
+            context_message = str(error.__context__)
+            for fragment in fragments:
+                self.assertNotIn(fragment, context_message)
+
     def test_timezone_conversion_bangkok_and_dst(self) -> None:
         self.assertEqual(utc_to_iso(local_to_utc("1990-05-12T08:30:00", "Asia/Bangkok")), "1990-05-12T01:30:00Z")
         self.assertEqual(utc_to_iso(local_to_utc("2026-07-01T08:30:00", "America/New_York")), "2026-07-01T12:30:00Z")
@@ -740,6 +751,99 @@ class AstroCoreTests(unittest.TestCase):
                     )
                 self.assert_sanitized_timezone_error(raised.exception, raw_timezone, ["1971-03-11", "08:17", "token", "secret", "../", "/tmp"])
 
+    def test_snapshot_bangkok_local_and_matching_utc_still_work(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+
+        result = service.calculate_transit_to_natal(
+            TransitSnapshotRequest(
+                natal_chart_snapshot=natal,
+                transit_datetime_utc="2026-05-06T05:00:00Z",
+                calculation_profile_code="TH_NIRAYANA_V1",
+                transit_location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+            )
+        )
+
+        self.assertEqual(result.natal_chart_snapshot.datetime_local, "1990-05-12T08:30:00")
+        self.assertEqual(result.natal_chart_snapshot.datetime_utc, "1990-05-12T01:30:00Z")
+
+    def test_snapshot_utc_timezone_local_and_matching_utc_still_work(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_V1",
+                datetime_local="1990-05-12T08:30:00",
+                timezone="UTC",
+                latitude=13.7563,
+                longitude=100.5018,
+                elevation_m=0,
+                time_accuracy_minutes=5,
+            )
+        )
+
+        result = service.calculate_transit_to_natal(
+            TransitSnapshotRequest(
+                natal_chart_snapshot=natal,
+                transit_datetime_utc="2026-05-06T05:00:00Z",
+                calculation_profile_code="TH_NIRAYANA_V1",
+                transit_location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="UTC"),
+            )
+        )
+
+        self.assertEqual(result.natal_chart_snapshot.datetime_local, "1990-05-12T08:30:00")
+        self.assertEqual(result.natal_chart_snapshot.datetime_utc, "1990-05-12T08:30:00Z")
+
+    def test_snapshot_local_timezone_utc_mismatch_is_sanitized(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        invalid_snapshot = replace(natal, datetime_utc="2000-01-01T00:00:00Z", datetime=replace(natal.datetime, utc="2000-01-01T00:00:00Z"))
+
+        with self.assertRaisesRegex(ValueError, "^INVALID_DATETIME$") as raised:
+            service.calculate_transit_to_natal(
+                TransitSnapshotRequest(
+                    natal_chart_snapshot=invalid_snapshot,
+                    transit_datetime_utc="2026-05-06T05:00:00Z",
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    transit_location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                )
+            )
+
+        self.assert_sanitized_datetime_error(raised.exception, ["1990-05-12", "08:30", "2000-01-01", "Asia/Bangkok"])
+
+    def test_snapshot_top_level_local_mismatch_is_sanitized(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        invalid_snapshot = replace(natal, datetime_local="1990-05-12T09:30:00")
+
+        with self.assertRaisesRegex(ValueError, "^INVALID_DATETIME$") as raised:
+            service.calculate_transit_to_natal(
+                TransitSnapshotRequest(
+                    natal_chart_snapshot=invalid_snapshot,
+                    transit_datetime_utc="2026-05-06T05:00:00Z",
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    transit_location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                )
+            )
+
+        self.assert_sanitized_datetime_error(raised.exception, ["1990-05-12", "08:30", "09:30"])
+
+    def test_snapshot_top_level_utc_mismatch_is_sanitized(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        invalid_snapshot = replace(natal, datetime_utc="1990-05-12T02:30:00Z")
+
+        with self.assertRaisesRegex(ValueError, "^INVALID_DATETIME$") as raised:
+            service.calculate_transit_to_natal(
+                TransitSnapshotRequest(
+                    natal_chart_snapshot=invalid_snapshot,
+                    transit_datetime_utc="2026-05-06T05:00:00Z",
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    transit_location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                )
+            )
+
+        self.assert_sanitized_datetime_error(raised.exception, ["1990-05-12", "01:30", "02:30"])
+
     def test_valid_second_precision_transit_datetime_utc_still_works(self) -> None:
         service = AstroCoreService()
         natal = service.calculate_natal_chart(bangkok_request())
@@ -1052,6 +1156,24 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn("01:30:00.500", str(raised.exception))
         self.assertIsNone(raised.exception.__cause__)
 
+    def test_hourly_timing_rejects_snapshot_local_utc_mismatch(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        invalid_snapshot = replace(natal, datetime_utc="2000-01-01T00:00:00Z", datetime=replace(natal.datetime, utc="2000-01-01T00:00:00Z"))
+
+        with self.assertRaisesRegex(ValueError, "^INVALID_DATETIME$") as raised:
+            service.calculate_hourly_timing(
+                HourlyTimingRequest(
+                    natal_chart_snapshot=invalid_snapshot,
+                    start_datetime_utc="2026-05-01T00:00:00Z",
+                    end_datetime_utc="2026-05-20T00:00:00Z",
+                    timezone="Asia/Bangkok",
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+
+        self.assert_sanitized_datetime_error(raised.exception, ["1990-05-12", "08:30", "2000-01-01", "Asia/Bangkok"])
+
     def test_hourly_timing_windows_are_deterministic(self) -> None:
         service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
         natal = service.calculate_natal_chart(bangkok_request())
@@ -1154,6 +1276,23 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn(raw_datetime, str(nested_raised.exception))
         self.assertNotIn("01:30:00.500", str(nested_raised.exception))
         self.assertIsNone(nested_raised.exception.__cause__)
+
+    def test_solar_return_rejects_snapshot_local_utc_mismatch(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        invalid_snapshot = replace(natal, datetime_utc="2000-01-01T00:00:00Z", datetime=replace(natal.datetime, utc="2000-01-01T00:00:00Z"))
+
+        with self.assertRaisesRegex(ValueError, "^INVALID_DATETIME$") as raised:
+            service.calculate_solar_return(
+                SolarReturnRequest(
+                    natal_chart_snapshot=invalid_snapshot,
+                    solar_return_year=2026,
+                    location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+
+        self.assert_sanitized_datetime_error(raised.exception, ["1990-05-12", "08:30", "2000-01-01", "Asia/Bangkok"])
 
     def test_solar_return_second_precision_snapshot_datetimes_still_work(self) -> None:
         service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))

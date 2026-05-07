@@ -1,6 +1,8 @@
 import { approveContentBatchAction, rejectContentBatchAction, requireAdminSession } from "../../actions";
 import { CONTENT_PREVIEW_APPROVAL_SESSION_ID, ensureContentPreviewBatchesForApprovedResults, listContentPreviewBatches } from "../../../src/mvp/content-preview-approval";
 
+const BETA_CONTENT_APPROVAL_DOC_URL = "https://github.com/chawit1103/thai-horoscope-platform/blob/main/docs/BETA_CONTENT_APPROVAL.md";
+
 export default async function AdminContentPreviewPage() {
   const adminSession = await requireAdminSession("/admin/content-preview");
   ensureContentPreviewBatchesForApprovedResults({ sessionId:adminSession.sessionId, approvalSessionId:CONTENT_PREVIEW_APPROVAL_SESSION_ID });
@@ -14,7 +16,7 @@ export default async function AdminContentPreviewPage() {
       <div className="actions">
         <a className="button-link secondary" href="/admin">Back to admin</a>
         <a className="button-link secondary" href="/admin/operator">Operator console</a>
-        <a className="button-link secondary" href="/docs/BETA_CONTENT_APPROVAL.md">Approval doc</a>
+        <a className="button-link secondary" href={BETA_CONTENT_APPROVAL_DOC_URL}>Approval doc</a>
       </div>
 
       {batches.length === 0 ? (

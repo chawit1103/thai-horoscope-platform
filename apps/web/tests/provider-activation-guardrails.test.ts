@@ -167,12 +167,47 @@ describe("provider activation guardrails", () => {
     const emailProvider = new ThrowingEmailProvider();
     const lineProvider = new ThrowingLineProvider();
     const paymentProvider = new ThrowingPaymentProvider();
-    const harness = runProviderActivationSafetyHarness({ ...fullRealProviderEnv, ENABLE_PROVIDER_DRY_RUN:"true" });
+    const harness = runProviderActivationSafetyHarness({
+      env:{ ...fullRealProviderEnv, ENABLE_PROVIDER_DRY_RUN:"true" },
+      networkTelemetry:{
+        emailNetworkCalls:emailProvider.networkSendCount,
+        lineNetworkCalls:lineProvider.networkSendCount,
+        paymentNetworkCalls:paymentProvider.networkCallCount,
+      },
+    });
 
     assert.equal(harness.networkCallsAttempted, false);
     assert.equal(emailProvider.networkSendCount, 0);
     assert.equal(lineProvider.networkSendCount, 0);
     assert.equal(paymentProvider.networkCallCount, 0);
+  });
+
+  it("blocks provider network allowance when the overall environment report is blocked", () => {
+    const report = validateProviderActivationReadiness({
+      ...fullRealProviderEnv,
+      APP_ENV:"production",
+      ADMIN_SESSION_SECRET:"",
+      ASTRO_ENGINE:"mock",
+      ENABLE_REAL_EMAIL_SENDS:"true",
+      ENABLE_REAL_LINE_SENDS:"true",
+      ENABLE_REAL_PAYMENT_PROVIDER:"true",
+      REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+    });
+
+    assert.equal(report.status, "blocked");
+    assert.equal(component(report, "email").networkCallsAllowed, false);
+    assert.equal(component(report, "line").networkCallsAllowed, false);
+    assert.equal(component(report, "payment").networkCallsAllowed, false);
+    assert.throws(() => assertProviderNetworkAllowed(report, "email"), /PROVIDER_NETWORK_CALL_BLOCKED:email/);
+  });
+
+  it("safety harness reports attempted network calls from supplied telemetry", () => {
+    const harness = runProviderActivationSafetyHarness({
+      env:{ ...fullRealProviderEnv, ENABLE_PROVIDER_DRY_RUN:"true" },
+      networkTelemetry:{ emailNetworkCalls:1 },
+    });
+
+    assert.equal(harness.networkCallsAttempted, true);
   });
 
   it("activation status redacts secrets and provider payloads", () => {

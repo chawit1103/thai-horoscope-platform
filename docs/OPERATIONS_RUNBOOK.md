@@ -144,7 +144,7 @@ Use `docs/PROVIDER_DRY_RUN.md` before enabling real Email, LINE, or Payment.
 1. Keep `ENABLE_PROVIDER_DRY_RUN=true`.
 2. Keep `ENABLE_REAL_EMAIL_SENDS=false`, `ENABLE_REAL_LINE_SENDS=false`, and `ENABLE_REAL_PAYMENT_PROVIDER=false`.
 3. Confirm provider activation readiness reports `dry_run`.
-4. Confirm `networkCallsAllowed=false` and `networkCallsAttempted=false`.
+4. Confirm `networkCallsAllowed=false` and `networkCallsAttempted=false` with provider/fetch network telemetry supplied to the safety harness.
 5. Do not paste API keys, access tokens, webhook secrets, raw provider payloads, raw emails, raw LINE user IDs, payment identifiers, or birth data into operational notes.
 
 ## Admin auth security events

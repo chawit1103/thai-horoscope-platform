@@ -34,7 +34,7 @@ ENABLE_REAL_PAYMENT_PROVIDER=false
 
 1. Configure only the provider being evaluated.
 2. Run `pnpm test -- --test-name-pattern provider` when available, or the full `pnpm test`.
-3. Run the provider activation safety harness through the web test suite.
+3. Run the provider activation safety harness through the web test suite with provider/fetch network telemetry supplied.
 4. Open `/api/health` in staging after human deployment.
 5. Confirm dry-run warnings are expected and sanitized.
 6. Confirm provider dashboards show no real send, push, checkout, payment, or webhook side effect from the dry-run.
@@ -47,7 +47,7 @@ Dry-run passes when:
 [ ] Missing config fails closed
 [ ] Full config reports dry_run, not activated
 [ ] networkCallsAllowed=false for Email, LINE, and Payment
-[ ] networkCallsAttempted=false in the safety harness
+[ ] networkCallsAttempted=false in the safety harness when provider/fetch telemetry counters are supplied
 [ ] Output is safe for admin/operator console display
 ```
 

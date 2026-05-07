@@ -29,6 +29,18 @@ export interface ProviderActivationReport {
   components:ProviderActivationComponent[];
 }
 
+export interface ProviderActivationNetworkTelemetry {
+  emailNetworkCalls?:number;
+  lineNetworkCalls?:number;
+  paymentNetworkCalls?:number;
+  fetchCalls?:number;
+}
+
+export interface ProviderActivationSafetyHarnessOptions {
+  env?:EnvironmentInput;
+  networkTelemetry?:ProviderActivationNetworkTelemetry;
+}
+
 const EMAIL_REQUIRED_VARS = ["EMAIL_FROM_ADDRESS", "EMAIL_PROVIDER_ENDPOINT", "EMAIL_PROVIDER_API_KEY", "EMAIL_WEBHOOK_SECRET", "EMAIL_AUDIT_HASH_SECRET", "EMAIL_VERIFIED_SENDER_DOMAIN"];
 const LINE_REQUIRED_VARS = ["LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN", "LINE_AUDIT_HASH_SECRET"];
 const PAYMENT_REQUIRED_VARS = ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT", "PAYMENT_PROVIDER_API_KEY", "PAYMENT_WEBHOOK_SECRET"];
@@ -47,6 +59,7 @@ export function validateProviderActivationReadiness(env:EnvironmentInput = proce
   const environmentReport = validateDeploymentEnvironment(env);
   const environment = environmentReport.environment;
   const flags = readProviderActivationFlags(env);
+  const environmentReady = environmentReport.status === "ok";
   const components = [
     providerComponent({
       component:"email",
@@ -57,6 +70,7 @@ export function validateProviderActivationReadiness(env:EnvironmentInput = proce
       env,
       flags,
       environment,
+      environmentReady,
     }),
     providerComponent({
       component:"line",
@@ -67,6 +81,7 @@ export function validateProviderActivationReadiness(env:EnvironmentInput = proce
       env,
       flags,
       environment,
+      environmentReady,
     }),
     providerComponent({
       component:"payment",
@@ -77,6 +92,7 @@ export function validateProviderActivationReadiness(env:EnvironmentInput = proce
       env,
       flags,
       environment,
+      environmentReady,
     }),
   ];
   const status:ProviderActivationStatus = components.some((component)=>component.status==="blocked") || environmentReport.status === "error" ? "blocked" : components.some((component)=>component.status==="dry_run") ? "dry_run" : "ok";
@@ -102,18 +118,20 @@ export function toPublicProviderActivationReport(report:ProviderActivationReport
 
 export function assertProviderNetworkAllowed(report:ProviderActivationReport, componentName:ProviderActivationComponentName):void {
   const component = report.components.find((item)=>item.component === componentName);
-  if (!component?.networkCallsAllowed) throw new Error(`PROVIDER_NETWORK_CALL_BLOCKED:${componentName}`);
+  if (report.status !== "ok" || !component?.networkCallsAllowed) throw new Error(`PROVIDER_NETWORK_CALL_BLOCKED:${componentName}`);
 }
 
-export function runProviderActivationSafetyHarness(env:EnvironmentInput = process.env):{
+export function runProviderActivationSafetyHarness(input:EnvironmentInput|ProviderActivationSafetyHarnessOptions = process.env):{
   status:ProviderActivationStatus;
   providerActivation:ProviderActivationReport;
   environmentHealth:ReturnType<typeof toPublicHealthReport>;
-  networkCallsAttempted:false;
+  networkCallsAttempted:boolean;
 } {
+  const env = isHarnessOptions(input) ? input.env ?? process.env : input;
+  const networkTelemetry = isHarnessOptions(input) ? input.networkTelemetry : undefined;
   const providerActivation = toPublicProviderActivationReport(validateProviderActivationReadiness(env));
   const environmentHealth = toPublicHealthReport(validateDeploymentEnvironment(env));
-  return { status:providerActivation.status, providerActivation, environmentHealth, networkCallsAttempted:false };
+  return { status:providerActivation.status, providerActivation, environmentHealth, networkCallsAttempted:networkCallsAttempted(networkTelemetry) };
 }
 
 function providerComponent(input:{
@@ -125,6 +143,7 @@ function providerComponent(input:{
   env:EnvironmentInput;
   flags:ProviderActivationFlags;
   environment:DeploymentEnvironment;
+  environmentReady:boolean;
 }):ProviderActivationComponent {
   const errors:ConfigIssue[] = [];
   const warnings:ConfigIssue[] = [];
@@ -140,7 +159,7 @@ function providerComponent(input:{
     }
     if (input.environment === "production" && input.flags.enableProviderDryRun) errors.push(issue(`${input.component.toUpperCase()}_PROVIDER_DRY_RUN_PRODUCTION_FORBIDDEN`, "Production provider activation cannot run in dry-run mode.", ["ENABLE_PROVIDER_DRY_RUN"]));
   }
-  const networkCallsAllowed = input.mode === "http" && input.realEnabled && !input.flags.enableProviderDryRun && input.flags.requireProviderActivationApproval && errors.length === 0;
+  const networkCallsAllowed = input.environmentReady && input.mode === "http" && input.realEnabled && !input.flags.enableProviderDryRun && input.flags.requireProviderActivationApproval && errors.length === 0;
   return {
     component:input.component,
     mode:input.mode,
@@ -163,6 +182,14 @@ function isTrue(value:string|undefined):boolean {
 
 function hasValue(value:string|undefined):boolean {
   return Boolean(value?.trim());
+}
+
+function isHarnessOptions(input:EnvironmentInput|ProviderActivationSafetyHarnessOptions):input is ProviderActivationSafetyHarnessOptions {
+  return "env" in input || "networkTelemetry" in input;
+}
+
+function networkCallsAttempted(telemetry:ProviderActivationNetworkTelemetry|undefined):boolean {
+  return Boolean((telemetry?.emailNetworkCalls ?? 0) > 0 || (telemetry?.lineNetworkCalls ?? 0) > 0 || (telemetry?.paymentNetworkCalls ?? 0) > 0 || (telemetry?.fetchCalls ?? 0) > 0);
 }
 
 function issue(code:string, message:string, variables:string[]):ConfigIssue {

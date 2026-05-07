@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo
-
 from app.config import AstroRuntimeConfig
 from app.core.aspects import calculate_aspects, calculate_cross_aspects, calculate_transit_to_natal_hits
 from app.core.math import angular_distance, sign_index, stable_hash
@@ -19,6 +17,7 @@ from app.core.time import (
     parse_datetime_local,
     parse_datetime_snapshot_local,
     parse_datetime_utc,
+    parse_timezone,
     utc_to_iso,
 )
 from app.core.zodiac import degree_in_sign, sign_name_en, sign_name_th, whole_sign_house_number
@@ -663,12 +662,12 @@ def solar_return_search_center(natal_datetime_local: datetime, year: int, locati
 
 
 def utc_to_local_iso(value_utc: datetime, timezone: str) -> str:
-    return value_utc.astimezone(ZoneInfo(timezone)).replace(tzinfo=None, microsecond=0).isoformat(timespec="seconds")
+    return value_utc.astimezone(parse_timezone(timezone)).replace(tzinfo=None, microsecond=0).isoformat(timespec="seconds")
 
 
 def local_with_offset_iso(datetime_local: str, timezone: str) -> str:
     local = parse_datetime_local(datetime_local)
-    return local.replace(tzinfo=ZoneInfo(timezone)).isoformat(timespec="seconds")
+    return local.replace(tzinfo=parse_timezone(timezone)).isoformat(timespec="seconds")
 
 
 def sun_reference_longitude(chart: ChartSnapshot, zodiac_type: str) -> float:

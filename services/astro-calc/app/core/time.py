@@ -61,6 +61,13 @@ def parse_datetime_utc(value: str, error_code: str = "INVALID_DATETIME_UTC") -> 
     return parsed.astimezone(UTC)
 
 
+def parse_timezone(timezone: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone)
+    except ZoneInfoNotFoundError:
+        raise ValueError("INVALID_TIMEZONE") from None
+
+
 def parse_birth_date(birth_date: str) -> date:
     try:
         return date.fromisoformat(birth_date)
@@ -93,10 +100,7 @@ def date_from_datetime_local(datetime_local: str | None) -> str | None:
 
 
 def local_to_utc(datetime_local: str, timezone: str) -> datetime:
-    try:
-        tz = ZoneInfo(timezone)
-    except ZoneInfoNotFoundError as error:
-        raise ValueError(f"INVALID_TIMEZONE: {timezone}") from error
+    tz = parse_timezone(timezone)
     local = parse_datetime_local(datetime_local)
     return local.replace(tzinfo=tz).astimezone(UTC)
 
@@ -119,7 +123,7 @@ def julian_day_ut(value: datetime) -> float:
 
 
 def each_hour_utc(date_local: str, timezone: str) -> list[tuple[datetime, datetime, str]]:
-    tz = ZoneInfo(timezone)
+    tz = parse_timezone(timezone)
     start_local = parse_datetime_local(f"{date_local}T00:00:00", "INVALID_BIRTH_DATE").replace(tzinfo=tz)
     windows: list[tuple[datetime, datetime, str]] = []
     for hour in range(24):

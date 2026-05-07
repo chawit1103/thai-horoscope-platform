@@ -73,8 +73,22 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(utc_to_iso(local_to_utc("1990-05-12T08:30:00", "Asia/Bangkok")), "1990-05-12T01:30:00Z")
         self.assertEqual(utc_to_iso(local_to_utc("2026-07-01T08:30:00", "America/New_York")), "2026-07-01T12:30:00Z")
         self.assertEqual(utc_to_iso(local_to_utc("2026-01-01T08:30:00", "America/New_York")), "2026-01-01T13:30:00Z")
-        with self.assertRaisesRegex(ValueError, "INVALID_TIMEZONE"):
-            local_to_utc("2026-01-01T08:30:00", "Not/AZone")
+        raw_timezone = "Not/AZone"
+        with self.assertRaisesRegex(ValueError, "^INVALID_TIMEZONE$") as raised:
+            local_to_utc("2026-01-01T08:30:00", raw_timezone)
+        self.assertNotIn(raw_timezone, str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_invalid_timezone_error_sanitizes_secret_like_values(self) -> None:
+        raw_timezone = "Asia/Bangkok?birth=1971-03-11T08:17:00&token=secret-token"
+        with self.assertRaisesRegex(ValueError, "^INVALID_TIMEZONE$") as raised:
+            local_to_utc("2026-01-01T08:30:00", raw_timezone)
+        error_message = str(raised.exception)
+        self.assertNotIn(raw_timezone, error_message)
+        self.assertNotIn("1971-03-11", error_message)
+        self.assertNotIn("08:17", error_message)
+        self.assertNotIn("secret-token", error_message)
+        self.assertIsNone(raised.exception.__cause__)
 
     def test_malformed_datetime_local_error_is_sanitized(self) -> None:
         raw_datetime = "1990-05-12Tbirth-secret"
@@ -881,6 +895,27 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn("00:00:00.250", str(raised.exception))
         self.assertIsNone(raised.exception.__cause__)
 
+    def test_hourly_timing_local_range_invalid_timezone_is_sanitized(self) -> None:
+        raw_timezone = "Not/AZone/1971-03-11T08:17:00-secret"
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+
+        with self.assertRaisesRegex(ValueError, "^INVALID_TIMEZONE$") as raised:
+            service.calculate_hourly_timing(
+                HourlyTimingRequest(
+                    natal_chart_snapshot=natal,
+                    start_datetime_local="2026-05-06T09:00:00",
+                    end_datetime_local="2026-05-06T13:00:00",
+                    timezone=raw_timezone,
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+
+        self.assertNotIn(raw_timezone, str(raised.exception))
+        self.assertNotIn("1971-03-11", str(raised.exception))
+        self.assertNotIn("08:17", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
     def test_hourly_timing_rejects_fractional_snapshot_datetime_before_range_handling(self) -> None:
         raw_datetime = "1990-05-12T01:30:00.500Z"
         service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
@@ -1020,6 +1055,26 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(result.solar_return_datetime_utc, "2026-05-12T07:15:00Z")
         self.assertLessEqual(result.delta_arc_seconds, 60)
         self.assertEqual(result.warnings, [])
+
+    def test_solar_return_invalid_location_timezone_is_sanitized(self) -> None:
+        raw_timezone = "Not/AZone/1990-05-12T08:30:00-secret"
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+
+        with self.assertRaisesRegex(ValueError, "^INVALID_TIMEZONE$") as raised:
+            service.calculate_solar_return(
+                SolarReturnRequest(
+                    natal_chart_snapshot=natal,
+                    solar_return_year=2026,
+                    location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone=raw_timezone),
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+
+        self.assertNotIn(raw_timezone, str(raised.exception))
+        self.assertNotIn("1990-05-12", str(raised.exception))
+        self.assertNotIn("08:30", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
 
     def test_solar_return_convergence_failure_is_returned_safely(self) -> None:
         service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
@@ -1373,6 +1428,8 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn("08:17", error_message)
         self.assertNotIn("13.7563", error_message)
         self.assertNotIn("100.5018", error_message)
+        self.assertNotIn("Not/AZone", error_message)
+        self.assertIsNone(raised.exception.__cause__)
 
     def test_engine_outputs_structured_data_without_prediction_prose(self) -> None:
         service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True, enable_hourly_timing=True))

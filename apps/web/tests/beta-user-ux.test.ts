@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { buildBirthProfileSummary, buildChannelStatusSummary, buildNotificationPreferenceSummary, buildSafeHoroscopeView, buildSubscriptionSummary, containsUnsafeUserFacingLeak, ENTERTAINMENT_DISCLAIMER, getLatestUserSubscription, maskEmail, validateOnboardingFields } from "../src/mvp/beta-user-ux";
+import { buildBetaMockSubscriptionWindow, buildBirthProfileSummary, buildChannelStatusSummary, buildNotificationPreferenceSummary, buildSafeHoroscopeView, buildSubscriptionSummary, containsUnsafeUserFacingLeak, ENTERTAINMENT_DISCLAIMER, getLatestUserSubscription, maskEmail, validateOnboardingFields } from "../src/mvp/beta-user-ux";
 import { EmailGateway, SandboxEmailProvider, createEmailChannelAccount, type EmailAuditLogEntry } from "../src/mvp/email-gateway";
 import { createLineChannelAccount, SandboxLineProvider } from "../src/mvp/line-gateway";
 import { approveDraft, callMockAstroCalc, deleteBirthProfile, exportUserData, generateHoroscopeResult, getMockMvpState, getMockPeriodKey, requestAccountDeletion, resetMockMvpState, saveBirthProfile, setMockUserPlan, setNotificationPreference, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
@@ -175,5 +175,14 @@ describe("beta user onboarding and subscription UX", () => {
     const premium = await activateSubscription("premium");
 
     assert.equal(getLatestUserSubscription(userId)?.id, premium.id);
+  });
+
+  it("derives beta mock subscription periods from signup time", () => {
+    const signupAt = new Date("2026-08-10T12:00:00.000Z");
+    const window = buildBetaMockSubscriptionWindow(signupAt);
+
+    assert.equal(window.currentPeriodStart, signupAt.toISOString());
+    assert.equal(window.currentPeriodEnd, "2026-09-09T12:00:00.000Z");
+    assert.equal(Date.parse(window.currentPeriodEnd) > Date.parse(window.currentPeriodStart), true);
   });
 });

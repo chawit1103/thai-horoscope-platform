@@ -65,6 +65,11 @@ export interface SafeHoroscopeView {
   disclaimer:string;
 }
 
+export interface BetaMockSubscriptionWindow {
+  currentPeriodStart:string;
+  currentPeriodEnd:string;
+}
+
 const periodLabels:Record<PeriodType,string> = {
   daily:"วันนี้",
   weekly:"สัปดาห์นี้",
@@ -189,6 +194,13 @@ export function buildSafeHoroscopeView(input:{ state:MockMvpState; userId:string
     sections:result?.content_json.sections ?? [],
     warnings,
     disclaimer:result?.content_json.disclaimer ?? ENTERTAINMENT_DISCLAIMER,
+  };
+}
+
+export function buildBetaMockSubscriptionWindow(now=new Date()):BetaMockSubscriptionWindow {
+  return {
+    currentPeriodStart:now.toISOString(),
+    currentPeriodEnd:new Date(now.getTime()+30*24*60*60*1000).toISOString(),
   };
 }
 

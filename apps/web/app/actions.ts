@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, approveContentBatchWithAdminCookie, authorizeAdminRoute, recordAdminSessionStartedWithAdminCookie, rejectContentBatchWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken } from "../src/mvp/admin-auth";
-import { validateOnboardingFields } from "../src/mvp/beta-user-ux";
+import { buildBetaMockSubscriptionWindow, validateOnboardingFields } from "../src/mvp/beta-user-ux";
 import { CONTENT_PREVIEW_APPROVAL_SESSION_ID } from "../src/mvp/content-preview-approval";
 import { readDeploymentEnvironment } from "../src/mvp/environment-validation";
 import { callMockAstroCalc, deleteBirthProfile, exportUserData, generateHoroscopeResult, getMockMvpState, getMockPeriodKey, recordAdminAudit, requestAccountDeletion, saveBirthProfile, setMockUserPlan, setNotificationPreference, storeChartSnapshot, unsubscribeNotifications, type PeriodType, type PlanCode } from "../src/mvp/mock-flow";
@@ -113,6 +113,7 @@ export async function selectMockPlanAction(formData: FormData): Promise<void> {
   if (!["free", "basic", "premium"].includes(planCode)) throw new Error("Invalid plan.");
   setMockUserPlan(userId, planCode, sessionId);
   if (planCode !== "free") {
+    const window = buildBetaMockSubscriptionWindow();
     await processMockSubscriptionWebhook({
       id:`evt_beta_plan_${crypto.randomUUID()}`,
       type:"subscription.created",
@@ -120,9 +121,9 @@ export async function selectMockPlanAction(formData: FormData): Promise<void> {
       userId,
       planCode,
       status:"active",
-      currentPeriodStart:"2026-05-01T00:00:00.000Z",
-      currentPeriodEnd:"2026-06-01T00:00:00.000Z",
-      occurredAt:"2026-05-01T00:00:00.000Z",
+      currentPeriodStart:window.currentPeriodStart,
+      currentPeriodEnd:window.currentPeriodEnd,
+      occurredAt:window.currentPeriodStart,
     });
   }
   redirect("/account");

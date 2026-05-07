@@ -18,6 +18,15 @@ Ephemeris binaries in repository: prohibited
 Runtime ephemeris downloads: prohibited
 ```
 
+## Related readiness docs
+
+- [Beta launch plan](BETA_LAUNCH_PLAN.md)
+- [Beta smoke tests](BETA_SMOKE_TESTS.md)
+- [Go/no-go criteria](GO_NO_GO_CRITERIA.md)
+- [Launch risk register](LAUNCH_RISK_REGISTER.md)
+- [Rollback checklist](ROLLBACK_CHECKLIST.md)
+- [Beta dry run report](BETA_DRY_RUN_REPORT.md)
+
 ## Security readiness
 
 ```text

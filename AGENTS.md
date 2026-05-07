@@ -150,6 +150,14 @@ Human approval is required before:
 - Use deterministic tests for horoscope calculation and content generation.
 - Do not hide calculation changes; version them.
 
+## SocratiCode usage
+
+- Use SocratiCode for codebase exploration when available.
+- Check `codebase_status` before semantic search; if the project is not indexed, run `codebase_index`.
+- Prefer `codebase_search` for broad code discovery before reading files directly.
+- Use `codebase_context` and `codebase_context_search` for architecture docs, contracts, policy, and security guidance.
+- Fall back to `rg` for exact identifiers, error strings, and regex searches.
+
 ## Definition of done
 
 A task is done only when:

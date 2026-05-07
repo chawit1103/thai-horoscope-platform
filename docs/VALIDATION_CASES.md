@@ -40,6 +40,37 @@ GC-007 rahu_ketu_case_if_supported
 GC-008 calculation_profile_hash_change
 ```
 
+## Golden validation matrix
+
+The matrix below is the PR19 release-readiness view of required deterministic coverage. `Mock golden` means the case can be locked before production ephemeris approval. `Real-engine golden` means the case must wait until the production engine, license mode, ephemeris file manifest, and fingerprint are approved.
+
+| Case ID | Scenario | Current proof | Mock golden | Real-engine golden | Release gate |
+| --- | --- | --- | --- | --- | --- |
+| GC-001 | Bangkok natal chart with known time and location | Golden fixture `services/astro-calc/tests/golden/gc001_natal_bangkok_known_time.json` and `test_gc001_natal_bangkok_known_time` | Complete | Pending approved ephemeris file set | Required before every release |
+| GC-002 | Bangkok natal chart with unknown birth time | Unit and contract tests cover warning codes and unreliable houses/angles | Pending | Pending approved ephemeris file set | Required before production personalization based on birth time confidence |
+| GC-003 | New York DST timezone natal chart | Unit tests cover DST/non-DST timezone conversion and invalid timezone rejection | Pending | Pending approved ephemeris file set | Required before serving users outside Thailand |
+| GC-004 | Bangkok transit-to-natal for fixed UTC datetime | Unit tests cover deterministic transit result/hash and snapshot input | Pending | Pending approved ephemeris file set | Required before paid transit horoscope generation |
+| GC-005 | Sign boundary near 29:59 and 0:00 | Unit tests cover longitude normalization and sign index behavior | Pending | Pending approved ephemeris file set | Required before sign-sensitive interpretation launch |
+| GC-006 | Retrograde behavior | Unit tests cover retrograde/node behavior and applying/separating hints | Pending | Pending approved ephemeris file set | Required before retrograde-aware rules |
+| GC-007 | Rahu/Ketu support | Unit tests cover opposite node positions and true/mean node selection | Pending | Pending approved ephemeris file set | Required before node-aware rules |
+| GC-008 | Calculation profile hash change | Unit tests cover profile and ephemeris fingerprint hash changes | Pending | Pending approved ephemeris file set | Required before profile migration |
+| SR-001 | Bangkok solar return 2026 from golden natal fixture | Unit tests cover deterministic solar return and convergence warnings | Pending | Pending approved ephemeris file set | Required before solar return product surfaces |
+| HT-001 | Hourly timing window for fixed local range | Unit tests cover feature flag, timezone conversion, dedupe, peak bounds, and range guard | Pending | Pending approved ephemeris file set | Required before hourly timing product surfaces |
+
+Real-engine golden fixtures must include:
+
+- engine name and library version
+- `SWISSEPH_LICENSE_MODE` or alternate engine license mode
+- approved ephemeris manifest reference
+- `ephemeris_fingerprint`
+- calculation profile code
+- input request
+- normalized local/UTC datetime
+- selected planet outputs and full snapshot hash
+- approval owner and date
+
+Do not add real Swiss Ephemeris golden files until the approved file set is available outside the repository and the license decision has been recorded.
+
 ## Golden birth cases
 
 Golden birth cases validate full natal chart snapshots. They must include the original request, normalized datetime, engine metadata, calculation profile, ayanamsa, planets, houses/angles when reliable, warnings, and `calculation_hash`.

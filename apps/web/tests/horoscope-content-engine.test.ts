@@ -129,6 +129,13 @@ describe("horoscope content engine", () => {
     assert.equal(weekly.generated_at, "2026-04-27T00:00:00.000Z");
   });
 
+  it("rejects impossible or malformed period keys before generating content", () => {
+    assert.throws(() => generateHoroscopeContent({ periodType: "daily", periodKey: "2026-02-31", chartSnapshot: baseChart }), /Invalid period key/);
+    assert.throws(() => generateHoroscopeContent({ periodType: "daily", periodKey: "2026-13-01", chartSnapshot: baseChart }), /Invalid period key/);
+    assert.throws(() => generateHoroscopeContent({ periodType: "weekly", periodKey: "2026-W99", chartSnapshot: baseChart }), /Invalid period key/);
+    assert.throws(() => generateHoroscopeContent({ periodType: "monthly", periodKey: "2026-13", chartSnapshot: baseChart }), /Invalid period key/);
+  });
+
   it("rule hits are included and explainable", () => {
     const output = generateHoroscopeContent({ periodType: "daily", periodKey: periodKeys.daily, chartSnapshot: baseChart });
 

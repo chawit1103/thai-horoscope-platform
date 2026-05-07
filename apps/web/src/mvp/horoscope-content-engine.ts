@@ -404,14 +404,40 @@ function stableHash(value:unknown):string {
 }
 
 function defaultGeneratedAt(periodType:HoroscopeContentPeriod, periodKey:string):Date {
-  if (periodType === "daily" && /^\d{4}-\d{2}-\d{2}$/.test(periodKey)) return new Date(`${periodKey}T00:00:00.000Z`);
+  if (periodType === "daily") {
+    const dailyDate = exactUtcDate(periodKey);
+    if (dailyDate) return dailyDate;
+  }
   if (periodType === "weekly") {
     const isoWeekStart = isoWeekStartDate(periodKey);
     if (isoWeekStart) return isoWeekStart;
   }
-  if (periodType === "monthly" && /^\d{4}-\d{2}$/.test(periodKey)) return new Date(`${periodKey}-01T00:00:00.000Z`);
+  if (periodType === "monthly") {
+    const monthlyDate = exactUtcMonth(periodKey);
+    if (monthlyDate) return monthlyDate;
+  }
   if (periodType === "yearly" && /^\d{4}$/.test(periodKey)) return new Date(`${periodKey}-01-01T00:00:00.000Z`);
-  return new Date("1970-01-01T00:00:00.000Z");
+  throw new Error(`Invalid period key for ${periodType} horoscope content.`);
+}
+
+function exactUtcDate(periodKey:string):Date|null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(periodKey);
+  if (!match) return null;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date;
+}
+
+function exactUtcMonth(periodKey:string):Date|null {
+  const match = /^(\d{4})-(\d{2})$/.exec(periodKey);
+  if (!match) return null;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  if (month < 1 || month > 12) return null;
+  return new Date(Date.UTC(year, month - 1, 1));
 }
 
 function isoWeekStartDate(periodKey:string):Date|null {
@@ -423,7 +449,10 @@ function isoWeekStartDate(periodKey:string):Date|null {
   const jan4 = Date.UTC(year, 0, 4);
   const jan4Day = new Date(jan4).getUTCDay() || 7;
   const weekOneMonday = jan4 - (jan4Day - 1) * 86_400_000;
-  return new Date(weekOneMonday + (week - 1) * 7 * 86_400_000);
+  const start = new Date(weekOneMonday + (week - 1) * 7 * 86_400_000);
+  const isoYearCheck = new Date(start.getTime() + 3 * 86_400_000).getUTCFullYear();
+  if (isoYearCheck !== year) return null;
+  return start;
 }
 
 function textFieldsForSafety(output:Pick<HoroscopeContentOutput, "overview"|"work"|"money"|"relationship"|"wellness"|"advice"|"caution"|"lucky_window"|"reflection_question">):string[] {

@@ -160,8 +160,9 @@ export function validateBetaInviteCode(input:{ sessionId?:string; inviteCode:str
 export function enrollBetaUser(input:{ sessionId?:string; inviteSessionId?:string; userId:string; inviteCode?:string; email?:string; emailVerified?:boolean; now?:Date }):BetaEnrollment {
   const state = getState(input.sessionId);
   const existing = state.enrollments.find((item)=>item.userId === input.userId);
-  if (existing?.status === "enrolled") return structuredClone(existing);
-  const invite = resolveInviteForEnrollment(getState(input.inviteSessionId ?? BETA_INVITE_SCOPE_ID), input);
+  const inviteState = getState(input.inviteSessionId ?? BETA_INVITE_SCOPE_ID);
+  if (existing?.status === "enrolled" && statusFromEnrollment(existing, inviteState) === "enrolled") return structuredClone(existing);
+  const invite = resolveInviteForEnrollment(inviteState, input);
   if (!invite) throw new Error("Invalid beta invite.");
   if (invite.status !== "invited") throw new Error("Beta invite is unavailable.");
   const nowIso = (input.now ?? new Date("2026-05-08T09:02:00.000Z")).toISOString();

@@ -113,6 +113,19 @@ describe("beta launch content and invite management", () => {
     assert.equal(canAccessBetaOnlyFlow({ sessionId, userId }), false);
   });
 
+  it("revoked enrolled users can redeem a new valid invite", () => {
+    const revokedInvite = createBetaInvite({ inviteCode:"OLD-CODE" });
+    const freshInvite = createBetaInvite({ inviteCode:"FRESH-CODE" });
+    enrollBetaUser({ sessionId, userId, inviteCode:"OLD-CODE" });
+
+    revokeBetaInvite({ inviteId:revokedInvite.id });
+    const reenrollment = enrollBetaUser({ sessionId, userId, inviteCode:"FRESH-CODE" });
+
+    assert.equal(reenrollment.status, "enrolled");
+    assert.equal(reenrollment.inviteId, freshInvite.id);
+    assert.equal(isBetaUserAllowed({ sessionId, userId }), "enrolled");
+  });
+
   it("revoking a redeemed invite removes entitled horoscope period access", async () => {
     const invite = createBetaInvite({ inviteCode:"REVOKED-PERIOD" });
     enrollBetaUser({ sessionId, userId, inviteCode:"REVOKED-PERIOD" });

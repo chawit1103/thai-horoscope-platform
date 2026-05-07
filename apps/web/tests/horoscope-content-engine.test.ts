@@ -124,6 +124,9 @@ describe("horoscope content engine", () => {
       assert.ok(output.caution);
       assert.ok(output.rule_hits.length > 0);
     }
+
+    const weekly = generateHoroscopeContent({ periodType: "weekly", periodKey: periodKeys.weekly, chartSnapshot: baseChart });
+    assert.equal(weekly.generated_at, "2026-04-27T00:00:00.000Z");
   });
 
   it("rule hits are included and explainable", () => {

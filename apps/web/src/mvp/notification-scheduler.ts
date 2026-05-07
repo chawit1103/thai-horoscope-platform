@@ -139,6 +139,7 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
       if (existing) {
         duplicates += 1;
         refreshQueuedDeliveryPreferences(existing, user, topicCode, now);
+        if (input.betaApprovalMode) refreshQueuedHoroscopeContent(existing, result, deliveryPayload, now);
         if (approval) applyApprovalMetadata(existing, approval);
         if (approvalDeferredReason && !hasPendingApprovalAttempt(existing.id)) {
           deferred += 1;
@@ -409,6 +410,27 @@ function refreshQueuedDeliveryPreferences(message:ScheduledNotificationMessage, 
   message.fallbackChannel = user.fallbackChannel;
   message.allowFallback = isFallbackAllowed(user, topicCode);
   writeAudit("notification_duplicate", message.id, now, { topicCode, periodKey:message.periodKey, channel:user.primaryChannel, queuePolicy:"refreshed_pending_delivery_preferences" });
+}
+
+function refreshQueuedHoroscopeContent(message:ScheduledNotificationMessage, result:HoroscopeResult, deliveryPayload:HoroscopeDeliveryPayload, now:Date):void {
+  if (message.status !== "queued") return;
+  const contentChanged = message.horoscopeContent?.content_hash !== deliveryPayload.content.content_hash;
+  const sourceChanged = message.horoscopeResultId !== result.id || message.birthProfileId !== result.birthProfileId || message.chartSnapshotId !== result.chartSnapshotId;
+  if (!contentChanged && !sourceChanged) return;
+  message.horoscopeResultId = result.id;
+  message.birthProfileId = result.birthProfileId;
+  message.chartSnapshotId = result.chartSnapshotId;
+  if (contentChanged) {
+    message.title = deliveryPayload.title;
+    message.body = deliveryPayload.previewText;
+    message.horoscopeContent = deliveryPayload.content;
+    message.deliveryMetadata = {
+      ...deliveryPayload.metadata,
+      ...(message.deliveryMetadata?.previewBatchId ? { previewBatchId:message.deliveryMetadata.previewBatchId } : {}),
+      ...(message.deliveryMetadata?.approvalStatus ? { approvalStatus:message.deliveryMetadata.approvalStatus } : {}),
+    };
+  }
+  writeAudit("notification_duplicate", message.id, now, { topicCode:message.topicCode, periodKey:message.periodKey, queuePolicy:contentChanged ? "refreshed_changed_horoscope_content" : "refreshed_source_artifact" });
 }
 
 function getPreparedDeliveryChannels(user:NotificationSchedulerUser, topicCode:NotificationTopic):NotificationChannel[] {

@@ -248,6 +248,30 @@ describe("beta content preview approval", () => {
     assert.equal(dispatch.attempts.at(-1)?.errorCode, "content_pending_approval");
   });
 
+  it("refreshes existing beta-held queued content when regenerated preview hash changes", async () => {
+    const userId = "preview_changed_queue_user";
+    const oldBirthProfileId = approveHoroscopeArtifact({ userId });
+    const schedulerUser = user({ userId, subscription:await activeSubscription(userId) });
+    const first = runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
+    const queuedMessage = getNotificationSchedulerState().outboundMessages[0];
+    const originalHash = queuedMessage?.horoscopeContent?.content_hash;
+    assert.equal(first.queued.length, 1);
+    assert.ok(originalHash);
+
+    deleteBirthProfile({ sessionId, userId }, oldBirthProfileId, new Date("2026-05-02T00:00:00.000Z"));
+    approveHoroscopeArtifact({ userId, birthTimeUnknown:true });
+
+    const rerun = runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
+    const refreshedMessage = getNotificationSchedulerState().outboundMessages[0];
+    const refreshedHash = refreshedMessage?.horoscopeContent?.content_hash;
+
+    assert.equal(rerun.duplicates, 1);
+    assert.notEqual(refreshedHash, originalHash);
+    assert.equal(refreshedMessage?.deliveryMetadata?.contentHash, refreshedHash);
+    assert.notEqual(refreshedMessage?.birthProfileId, oldBirthProfileId);
+    assert.equal(getContentPreviewApprovalState(approvalSessionId).batches.at(-1)?.approvalStatus, "pending_review");
+  });
+
   it("redacts PII while keeping rule hits safety flags warnings and source metadata visible", async () => {
     const batchId = await createPendingPreviewBatch("preview_redaction_user");
     const batch = getContentPreviewBatch(approvalSessionId, batchId);

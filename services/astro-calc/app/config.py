@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from app.core.profiles import PROFILES
+
 LOCAL_ENVIRONMENTS = {"local", "development", "test"}
 STAGING_ENVIRONMENTS = {"staging", "preview"}
 PRODUCTION_ENVIRONMENTS = {"production"}
@@ -37,6 +39,8 @@ class AstroRuntimeConfig:
     def validate(self) -> None:
         if self.engine not in {"mock", "swisseph"}:
             raise ValueError("ASTRO_ENGINE must be mock or swisseph.")
+        if self.calculation_profile not in PROFILES:
+            raise ValueError("ASTRO_CALCULATION_PROFILE_INVALID: ASTRO_CALCULATION_PROFILE is not supported.")
         if self.swisseph_license_mode not in {"none", "free", "professional"}:
             raise ValueError("SWISSEPH_LICENSE_MODE must be none, free, or professional.")
         if self.engine == "mock" and self.runtime_env == "production":

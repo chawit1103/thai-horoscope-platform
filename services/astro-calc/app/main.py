@@ -1,7 +1,11 @@
 from app.config import AstroRuntimeConfig
 from app.core.calculators import AstroCoreService
+from app.core.profiles import PROFILES
 from app.engines.factory import create_engine
 from app.engines.swisseph import fingerprint_ephemeris_path
+
+HEALTH_ENGINES = {"mock", "swisseph"}
+HEALTH_LICENSE_MODES = {"none", "free", "professional"}
 
 
 def create_service(config: AstroRuntimeConfig | None = None) -> AstroCoreService:
@@ -12,9 +16,9 @@ def create_service(config: AstroRuntimeConfig | None = None) -> AstroCoreService
 def health() -> dict[str, str]:
     config = AstroRuntimeConfig.from_env()
     base = {
-        "engine": config.engine,
-        "profile": config.calculation_profile,
-        "license_mode": config.swisseph_license_mode,
+        "engine": health_value(config.engine, HEALTH_ENGINES),
+        "profile": health_value(config.calculation_profile, set(PROFILES)),
+        "license_mode": health_value(config.swisseph_license_mode, HEALTH_LICENSE_MODES),
         "ephemeris_path_configured": str(bool(config.ephemeris_path)).lower(),
     }
     try:
@@ -24,3 +28,7 @@ def health() -> dict[str, str]:
     except (PermissionError, ValueError, FileNotFoundError) as error:
         return {**base, "status": "error", "error_code": str(error).split(":", 1)[0]}
     return {**base, "status": "ok"}
+
+
+def health_value(value: str, allowed: set[str]) -> str:
+    return value if value in allowed else "invalid"

@@ -1552,6 +1552,32 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(report["status"], "error")
         self.assertEqual(report["error_code"], "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN")
 
+    def test_health_sanitizes_invalid_config_values_without_echoing_them(self) -> None:
+        names = ["ASTRO_ENGINE", "ASTRO_CALCULATION_PROFILE", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["ASTRO_ENGINE"] = "secret-engine-token"
+        os.environ["ASTRO_CALCULATION_PROFILE"] = "private-profile-token"
+        os.environ["SWISSEPH_LICENSE_MODE"] = "secret-license-token"
+        os.environ["ASTRO_EPHEMERIS_PATH"] = "/private/ephemeris/path"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        serialized = str(report)
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["engine"], "invalid")
+        self.assertEqual(report["profile"], "invalid")
+        self.assertEqual(report["license_mode"], "invalid")
+        self.assertNotIn("secret-engine-token", serialized)
+        self.assertNotIn("private-profile-token", serialized)
+        self.assertNotIn("secret-license-token", serialized)
+        self.assertNotIn("/private/ephemeris/path", serialized)
+
     def test_health_verifies_swisseph_ephemeris_path_exists_without_exposing_it(self) -> None:
         previous = {name: os.environ.get(name) for name in ["ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]}
         os.environ["ASTRO_ENGINE"] = "swisseph"

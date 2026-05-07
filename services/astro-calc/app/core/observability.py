@@ -77,7 +77,7 @@ def create_astro_monitoring_event(
 def sanitize_astro_error(error: BaseException | str) -> str:
     raw = str(error)
     code = raw.split(":", 1)[0].strip()
-    if not code:
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,80}", code):
         return "ASTRO_ERROR"
     return redact_string(code).replace(" ", "_").upper()
 

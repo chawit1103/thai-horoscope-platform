@@ -64,6 +64,13 @@ def test_sanitize_astro_error_returns_code_only() -> None:
     assert "secret-token" not in error_code
 
 
+def test_sanitize_astro_error_rejects_path_like_exception_text() -> None:
+    error_code = sanitize_astro_error("FileNotFoundError /private/ephemeris/path")
+
+    assert error_code == "ASTRO_ERROR"
+    assert "/private/ephemeris/path" not in error_code
+
+
 def test_astro_health_operational_status_never_exposes_path() -> None:
     status = astro_health_operational_status(
         {
@@ -81,3 +88,18 @@ def test_astro_health_operational_status_never_exposes_path() -> None:
     assert status["status"] == "error"
     assert "/private/ephemeris/path" not in serialized
     assert "professional" not in serialized
+
+
+def test_astro_health_operational_status_uses_generic_code_for_unsafe_error_text() -> None:
+    status = astro_health_operational_status(
+        {
+            "status": "error",
+            "engine": "swisseph",
+            "profile": "TH_NIRAYANA_V1",
+            "ephemeris_path_configured": "true",
+            "error_code": "FileNotFoundError /private/ephemeris/path",
+        }
+    )
+
+    assert status["error_code"] == "ASTRO_ERROR"
+    assert "/private/ephemeris/path" not in str(status)

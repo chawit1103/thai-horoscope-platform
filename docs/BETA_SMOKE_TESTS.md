@@ -16,8 +16,21 @@ Test date:
 Health status:
 Provider modes:
 Astro engine/profile:
+PR29 dependency:
+PR31 dependency:
 Accepted warnings:
 Result:
+```
+
+## Release candidate cross-check
+
+```text
+[ ] `docs/BETA_RELEASE_CANDIDATE.md` is filled for this RC
+[ ] `docs/E2E_BETA_SMOKE_TEST_MATRIX.md` has evidence for every row
+[ ] `docs/BETA_RELEASE_NOTES_TEMPLATE.md` is prepared without raw PII or secrets
+[ ] `docs/FINAL_GO_NO_GO_CHECKLIST.md` is ready for human decision
+[ ] PR29 real provider activation guardrails are merged or marked pending
+[ ] PR31 beta launch content and invite management is merged or marked pending
 ```
 
 ## Health and configuration

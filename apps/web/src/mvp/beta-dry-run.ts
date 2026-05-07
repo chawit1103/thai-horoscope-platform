@@ -32,6 +32,10 @@ export interface BetaDryRunOptions {
 }
 
 export const REQUIRED_RELEASE_READINESS_DOCS = [
+  "docs/BETA_RELEASE_CANDIDATE.md",
+  "docs/E2E_BETA_SMOKE_TEST_MATRIX.md",
+  "docs/BETA_RELEASE_NOTES_TEMPLATE.md",
+  "docs/FINAL_GO_NO_GO_CHECKLIST.md",
   "docs/BETA_LAUNCH_PLAN.md",
   "docs/BETA_SMOKE_TESTS.md",
   "docs/GO_NO_GO_CRITERIA.md",

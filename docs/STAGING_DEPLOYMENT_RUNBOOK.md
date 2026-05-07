@@ -53,7 +53,7 @@ Human operator:
 
 ## Post-deploy smoke test
 
-Use `docs/SMOKE_TEST_CHECKLIST.md`.
+Use `docs/SMOKE_TEST_CHECKLIST.md`, `docs/BETA_SMOKE_TESTS.md`, and `docs/E2E_BETA_SMOKE_TEST_MATRIX.md`.
 
 Minimum smoke paths:
 

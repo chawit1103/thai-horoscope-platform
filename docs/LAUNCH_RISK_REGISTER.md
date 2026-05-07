@@ -33,6 +33,10 @@ Critical  blocks production and usually blocks beta
 | R-014 | Content safety | Horoscope copy claims guaranteed harm, medical/legal/financial advice, fear-based upsell, or 100% accuracy. | Critical | Keep entertainment/self-reflection framing and admin review. | No-go | No-go |
 | R-015 | Support | Beta support owner or escalation path is missing. | Medium | Assign owner and sanitized issue process before invitations. | No-go unless owner accepts limited internal beta | No-go |
 | R-016 | Rollback | Rollback target or owner is unknown. | High | Complete rollback checklist before beta invite. | No-go | No-go |
+| R-017 | Dependency | PR29 real provider activation guardrails are pending but provider activation is treated as ready. | High | Mark PR29 pending and keep real provider activation blocked until merged and approved. | No-go for real provider activation | No-go |
+| R-018 | Dependency | PR31 beta invite/content management is pending but beta enrollment readiness is overclaimed. | High | Mark PR31 pending and keep invite/enrollment launch blocked unless already implemented in the candidate. | No-go for beta invite | No-go |
+| R-019 | Release candidate | E2E smoke evidence is partial but final go is recorded. | High | Complete E2E matrix and final go/no-go checklist before invite. | No-go | No-go |
+| R-020 | Test safety | Automated smoke helper bypasses mock guards or requires network/production secrets. | Critical | Keep smoke helper deterministic, no-network, mock/sandbox only, and fail on unsafe provider modes. | No-go | No-go |
 
 ## Risk review checklist
 

@@ -121,15 +121,17 @@ Do not collect:
 
 ## Beta launch sequence
 
-1. Confirm PR22 readiness docs are merged by a human.
+1. Confirm PR22 readiness docs and the PR32 release candidate packet are merged by a human.
 2. Run required checks on the release candidate.
 3. Confirm no `.env`, production secrets, or ephemeris binaries are committed.
-4. Confirm staging environment variables are configured outside the repository.
-5. Human operator deploys staging.
-6. Open `/api/health` and confirm status is `ok` or warnings are explicitly accepted.
-7. Run `docs/BETA_SMOKE_TESTS.md`.
-8. Confirm `docs/GO_NO_GO_CRITERIA.md` is satisfied.
-9. Capture beta evidence:
+4. Confirm PR29 real provider activation guardrails are merged or marked pending, with real provider activation blocked while pending.
+5. Confirm PR31 beta launch content and invite management is merged or marked pending, with invite readiness blocked while pending.
+6. Confirm staging environment variables are configured outside the repository.
+7. Human operator deploys staging.
+8. Open `/api/health` and confirm status is `ok` or warnings are explicitly accepted.
+9. Run `docs/BETA_SMOKE_TESTS.md` and `docs/E2E_BETA_SMOKE_TEST_MATRIX.md`.
+10. Confirm `docs/FINAL_GO_NO_GO_CHECKLIST.md` is satisfied.
+11. Capture beta evidence:
 
 ```text
 Commit:
@@ -141,10 +143,12 @@ Smoke test result:
 Known accepted limitations:
 Rollback target:
 Support owner:
+PR29 dependency:
+PR31 dependency:
 Decision:
 ```
 
-10. Invite approved beta users only.
+12. Invite approved beta users only.
 
 ## Launch communication checklist
 

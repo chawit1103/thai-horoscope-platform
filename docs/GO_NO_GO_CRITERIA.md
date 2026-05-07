@@ -28,6 +28,8 @@ Support owner: required before beta invitations
 [ ] Local/mock mode still works without production secrets
 [ ] Real provider modes fail closed without required secrets
 [ ] Mock/sandbox provider modes are visible in health output
+[ ] Beta release candidate packet is complete
+[ ] E2E beta smoke test matrix has evidence for every required row
 [ ] Manual beta smoke tests pass
 [ ] Logs, alerts, health, audit metadata, and PR comments do not expose raw PII or secrets
 [ ] Payment webhook signature and idempotency behavior are validated in mock or staging/test mode
@@ -36,6 +38,9 @@ Support owner: required before beta invitations
 [ ] Astro-calc health and known limitations are accepted
 [ ] Monitoring events and mock alert provider are validated
 [ ] Rollback owner, rollback target, and user communication path are recorded
+[ ] Beta invite/enrollment plan is ready or explicitly marked pending if PR31 is not merged
+[ ] Real provider activation guardrails are ready or explicitly marked pending if PR29 is not merged
+[ ] Final go/no-go checklist is completed by a human owner
 ```
 
 ## No-go conditions
@@ -56,6 +61,8 @@ Support owner: required before beta invitations
 [ ] Runtime ephemeris downloads are required
 [ ] Beta copy claims guaranteed outcomes, medical/legal/financial advice, unavoidable harm, or 100% accuracy
 [ ] Rollback path is unknown
+[ ] PR29 is pending but real provider activation is marked ready
+[ ] PR31 is pending but beta invite/enrollment readiness is marked ready
 ```
 
 ## Human approvals needed

@@ -115,6 +115,8 @@ def redact_value(value: Any, key: str | None = None) -> Any:
     if isinstance(value, str):
         if key == "reason":
             return sanitize_reason_code(value)
+        if key and key not in SAFE_KEY_ALLOWLIST:
+            return "[REDACTED_TEXT]"
         return redact_string(value)
     if isinstance(value, list | tuple):
         return [redact_value(item, key) for item in value]

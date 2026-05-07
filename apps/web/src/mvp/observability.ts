@@ -266,7 +266,10 @@ function redactValue(value:unknown, key?:string):RedactedJson {
   if (isSensitiveKey(key)) return "[REDACTED]";
   if (value === null || value === undefined) return value === undefined ? "[REDACTED]" : null;
   if (typeof value === "boolean" || typeof value === "number") return value;
-  if (typeof value === "string") return redactString(value);
+  if (typeof value === "string") {
+    if (key && !SAFE_KEY_ALLOWLIST.has(key)) return "[REDACTED_TEXT]";
+    return redactString(value);
+  }
   if (Array.isArray(value)) return value.map((item)=>redactValue(item, key));
   if (typeof value === "object") {
     return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([nestedKey, nestedValue])=>[nestedKey, redactValue(nestedValue, nestedKey)]));

@@ -20,7 +20,7 @@ describe("observability", () => {
     const redacted = JSON.stringify(redactForObservability({ email:"user@example.test", message:"failed for user@example.test" }));
 
     assert.equal(redacted.includes("user@example.test"), false);
-    assert.equal(redacted.includes("[REDACTED_EMAIL]"), true);
+    assert.equal(redacted.includes("[REDACTED]") || redacted.includes("[REDACTED_TEXT]"), true);
   });
 
   it("redacts LINE user IDs", () => {
@@ -35,7 +35,8 @@ describe("observability", () => {
 
     assert.equal(redacted.includes("1992-08-15"), false);
     assert.equal(redacted.includes("07:30"), false);
-    assert.equal(redacted.includes("\"Bangkok\""), false);
+    assert.equal(redacted.includes("Bangkok"), false);
+    assert.equal(redacted.includes("[REDACTED_TEXT]"), true);
   });
 
   it("redacts API keys secrets and card-like values", () => {

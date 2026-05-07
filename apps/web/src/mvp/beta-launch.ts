@@ -70,7 +70,7 @@ const betaLaunchCopy:BetaLaunchCopy = {
   notificationPreferenceExplanation:"ตั้งค่าการแจ้งเตือนได้ตามหัวข้อที่ต้องการ หากปิดรับ ระบบ mock จะไม่คิวข้อความในหัวข้อนั้น",
   lineEmailConnectionExplanation:"LINE และ Email เป็นช่องทางรับข้อมูลที่แยกจากกัน ใน beta นี้ใช้ mock หรือ sandbox ตามการตั้งค่าเท่านั้น และไม่ส่งแคมเปญจริงโดยไม่มีการอนุมัติ",
   feedbackRequest:"หลังทดลองใช้งาน ช่วยบอกเราว่าส่วนใดอ่านเข้าใจง่าย ส่วนใดควรปรับ และข้อจำกัด beta ชัดเจนพอหรือไม่",
-  supportContactPlaceholder:"ช่องทางติดต่อ support beta: โปรดใช้ช่องทางที่ทีมกำหนด และอย่าส่งรหัส invite ข้อมูลเกิดเต็ม หรือ payload ผู้ให้บริการใน ticket สาธารณะ",
+  supportContactPlaceholder:"ช่องทางติดต่อทีม beta: โปรดใช้ช่องทางที่ทีมกำหนด และอย่าส่งรหัส invite ข้อมูลเกิดเต็ม หรือข้อมูลดิบจากผู้ให้บริการในพื้นที่สาธารณะ",
 };
 
 const prohibitedUnsafeCopyPatterns = [

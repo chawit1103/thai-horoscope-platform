@@ -183,6 +183,15 @@ describe("beta launch content and invite management", () => {
     assert.equal(serialized.includes("payment_provider_id"), false);
   });
 
+  it("beta launch view renders without tripping leak guard wording", () => {
+    assert.doesNotThrow(() => buildBetaLaunchView({ sessionId, userId }));
+    const serialized = JSON.stringify(buildBetaLaunchView({ sessionId, userId })).toLowerCase();
+
+    for (const blocked of ["secret", "token", "webhook", "payload"]) {
+      assert.equal(serialized.includes(blocked), false);
+    }
+  });
+
   it("admin beta invite action requires admin auth", () => {
     assert.throws(() => createBetaInviteWithAdminCookie({ sessionId, inviteCode:"ADMIN-CODE", sessionSecret:adminSecret }), /Unauthorized/);
     assert.equal(getBetaLaunchState(sessionId).invites.length, 0);

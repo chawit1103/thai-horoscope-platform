@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { createAdminSessionCookie, approveContentBatchWithAdminCookie, rejectContentBatchWithAdminCookie } from "../src/mvp/admin-auth";
-import { CONTENT_PREVIEW_APPROVAL_SESSION_ID, ensureContentPreviewBatch, getContentPreviewApprovalState, getContentPreviewBatch, resetContentPreviewApprovalState } from "../src/mvp/content-preview-approval";
+import { CONTENT_PREVIEW_APPROVAL_SESSION_ID, ensureContentPreviewBatch, ensureContentPreviewBatchesForApprovedResults, getContentPreviewApprovalState, getContentPreviewBatch, resetContentPreviewApprovalState } from "../src/mvp/content-preview-approval";
 import { EmailGateway, SandboxEmailProvider, createEmailChannelAccount, type EmailAuditLogEntry } from "../src/mvp/email-gateway";
 import { generateHoroscopeDeliveryPayload } from "../src/mvp/horoscope-delivery-integration";
 import { LineGateway, SandboxLineProvider, createLineChannelAccount, type LineAuditLogEntry } from "../src/mvp/line-gateway";
@@ -259,6 +259,18 @@ describe("beta content preview approval", () => {
     const dispatch = await dispatchQueuedNotifications({ sessionId, users:[schedulerUser], emailGateway:g.emailGateway, lineGateway:g.lineGateway, now });
     assert.equal(dispatch.sent, 0);
     assert.equal(dispatch.attempts.at(-1)?.errorCode, "content_pending_approval");
+  });
+
+  it("does not let admin backfill overwrite scheduler prepared delivery channels", async () => {
+    const userId = "preview_scheduler_channels_user";
+    approveHoroscopeArtifact({ userId });
+    const schedulerUser = user({ userId, subscription:await activeSubscription(userId), fallbackChannel:undefined });
+
+    runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
+    ensureContentPreviewBatchesForApprovedResults({ sessionId, approvalSessionId });
+    const batch = getContentPreviewApprovalState(approvalSessionId).batches[0];
+
+    assert.deepEqual(batch?.items[0]?.deliveryChannels, ["line"]);
   });
 
   it("refreshes existing beta-held queued content when regenerated preview hash changes", async () => {

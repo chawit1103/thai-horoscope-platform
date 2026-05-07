@@ -147,7 +147,13 @@ export function ensureContentPreviewBatchesForApprovedResults(input:{ sessionId?
   const approvalSessionId = input.approvalSessionId ?? input.sessionId ?? "dev-default";
   const mockState = getMockMvpState(sourceSessionId);
   const batches:ContentPreviewBatch[] = [];
+  const approvalState = getState(approvalSessionId);
   for (const result of mockState.horoscopeResults.filter((item)=>item.status==="approved")) {
+    const existing = approvalState.batches.find((batch)=>batch.sourceResultId===result.id);
+    if (existing) {
+      batches.push(publicBatch(existing));
+      continue;
+    }
     const chart = mockState.chartSnapshots.find((snapshot)=>snapshot.id===result.chartSnapshotId&&snapshot.userId===result.userId&&snapshot.birthProfileId===result.birthProfileId);
     if (!chart) continue;
     const topicCode = `${result.periodType}_horoscope` as ContentPreviewTopic;

@@ -95,7 +95,7 @@ const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const LINE_USER_ID_PATTERN = /\bU[0-9A-Za-z]{8,}\b/g;
 const CARD_PATTERN = /\b(?:\d[ -]?){12,19}\b/g;
 const API_KEY_PATTERN = /\b(?:sk|pk|rk|whsec|key|token|secret)[_-][A-Za-z0-9_-]{8,}\b/gi;
-const KEY_VALUE_SECRET_PATTERN = /\b(?:authorization|bearer|api[_-]?key|webhook[_-]?secret|secret|token)\s*[:=]\s*(?:(?:basic|bearer|digest|token)\s+)?[A-Za-z0-9._~+/=-]{8,}\b/gi;
+const KEY_VALUE_SECRET_PATTERN = /\b(?:authorization|bearer|api[_-]?key|webhook[_-]?secret|secret|token)\s*[:=]\s*["']?(?:(?:basic|bearer|digest|token)\s+)?[A-Za-z0-9._~+/=-]{4,}["']?/gi;
 const AUTH_TOKEN_PATTERN = /\b(?:authorization|bearer)\s+[A-Za-z0-9._~+/=-]{8,}\b/gi;
 const ISO_DATE_PATTERN = /(?<!\d)(?:19|20)\d{2}-\d{2}-\d{2}(?!\d)/g;
 const TIME_PATTERN = /(?<!\d)(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:\.\d+)?(?!\d)/g;

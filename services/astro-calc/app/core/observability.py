@@ -113,6 +113,8 @@ def redact_value(value: Any, key: str | None = None) -> Any:
     if value is None or isinstance(value, bool | int | float):
         return value
     if isinstance(value, str):
+        if key == "reason":
+            return sanitize_reason_code(value)
         return redact_string(value)
     if isinstance(value, list | tuple):
         return [redact_value(item, key) for item in value]
@@ -145,3 +147,10 @@ def safe_reference(value: str) -> str:
     if re.fullmatch(r"ref_[A-Za-z0-9_-]{16}", value):
         return value
     return f"ref_{hashlib.sha256(value.encode()).hexdigest()[:16]}"
+
+
+def sanitize_reason_code(value: str) -> str:
+    trimmed = value.strip()
+    if re.fullmatch(r"(?:[a-z][a-z0-9_]{2,80}|[A-Z][A-Z0-9_]{2,80})", trimmed):
+        return redact_string(trimmed)
+    return "astro_error"

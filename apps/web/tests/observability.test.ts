@@ -79,12 +79,13 @@ describe("observability", () => {
     assert.equal(serialized.includes("Uabcdef1234567890"), false);
   });
 
-  it("astro-calc error event does not include raw birth date or time", () => {
-    const event = astroCalcFailureEvent({ reason:"calculation_failed", errorCode:"INVALID_DATETIME", birthDate:"1971-03-11", birthTime:"08:17", birthPlace:"Bangkok", rawError:"Invalid 1971-03-11T08:17 in Bangkok" });
+  it("astro-calc error event does not include raw birth date time place or reason text", () => {
+    const event = astroCalcFailureEvent({ reason:"Invalid birthplace Bangkok", errorCode:"INVALID_DATETIME", birthDate:"1971-03-11", birthTime:"08:17", birthPlace:"Bangkok", rawError:"Invalid 1971-03-11T08:17 in Bangkok" });
     const serialized = JSON.stringify(event);
 
     assert.equal(event.type, "astro_calc_health_failed");
-    for (const unsafe of ["1971-03-11", "08:17", "\"Bangkok\""]) assert.equal(serialized.includes(unsafe), false);
+    assert.equal(event.metadata.reason, "astro_error");
+    for (const unsafe of ["1971-03-11", "08:17", "\"Bangkok\"", "Invalid birthplace Bangkok"]) assert.equal(serialized.includes(unsafe), false);
   });
 
   it("mock alert provider records sanitized alerts only", async () => {

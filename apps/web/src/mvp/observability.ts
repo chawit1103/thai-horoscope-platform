@@ -209,13 +209,22 @@ export function lineDeliveryFailureEvent(input:{ reason:string; lineUserId?:stri
 }
 
 export function astroCalcFailureEvent(input:{ reason:string; errorCode?:string; birthDate?:string; birthTime?:string; birthPlace?:string; rawError?:unknown; now?:Date }):MonitoringEvent {
+  const reason = safeReasonCode(input.reason, "astro_error");
+  const errorCode = input.errorCode ? safeReasonCode(input.errorCode, "ASTRO_ERROR") : undefined;
   return createMonitoringEvent({
-    type:input.reason === "ephemeris_config_invalid" ? "astro_ephemeris_config_invalid" : "astro_calc_health_failed",
+    type:reason === "ephemeris_config_invalid" ? "astro_ephemeris_config_invalid" : "astro_calc_health_failed",
     severity:"critical",
     source:"astro_calc",
-    dedupeKey:`astro:${input.reason}:${input.errorCode ?? "unknown"}`,
+    dedupeKey:`astro:${reason}:${errorCode ?? "unknown"}`,
     now:input.now,
-    metadata:input,
+    metadata:{
+      reason,
+      errorCode,
+      birthDate:input.birthDate,
+      birthTime:input.birthTime,
+      birthPlace:input.birthPlace,
+      rawError:input.rawError,
+    },
   });
 }
 
@@ -291,6 +300,12 @@ function isSensitiveKey(key:string|undefined):boolean {
 function safeReference(value:string):string {
   if (/^ref_[A-Za-z0-9_-]{16}$/.test(value)) return value;
   return `ref_${createHash("sha256").update(value).digest("base64url").slice(0, 16)}`;
+}
+
+function safeReasonCode(value:string, fallback:string):string {
+  const trimmed = value.trim();
+  if (/^(?:[a-z][a-z0-9_]{2,80}|[A-Z][A-Z0-9_]{2,80})$/.test(trimmed)) return redactString(trimmed);
+  return fallback;
 }
 
 function logLevelForSeverity(severity:MonitoringSeverity):StructuredLogEntry["level"] {

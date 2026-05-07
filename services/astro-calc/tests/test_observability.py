@@ -61,7 +61,7 @@ def test_astro_monitoring_event_is_sanitized() -> None:
         dedupe_key="astro:INVALID_DATETIME",
         now=datetime(2026, 5, 7, 9, 0, tzinfo=timezone.utc),
         metadata={
-            "reason": "calculation_failed",
+            "reason": "Invalid birthplace Bangkok",
             "error_code": "INVALID_DATETIME",
             "birth_date": "1992-08-15",
             "birth_time": "07:30",
@@ -74,11 +74,13 @@ def test_astro_monitoring_event_is_sanitized() -> None:
 
     assert payload["type"] == "astro_calc_health_failed"
     assert payload["severity"] == "critical"
+    assert payload["metadata"]["reason"] == "astro_error"
     assert payload["subject_ref"].startswith("ref_")
     assert payload["dedupe_key"].startswith("ref_")
     assert "1992-08-15" not in serialized
     assert "07:30" not in serialized
     assert "Bangkok" not in serialized
+    assert "Invalid birthplace Bangkok" not in serialized
 
 
 def test_sanitize_astro_error_returns_code_only() -> None:

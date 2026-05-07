@@ -221,6 +221,7 @@ function validateProviderActivationFlags(env:EnvironmentInput, environment:Deplo
     if (environment === "production") errors.push(issue(`${prefix}_PROVIDER_DRY_RUN_PRODUCTION_FORBIDDEN`, "Production real provider mode cannot run with provider dry-run enabled.", ["ENABLE_PROVIDER_DRY_RUN"]));
     return;
   }
+  if (!isExplicitFalse(env.ENABLE_PROVIDER_DRY_RUN)) errors.push(issue(`${prefix}_PROVIDER_DRY_RUN_FLAG_REQUIRED`, "Real provider activation requires ENABLE_PROVIDER_DRY_RUN=false to be explicit.", ["ENABLE_PROVIDER_DRY_RUN"]));
   if (!isTrue(env[realEnableFlag])) errors.push(issue(`${prefix}_REAL_PROVIDER_FLAG_REQUIRED`, "Real provider mode requires an explicit real-provider enable flag.", [realEnableFlag]));
   if (!isTrue(env.REQUIRE_PROVIDER_ACTIVATION_APPROVAL)) errors.push(issue(`${prefix}_PROVIDER_APPROVAL_REQUIRED`, "Real provider activation requires an explicit human approval gate flag.", ["REQUIRE_PROVIDER_ACTIVATION_APPROVAL"]));
 }
@@ -252,4 +253,8 @@ function hasValue(value:string|undefined):boolean {
 
 function isTrue(value:string|undefined):boolean {
   return normalize(value ?? "false") === "true";
+}
+
+function isExplicitFalse(value:string|undefined):boolean {
+  return normalize(value ?? "") === "false";
 }

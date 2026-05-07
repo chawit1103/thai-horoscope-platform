@@ -27,6 +27,7 @@ const paymentActivationEnv = {
   ASTRO_ENGINE:"mock",
   SWISSEPH_LICENSE_MODE:"none",
   ENABLE_REAL_PAYMENT_PROVIDER:"true",
+  ENABLE_PROVIDER_DRY_RUN:"false",
   REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
 };
 

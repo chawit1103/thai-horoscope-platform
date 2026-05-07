@@ -140,6 +140,7 @@ describe("environment validation", () => {
       ENABLE_REAL_EMAIL_SENDS:"true",
       ENABLE_REAL_LINE_SENDS:"true",
       ENABLE_REAL_PAYMENT_PROVIDER:"true",
+      ENABLE_PROVIDER_DRY_RUN:"false",
       REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
       NOTIFICATION_SCHEDULER_MODE:"dry_run",
       NOTIFICATION_SCHEDULER_TOKEN:"scheduler-token-value",

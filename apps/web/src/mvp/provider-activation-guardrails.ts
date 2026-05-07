@@ -9,6 +9,7 @@ export interface ProviderActivationFlags {
   enableRealLineSends:boolean;
   enableRealPaymentProvider:boolean;
   enableProviderDryRun:boolean;
+  providerDryRunExplicitlyDisabled:boolean;
   requireProviderActivationApproval:boolean;
 }
 
@@ -51,6 +52,7 @@ export function readProviderActivationFlags(env:EnvironmentInput = process.env):
     enableRealLineSends:isTrue(env.ENABLE_REAL_LINE_SENDS),
     enableRealPaymentProvider:isTrue(env.ENABLE_REAL_PAYMENT_PROVIDER),
     enableProviderDryRun:isTrue(env.ENABLE_PROVIDER_DRY_RUN),
+    providerDryRunExplicitlyDisabled:isExplicitFalse(env.ENABLE_PROVIDER_DRY_RUN),
     requireProviderActivationApproval:isTrue(env.REQUIRE_PROVIDER_ACTIVATION_APPROVAL),
   };
 }
@@ -154,12 +156,13 @@ function providerComponent(input:{
     if (input.flags.enableProviderDryRun) {
       warnings.push(issue(`${input.component.toUpperCase()}_PROVIDER_DRY_RUN`, "Provider readiness is in dry-run mode; no real provider calls are allowed.", ["ENABLE_PROVIDER_DRY_RUN"]));
     } else {
+      if (!input.flags.providerDryRunExplicitlyDisabled) errors.push(issue(`${input.component.toUpperCase()}_PROVIDER_DRY_RUN_FLAG_REQUIRED`, "Real provider activation requires ENABLE_PROVIDER_DRY_RUN=false to be explicit.", ["ENABLE_PROVIDER_DRY_RUN"]));
       if (!input.realEnabled) errors.push(issue(`${input.component.toUpperCase()}_REAL_PROVIDER_FLAG_REQUIRED`, "Real provider activation requires an explicit enable flag.", [input.realEnableFlag]));
       if (!input.flags.requireProviderActivationApproval) errors.push(issue(`${input.component.toUpperCase()}_PROVIDER_APPROVAL_REQUIRED`, "Real provider activation requires explicit human approval configuration.", ["REQUIRE_PROVIDER_ACTIVATION_APPROVAL"]));
     }
     if (input.environment === "production" && input.flags.enableProviderDryRun) errors.push(issue(`${input.component.toUpperCase()}_PROVIDER_DRY_RUN_PRODUCTION_FORBIDDEN`, "Production provider activation cannot run in dry-run mode.", ["ENABLE_PROVIDER_DRY_RUN"]));
   }
-  const networkCallsAllowed = input.environmentReady && input.mode === "http" && input.realEnabled && !input.flags.enableProviderDryRun && input.flags.requireProviderActivationApproval && errors.length === 0;
+  const networkCallsAllowed = input.environmentReady && input.mode === "http" && input.realEnabled && input.flags.providerDryRunExplicitlyDisabled && input.flags.requireProviderActivationApproval && errors.length === 0;
   return {
     component:input.component,
     mode:input.mode,
@@ -178,6 +181,10 @@ function readMode<T extends string>(value:string|undefined, fallback:T, allowed:
 
 function isTrue(value:string|undefined):boolean {
   return (value ?? "false").trim().toLowerCase() === "true";
+}
+
+function isExplicitFalse(value:string|undefined):boolean {
+  return (value ?? "").trim().toLowerCase() === "false";
 }
 
 function hasValue(value:string|undefined):boolean {

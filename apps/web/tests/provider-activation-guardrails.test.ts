@@ -43,6 +43,7 @@ const fullRealProviderEnv = {
   NOTIFICATION_SCHEDULER_MODE:"dry_run",
   ASTRO_ENGINE:"mock",
   SWISSEPH_LICENSE_MODE:"none",
+  ENABLE_PROVIDER_DRY_RUN:"false",
 };
 
 describe("provider activation guardrails", () => {
@@ -62,6 +63,7 @@ describe("provider activation guardrails", () => {
       enableRealLineSends:false,
       enableRealPaymentProvider:false,
       enableProviderDryRun:false,
+      providerDryRunExplicitlyDisabled:false,
       requireProviderActivationApproval:false,
     });
   });
@@ -106,6 +108,24 @@ describe("provider activation guardrails", () => {
     assert.equal(report.status, "blocked");
     for (const name of ["email", "line", "payment"] as const) {
       assertIssueVariables(component(report, name).errors, `${name.toUpperCase()}_PROVIDER_APPROVAL_REQUIRED`, ["REQUIRE_PROVIDER_ACTIVATION_APPROVAL"]);
+    }
+  });
+
+  it("explicit dry-run false flag is required for real provider activation", () => {
+    const { ENABLE_PROVIDER_DRY_RUN: _dryRun, ...envWithoutDryRunFlag } = fullRealProviderEnv;
+    const report = validateProviderActivationReadiness({
+      ...envWithoutDryRunFlag,
+      ENABLE_REAL_EMAIL_SENDS:"true",
+      ENABLE_REAL_LINE_SENDS:"true",
+      ENABLE_REAL_PAYMENT_PROVIDER:"true",
+      REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+    });
+
+    assert.equal(report.status, "blocked");
+    for (const name of ["email", "line", "payment"] as const) {
+      const item = component(report, name);
+      assert.equal(item.networkCallsAllowed, false);
+      assertIssueVariables(item.errors, `${name.toUpperCase()}_PROVIDER_DRY_RUN_FLAG_REQUIRED`, ["ENABLE_PROVIDER_DRY_RUN"]);
     }
   });
 

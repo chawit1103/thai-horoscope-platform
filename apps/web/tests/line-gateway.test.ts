@@ -22,6 +22,7 @@ const lineActivationEnv = {
   ASTRO_ENGINE:"mock",
   SWISSEPH_LICENSE_MODE:"none",
   ENABLE_REAL_LINE_SENDS:"true",
+  ENABLE_PROVIDER_DRY_RUN:"false",
   REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
 };
 

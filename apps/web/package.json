@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "beta:dry-run": "tsx src/mvp/beta-dry-run.ts",
     "dev": "next dev",
     "build": "next build",
     "lint": "tsc --noEmit --pretty false",

@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.33.2",
   "scripts": {
+    "beta:dry-run": "pnpm --filter @thai-horoscope/web beta:dry-run",
     "dev": "pnpm --filter @thai-horoscope/web dev",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",

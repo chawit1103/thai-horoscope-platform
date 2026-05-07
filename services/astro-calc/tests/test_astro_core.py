@@ -897,6 +897,87 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(first.solar_return_chart_snapshot.calculation_hash, first.chart.calculation_hash)
         self.assertEqual(first.warnings, [])
 
+    def test_solar_return_rejects_snapshot_fractional_datetime_local_without_raw_input(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        raw_datetime = "1990-05-12T08:30:00.500"
+        invalid_top_level = replace(natal, datetime_local=raw_datetime)
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            service.calculate_solar_return(
+                SolarReturnRequest(
+                    natal_chart_snapshot=invalid_top_level,
+                    solar_return_year=2026,
+                    location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertNotIn("1990-05-12", str(raised.exception))
+        self.assertNotIn("08:30:00.500", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+        invalid_nested = replace(natal, datetime=replace(natal.datetime, local="1990-05-12T08:30:00.500+07:00"))
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as nested_raised:
+            service.calculate_solar_return(
+                SolarReturnRequest(
+                    natal_chart_snapshot=invalid_nested,
+                    solar_return_year=2026,
+                    location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+        self.assertNotIn("1990-05-12", str(nested_raised.exception))
+        self.assertNotIn("08:30:00.500", str(nested_raised.exception))
+        self.assertIsNone(nested_raised.exception.__cause__)
+
+    def test_solar_return_rejects_snapshot_fractional_datetime_utc_without_raw_input(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        raw_datetime = "1990-05-12T01:30:00.500Z"
+        invalid_top_level = replace(natal, datetime_utc=raw_datetime)
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            service.calculate_solar_return(
+                SolarReturnRequest(
+                    natal_chart_snapshot=invalid_top_level,
+                    solar_return_year=2026,
+                    location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertNotIn("1990-05-12", str(raised.exception))
+        self.assertNotIn("01:30:00.500", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+        invalid_nested = replace(natal, datetime=replace(natal.datetime, utc=raw_datetime))
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as nested_raised:
+            service.calculate_solar_return(
+                SolarReturnRequest(
+                    natal_chart_snapshot=invalid_nested,
+                    solar_return_year=2026,
+                    location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+        self.assertNotIn(raw_datetime, str(nested_raised.exception))
+        self.assertNotIn("01:30:00.500", str(nested_raised.exception))
+        self.assertIsNone(nested_raised.exception.__cause__)
+
+    def test_solar_return_second_precision_snapshot_datetimes_still_work(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        result = service.calculate_solar_return(
+            SolarReturnRequest(
+                natal_chart_snapshot=natal,
+                solar_return_year=2026,
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+            )
+        )
+        self.assertEqual(result.solar_return_datetime_utc, "2026-05-12T07:15:00Z")
+        self.assertLessEqual(result.delta_arc_seconds, 60)
+        self.assertEqual(result.warnings, [])
+
     def test_solar_return_convergence_failure_is_returned_safely(self) -> None:
         service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
         natal = service.calculate_natal_chart(bangkok_request())

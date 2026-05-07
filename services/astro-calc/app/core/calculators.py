@@ -17,6 +17,7 @@ from app.core.time import (
     normalize_birth_time,
     parse_birth_date,
     parse_datetime_local,
+    parse_datetime_snapshot_local,
     parse_datetime_utc,
     utc_to_iso,
 )
@@ -160,11 +161,12 @@ class AstroCoreService:
         year = request.solar_return_year or request.return_year
         if year is None:
             raise ValueError("Solar return requires solar_return_year.")
+        validated_natal_datetime_local = validate_solar_return_natal_snapshot_datetimes(natal)
         profile_code = request.calculation_profile_code or natal.calculation_profile_code
         profile = get_profile(profile_code)
         target = sun_reference_longitude(natal, profile.zodiac_type)
         location = request.location or location_from_natal_request(request.natal)
-        bracket_center = solar_return_search_center(natal, year, location)
+        bracket_center = solar_return_search_center(validated_natal_datetime_local, year, location)
         search = self._find_solar_return(
             target=target,
             profile_code=profile_code,
@@ -520,14 +522,6 @@ def dedupe_warnings(warnings: list[WarningMessage]) -> list[WarningMessage]:
     return deduped
 
 
-def _month(datetime_local: str) -> int:
-    return int(datetime_local[5:7])
-
-
-def _day(datetime_local: str) -> int:
-    return int(datetime_local[8:10])
-
-
 def parse_transit_datetime_utc(value: str) -> datetime:
     return parse_datetime_utc(value, "INVALID_TRANSIT_DATETIME_UTC")
 
@@ -614,6 +608,18 @@ def build_hourly_timing_window(
     )
 
 
+def validate_solar_return_natal_snapshot_datetimes(natal: ChartSnapshot) -> datetime:
+    parsed_local = parse_datetime_local(natal.datetime_local, "INVALID_DATETIME")
+    parsed_utc = parse_datetime_utc(natal.datetime_utc, "INVALID_DATETIME")
+    nested_local = parse_datetime_snapshot_local(natal.datetime.local, "INVALID_DATETIME")
+    nested_utc = parse_datetime_utc(natal.datetime.utc, "INVALID_DATETIME")
+    if nested_local.replace(tzinfo=None).isoformat(timespec="seconds") != parsed_local.isoformat(timespec="seconds"):
+        raise ValueError("INVALID_DATETIME")
+    if utc_to_iso(nested_utc) != utc_to_iso(parsed_utc):
+        raise ValueError("INVALID_DATETIME")
+    return parsed_local
+
+
 def location_from_natal_request(request: ChartRequest | None) -> TransitLocation | None:
     if request is None:
         return None
@@ -625,9 +631,9 @@ def location_from_natal_request(request: ChartRequest | None) -> TransitLocation
     )
 
 
-def solar_return_search_center(natal: ChartSnapshot, year: int, location: TransitLocation | None) -> datetime:
-    month = int(natal.datetime_local[5:7])
-    day = int(natal.datetime_local[8:10])
+def solar_return_search_center(natal_datetime_local: datetime, year: int, location: TransitLocation | None) -> datetime:
+    month = natal_datetime_local.month
+    day = natal_datetime_local.day
     timezone = location.timezone if location else "UTC"
     try:
         local = datetime(year, month, day, 12)

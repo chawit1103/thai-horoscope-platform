@@ -38,6 +38,15 @@ def parse_datetime_local(datetime_local: str, error_code: str = "INVALID_DATETIM
     return local
 
 
+def parse_datetime_snapshot_local(value: str, error_code: str = "INVALID_DATETIME") -> datetime:
+    _reject_subsecond_time(value)
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError(error_code) from None
+    return parsed
+
+
 def parse_datetime_utc(value: str, error_code: str = "INVALID_DATETIME_UTC") -> datetime:
     _reject_subsecond_time(value)
     normalized = f"{value[:-1]}+00:00" if value.endswith("Z") else value

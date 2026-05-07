@@ -10,4 +10,14 @@ def create_service(config: AstroRuntimeConfig | None = None) -> AstroCoreService
 
 def health() -> dict[str, str]:
     config = AstroRuntimeConfig.from_env()
-    return {"status": "ok", "engine": config.engine, "profile": config.calculation_profile}
+    base = {
+        "engine": config.engine,
+        "profile": config.calculation_profile,
+        "license_mode": config.swisseph_license_mode,
+        "ephemeris_path_configured": str(bool(config.ephemeris_path)).lower(),
+    }
+    try:
+        config.validate()
+    except (PermissionError, ValueError, FileNotFoundError) as error:
+        return {**base, "status": "error", "error_code": str(error).split(":", 1)[0]}
+    return {**base, "status": "ok"}

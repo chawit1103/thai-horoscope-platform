@@ -66,6 +66,14 @@ PAYMENT_WEBHOOK_SECRET=
 
 Do not commit actual values.
 
+PR20 adds a sanitized environment health check:
+
+```text
+GET /api/health
+```
+
+Use `docs/ENVIRONMENT_VALIDATION.md` for exact mode and required-variable behavior. The health response must not expose raw secrets or PII.
+
 ## Pre-deploy checklist
 
 ```text
@@ -73,6 +81,7 @@ Do not commit actual values.
 [ ] Database migration reviewed
 [ ] No secrets in repo
 [ ] Environment variables configured
+[ ] /api/health returns ok or expected staging-only warnings
 [ ] Webhook URLs configured
 [ ] Health checks pass
 [ ] Astro service reachable by web app
@@ -80,6 +89,8 @@ Do not commit actual values.
 [ ] Payment provider in correct mode
 [ ] Rollback plan known
 ```
+
+For staging-specific steps, use `docs/STAGING_DEPLOYMENT_RUNBOOK.md` and `docs/SMOKE_TEST_CHECKLIST.md`.
 
 ## Astro service deployment notes
 

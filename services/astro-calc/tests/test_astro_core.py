@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from dataclasses import replace
@@ -13,9 +14,9 @@ from app.core.aspects import calculate_cross_aspects, calculate_transit_to_natal
 from app.core.calculators import AstroCoreService
 from app.core.math import normalize_deg, sign_index
 from app.core.time import local_to_utc, utc_to_iso
-from app.main import create_service
 from app.engines.mock import MockAstroEngine
 from app.engines.swisseph import SwissEphemerisEngine, fingerprint_ephemeris_path
+from app.main import create_service, health
 from app.schemas import (
     ChartRequest,
     ChartSnapshot,
@@ -1461,6 +1462,26 @@ class AstroCoreTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "EPHEMERIS_FILE_MISSING"):
             AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="professional").validate()
         AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="professional", ephemeris_path="/tmp").validate()
+
+    def test_health_reports_sanitized_config_errors_without_ephemeris_path(self) -> None:
+        previous = {name: os.environ.get(name) for name in ["ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]}
+        os.environ["ASTRO_ENGINE"] = "swisseph"
+        os.environ["NODE_ENV"] = "production"
+        os.environ["SWISSEPH_LICENSE_MODE"] = "free"
+        os.environ["ASTRO_EPHEMERIS_PATH"] = "/private/ephemeris/path"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "LICENSE_MODE_NOT_PRODUCTION_READY")
+        self.assertEqual(report["ephemeris_path_configured"], "true")
+        self.assertNotIn("/private/ephemeris/path", str(report))
 
     def test_swisseph_adapter_fails_closed_when_ephemeris_path_is_missing(self) -> None:
         config = AstroRuntimeConfig(

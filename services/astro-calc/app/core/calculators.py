@@ -116,6 +116,7 @@ class AstroCoreService:
         profile = get_profile(request.calculation_profile_code)
         transit_utc = parse_transit_datetime_utc(request.transit_datetime_utc)
         transit_location = request.transit_location
+        validate_transit_location_timezone(transit_location)
         transit_request = ChartRequest(
             calculation_profile_code=request.calculation_profile_code,
             datetime_local=transit_utc.replace(tzinfo=None).isoformat(timespec="seconds"),
@@ -234,6 +235,7 @@ class AstroCoreService:
         aspect_orbs = request.orb_thresholds or profile.aspect_orbs_deg
         enabled_aspects = set(request.enabled_aspect_types)
         propagated_warnings = timing_warnings_from_natal(natal)
+        validate_transit_location_timezone(request.location)
         range_result = resolve_timing_range(request)
         if range_result.warning:
             warnings = dedupe_warnings([range_result.warning, *propagated_warnings])
@@ -553,6 +555,11 @@ def chart_request_for_utc(profile_code: str, value_utc: datetime, location: Tran
         elevation_m=location.elevation_m if location else 0,
         birth_time_unknown=False,
     )
+
+
+def validate_transit_location_timezone(location: TransitLocation | None) -> None:
+    if location is not None:
+        parse_timezone(location.timezone)
 
 
 def resolve_timing_range(request: HourlyTimingRequest) -> TimingRangeResult:

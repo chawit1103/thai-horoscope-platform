@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { approveContentPreviewBatch, rejectContentPreviewBatch } from "./content-preview-approval";
 import { approveDraft, queueMockOutboundMessage, recordAdminAudit, recordMockDeliveryAttempt, rejectDraft } from "./mock-flow";
 
 export const ADMIN_COOKIE_NAME = "admin-session";
@@ -109,6 +110,30 @@ export function rejectDraftWithAdminCookie(input: { sessionId: string; resultId:
   const adminAuditPartition = getAdminAuditPartition(auth);
   const rejected = rejectDraft(input.resultId, auth.actorId, input.sessionId);
   recordAdminAudit(adminAuditPartition, auth.actorId, "admin_content_rejected", rejected.id, { role: auth.role, periodType: rejected.periodType });
+}
+
+export function approveContentBatchWithAdminCookie(input: { sessionId: string; batchId: string; sessionCookie?: string; sessionSecret?: string }): void {
+  const auth = validateAdminSession({ sessionCookie: input.sessionCookie, sessionSecret: input.sessionSecret });
+  if (!auth.ok) {
+    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", DENIED_ADMIN_ACTION_AUDIT_TARGET_ID, { reason: auth.reason, path: "/admin/content-preview/approve" });
+    throw new Error("Unauthorized: admin role is required.");
+  }
+
+  const approved = approveContentPreviewBatch({ sessionId: input.sessionId, batchId: input.batchId, actorId: auth.actorId });
+  const adminAuditPartition = getAdminAuditPartition(auth);
+  recordAdminAudit(adminAuditPartition, auth.actorId, "admin_content_batch_approved", approved.batchId, { role: auth.role, approvalStatus: approved.approvalStatus, itemCount: String(approved.items.length) });
+}
+
+export function rejectContentBatchWithAdminCookie(input: { sessionId: string; batchId: string; sessionCookie?: string; sessionSecret?: string }): void {
+  const auth = validateAdminSession({ sessionCookie: input.sessionCookie, sessionSecret: input.sessionSecret });
+  if (!auth.ok) {
+    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", DENIED_ADMIN_ACTION_AUDIT_TARGET_ID, { reason: auth.reason, path: "/admin/content-preview/reject" });
+    throw new Error("Unauthorized: admin role is required.");
+  }
+
+  const rejected = rejectContentPreviewBatch({ sessionId: input.sessionId, batchId: input.batchId, actorId: auth.actorId });
+  const adminAuditPartition = getAdminAuditPartition(auth);
+  recordAdminAudit(adminAuditPartition, auth.actorId, "admin_content_batch_rejected", rejected.batchId, { role: auth.role, approvalStatus: rejected.approvalStatus, itemCount: String(rejected.items.length) });
 }
 
 function signAdminSession(session: AdminSession, secret: string): string {

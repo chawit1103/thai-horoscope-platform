@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ensureContentPreviewBatch, getContentPreviewApprovalForResult } from "./content-preview-approval";
 import { EmailGateway, type EmailChannelAccount, type EmailDeliveryResult, type EmailMessage } from "./email-gateway";
 import { generateHoroscopeDeliveryPayload, horoscopeContentToEmailMessage, horoscopeContentToLineMessage, type HoroscopeDeliveryPayload } from "./horoscope-delivery-integration";
 import { type HoroscopeContentOutput } from "./horoscope-content-engine";
@@ -59,7 +60,7 @@ let state:NotificationSchedulerState = { outboundMessages:[], deliveryAttempts:[
 export function resetNotificationSchedulerState():void { state = { outboundMessages:[], deliveryAttempts:[], auditLogs:[], nextOutboundSeq:1, nextAttemptSeq:1 }; }
 export function getNotificationSchedulerState():NotificationSchedulerState { return structuredClone(state); }
 
-export function runNotificationSchedulerJob(input:{ sessionId?:string; users:NotificationSchedulerUser[]; topics?:NotificationTopic[]; now?:Date; dispatchWindowMinutes?:number }):SchedulerRunResult {
+export function runNotificationSchedulerJob(input:{ sessionId?:string; users:NotificationSchedulerUser[]; topics?:NotificationTopic[]; now?:Date; dispatchWindowMinutes?:number; betaApprovalMode?:boolean }):SchedulerRunResult {
   const sessionId = input.sessionId ?? "dev-default";
   const now = input.now ?? new Date();
   const topics = input.topics ?? allTopics;
@@ -112,6 +113,26 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         continue;
       }
 
+      const approval = input.betaApprovalMode ? ensureContentPreviewBatch({
+        sessionId,
+        horoscopeResult:result,
+        topicCode,
+        deliveryPayload,
+        deliveryChannels:getPreparedDeliveryChannels(user, topicCode),
+        now,
+      }) : undefined;
+      if (input.betaApprovalMode && approval?.approvalStatus === "rejected") {
+        skipped += 1;
+        writeAudit("notification_skipped", auditTarget(user.userId, topicCode, periodKey), now, {
+          topicCode,
+          periodKey,
+          reason:"content_rejected",
+          previewBatchId:approval.batchId,
+        });
+        continue;
+      }
+      const approvalDeferredReason = input.betaApprovalMode && approval?.approvalStatus !== "approved" ? "content_pending_approval" : undefined;
+
       const queueKey = makeQueueKey(user.userId, topicCode, periodKey);
       const existing = state.outboundMessages.find((message)=>message.queueKey===queueKey);
       if (existing) {
@@ -137,13 +158,18 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         title:deliveryPayload.title,
         body:deliveryPayload.previewText,
         horoscopeContent:deliveryPayload.content,
-        deliveryMetadata:deliveryPayload.metadata,
+        deliveryMetadata:{ ...deliveryPayload.metadata, ...(approval ? { previewBatchId:approval.batchId, approvalStatus:approval.approvalStatus } : {}) },
         status:"queued",
         createdAt:now.toISOString(),
       };
       state.outboundMessages.push(message);
       queued.push(structuredClone(message));
       writeAudit("notification_queued", message.id, now, { topicCode, periodKey, channel, fallbackChannel:message.fallbackChannel ?? "" });
+      if (approvalDeferredReason) {
+        deferred += 1;
+        const attempt = recordAttempt(message, channel, "deferred", now, false, approvalDeferredReason);
+        writeAudit("notification_deferred", message.id, now, { topicCode, periodKey, reason:approvalDeferredReason, attemptId:attempt.id, previewBatchId:approval?.batchId ?? "" });
+      }
       if ("deferredReason" in eligibility && eligibility.deferredReason) {
         deferred += 1;
         const attempt = recordAttempt(message, channel, "deferred", now, false, eligibility.deferredReason);
@@ -155,7 +181,7 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
   return { queued, skipped, deferred, duplicates };
 }
 
-export async function dispatchQueuedNotifications(input:{ sessionId?:string; users:NotificationSchedulerUser[]; emailGateway?:EmailGateway; lineGateway?:LineGateway; now?:Date }):Promise<DispatchResult> {
+export async function dispatchQueuedNotifications(input:{ sessionId?:string; users:NotificationSchedulerUser[]; emailGateway?:EmailGateway; lineGateway?:LineGateway; now?:Date; betaApprovalMode?:boolean }):Promise<DispatchResult> {
   const sessionId = input.sessionId ?? "dev-default";
   const now = input.now ?? new Date();
   const attempts:NotificationDeliveryAttempt[] = [];
@@ -178,6 +204,22 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
       duplicates += 1;
       writeAudit("notification_duplicate", message.id, now, { topicCode:message.topicCode, periodKey:message.periodKey, channel:message.channel });
       continue;
+    }
+
+    if (input.betaApprovalMode) {
+      const approval = getContentPreviewApprovalForResult(sessionId, message.horoscopeResultId);
+      if (!approval || approval.approvalStatus === "rejected") {
+        const attempt = recordAttempt(message, message.channel, "suppressed", now, false, approval ? "content_rejected" : "content_approval_missing");
+        attempts.push(attempt);
+        message.status = "suppressed";
+        suppressed += 1;
+        continue;
+      }
+      if (approval.approvalStatus !== "approved") {
+        const attempt = recordAttempt(message, message.channel, "deferred", now, false, "content_pending_approval");
+        attempts.push(attempt);
+        continue;
+      }
     }
 
     const guard = getDispatchGuard(message, user, now);
@@ -359,6 +401,13 @@ function refreshQueuedDeliveryPreferences(message:ScheduledNotificationMessage, 
   message.fallbackChannel = user.fallbackChannel;
   message.allowFallback = isFallbackAllowed(user, topicCode);
   writeAudit("notification_duplicate", message.id, now, { topicCode, periodKey:message.periodKey, channel:user.primaryChannel, queuePolicy:"refreshed_pending_delivery_preferences" });
+}
+
+function getPreparedDeliveryChannels(user:NotificationSchedulerUser, topicCode:NotificationTopic):NotificationChannel[] {
+  const channels = new Set<NotificationChannel>();
+  if (isChannelPreferenceEnabled(user, topicCode, user.primaryChannel) && !isChannelUnsubscribed(user, user.primaryChannel)) channels.add(user.primaryChannel);
+  if (user.fallbackChannel && user.fallbackChannel !== user.primaryChannel && isFallbackAllowed(user, topicCode) && isChannelPreferenceEnabled(user, topicCode, user.fallbackChannel) && !isChannelUnsubscribed(user, user.fallbackChannel) && !isChannelBlockedOrBounced(user, user.fallbackChannel)) channels.add(user.fallbackChannel);
+  return [...channels].sort();
 }
 
 function isFallbackAllowed(user:NotificationSchedulerUser, topicCode:NotificationTopic):boolean {

@@ -198,6 +198,20 @@ Longer Email content should include the full entertainment/self-reflection
 disclaimer. Unknown birth time warnings should remain visible in a softened,
 non-alarmist form.
 
+## PR27 beta approval gate
+
+In beta approval mode, generated horoscope delivery content must be previewed
+and approved by an authenticated admin before scheduler dispatch. Preview
+screens may show rule hits, safety flags, warnings, period metadata, delivery
+channels, and a calculation hash, but they must not show raw birth date, birth
+time, birth place, email address, LINE user ID, payment IDs, provider payloads,
+API keys, tokens, webhook secrets, or ephemeris license data.
+
+Operators must reject content with any unsafe safety flag, fear-based wording,
+overconfident unknown-birth-time copy, or medical/legal/financial/death/
+accident/guaranteed-outcome implication. Rejected beta batches must not be sent;
+approval after rejection requires regeneration or an explicit future reset flow.
+
 ## Unknown birth time policy
 
 When chart warnings include `UNKNOWN_BIRTH_TIME` or

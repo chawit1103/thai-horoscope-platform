@@ -160,6 +160,19 @@ The final delivery adapter reruns content validation and safety scanning before
 building Email or LINE messages. If content has safety flags or validation
 errors, it is blocked before provider dispatch.
 
+## Beta Preview Approval
+
+PR27 adds an optional beta approval mode around delivery. The scheduler can
+create a sanitized preview batch for generated horoscope content and hold
+delivery until an authenticated admin approves it. The preview shows rule hits,
+safety flags, warnings, period metadata, content profile, prepared channels, and
+calculation hash only. It must not expose raw birth data, email addresses, LINE
+user IDs, payment identifiers, provider payloads, API keys, tokens, or secrets.
+
+Rejected preview batches are not dispatched. Duplicate approve/reject actions
+are idempotent, and approval after rejection requires regeneration or a future
+explicit reset flow.
+
 ## Safety Policy
 
 Generated Thai text must not include:

@@ -273,6 +273,31 @@ describe("beta content preview approval", () => {
     assert.deepEqual(batch?.items[0]?.deliveryChannels, ["line"]);
   });
 
+  it("refreshes queued delivery preferences while content only has approval hold attempts", async () => {
+    const userId = "preview_channel_change_user";
+    approveHoroscopeArtifact({ userId });
+    const subscription = await activeSubscription(userId);
+    const lineUser = user({ userId, subscription, fallbackChannel:undefined });
+    const emailUser = user({
+      userId,
+      subscription,
+      primaryChannel:"email",
+      fallbackChannel:undefined,
+      preferences:[
+        { topicCode:"all", channel:"line", enabled:false },
+        { topicCode:"all", channel:"email", enabled:true },
+      ],
+    });
+
+    runNotificationSchedulerJob({ sessionId, users:[lineUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
+    runNotificationSchedulerJob({ sessionId, users:[emailUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
+    const message = getNotificationSchedulerState().outboundMessages[0];
+    const batch = getContentPreviewApprovalState(approvalSessionId).batches[0];
+
+    assert.equal(message?.channel, "email");
+    assert.deepEqual(batch?.items[0]?.deliveryChannels, ["email"]);
+  });
+
   it("refreshes existing beta-held queued content when regenerated preview hash changes", async () => {
     const userId = "preview_changed_queue_user";
     const oldBirthProfileId = approveHoroscopeArtifact({ userId });

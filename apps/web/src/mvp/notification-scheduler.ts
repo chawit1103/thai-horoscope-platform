@@ -406,9 +406,10 @@ function refreshQueuedDeliveryPreferences(message:ScheduledNotificationMessage, 
   // Horoscope queue idempotency is user/topic/period. If a duplicate scheduler snapshot chooses
   // a different channel before dispatch starts, keep the exact horoscope source/content but refresh
   // the delivery preference snapshot to the latest eligible primary/fallback channels on this message.
-  // Once any delivery attempt exists, retain the original queued delivery fields to avoid changing an
-  // in-flight provider claim or retry target.
-  if (message.status !== "queued" || state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===message.id)) return;
+  // Once a real provider attempt exists, retain the original queued delivery fields to avoid changing an
+  // in-flight provider claim or retry target. Approval holds happen before provider dispatch, so they can
+  // still follow the user's latest eligible channel preferences.
+  if (message.status !== "queued" || hasProviderDeliveryAttempt(message.id)) return;
   message.channel = user.primaryChannel;
   message.fallbackChannel = user.fallbackChannel;
   message.allowFallback = isFallbackAllowed(user, topicCode);
@@ -453,6 +454,14 @@ function applyApprovalMetadata(message:ScheduledNotificationMessage, approval:{ 
 
 function hasPendingApprovalAttempt(outboundMessageId:string):boolean {
   return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.status==="deferred"&&attempt.errorCode==="content_pending_approval");
+}
+
+function hasProviderDeliveryAttempt(outboundMessageId:string):boolean {
+  return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&!isApprovalHoldAttempt(attempt));
+}
+
+function isApprovalHoldAttempt(attempt:NotificationDeliveryAttempt):boolean {
+  return attempt.status === "deferred" && (attempt.errorCode === "content_pending_approval" || attempt.errorCode === "content_approval_missing" || attempt.errorCode === "content_rejected");
 }
 
 function isApprovalSuppressedMessage(message:ScheduledNotificationMessage):boolean {

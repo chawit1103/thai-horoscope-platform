@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thai-horoscope.example/contracts/astro/chart-snapshot.schema.json",
+  "title": "Astro Chart Snapshot",
+  "type": "object",
+  "required": [
+    "chart_type",
+    "engine",
+    "engine_name",
+    "engine_version",
+    "ephemeris_source",
+    "ephemeris_fingerprint",
+    "calculation_profile_code",
+    "calculation_profile",
+    "datetime",
+    "datetime_local",
+    "datetime_utc",
+    "julian_day_ut",
+    "location",
+    "calculation_hash",
+    "zodiac",
+    "ayanamsa_deg",
+    "ayanamsha",
+    "planets",
+    "houses",
+    "angles",
+    "derived_points",
+    "aspects",
+    "warnings",
+    "metadata"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "chart_type": { "type": "string", "enum": ["natal"] },
+    "engine": {
+      "type": "object",
+      "required": ["name", "version", "license_mode", "ephemeris_path_configured", "ephemeris_fingerprint"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "license_mode": { "type": "string", "enum": ["none", "free", "professional"] },
+        "ephemeris_path_configured": { "type": "boolean" },
+        "ephemeris_fingerprint": { "type": "string" }
+      }
+    },
+    "engine_name": { "type": "string" },
+    "engine_version": { "type": "string" },
+    "ephemeris_source": { "type": "string" },
+    "ephemeris_fingerprint": { "type": "string" },
+    "calculation_profile_code": { "type": "string" },
+    "calculation_profile": { "$ref": "#/$defs/calculationProfile" },
+    "datetime": {
+      "type": "object",
+      "required": ["local", "utc", "timezone", "julian_day_ut"],
+      "additionalProperties": false,
+      "properties": {
+        "local": { "type": "string", "format": "date-time" },
+        "utc": { "type": "string", "format": "date-time" },
+        "timezone": { "type": "string" },
+        "julian_day_ut": { "type": "number" }
+      }
+    },
+    "datetime_local": { "type": "string" },
+    "datetime_utc": { "type": "string", "format": "date-time" },
+    "julian_day_ut": { "type": "number" },
+    "location": {
+      "type": "object",
+      "required": ["latitude", "longitude", "elevation_m"],
+      "additionalProperties": false,
+      "properties": {
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "elevation_m": { "type": "number" }
+      }
+    },
+    "calculation_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "zodiac": {
+      "type": "object",
+      "required": ["type", "ayanamsa_code", "ayanamsa_deg"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["sidereal", "tropical"] },
+        "ayanamsa_code": { "type": "string" },
+        "ayanamsa_deg": { "type": ["number", "null"] }
+      }
+    },
+    "ayanamsa_deg": { "type": ["number", "null"] },
+    "ayanamsha": {
+      "type": "object",
+      "required": ["name", "value_deg"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "value_deg": { "type": ["number", "null"] }
+      }
+    },
+    "planets": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/planetPosition" }
+    },
+    "houses": {
+      "type": "object",
+      "required": ["system", "ascendant_deg", "mc_deg", "cusps_deg", "reliable"],
+      "additionalProperties": false,
+      "properties": {
+        "system": { "type": "string" },
+        "ascendant_deg": { "type": ["number", "null"] },
+        "mc_deg": { "type": ["number", "null"] },
+        "cusps_deg": { "type": "array", "items": { "type": "number" } },
+        "reliable": { "type": "boolean" }
+      }
+    },
+    "angles": {
+      "type": "object",
+      "required": ["ascendant_deg", "lagna_deg", "mc_deg", "ic_deg", "descendant_deg", "reliable"],
+      "additionalProperties": false,
+      "properties": {
+        "ascendant_deg": { "type": ["number", "null"] },
+        "lagna_deg": { "type": ["number", "null"] },
+        "mc_deg": { "type": ["number", "null"] },
+        "ic_deg": { "type": ["number", "null"] },
+        "descendant_deg": { "type": ["number", "null"] },
+        "reliable": { "type": "boolean" }
+      }
+    },
+    "derived_points": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/planetPosition" }
+    },
+    "aspects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["body_a", "body_b", "type", "orb_deg", "applying"],
+        "additionalProperties": false,
+        "properties": {
+          "body_a": { "type": "string" },
+          "body_b": { "type": "string" },
+          "type": { "type": "string" },
+          "orb_deg": { "type": "number" },
+          "applying": { "type": ["boolean", "null"] }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/warning" }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "warning": {
+      "type": "object",
+      "required": ["code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "UNKNOWN_BIRTH_TIME",
+            "UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK",
+            "UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE",
+            "FAST_PLANET_POSITIONS_APPROXIMATE",
+            "MISSING_LOCATION",
+            "INVALID_TIMEZONE",
+            "UNSUPPORTED_DATE_RANGE",
+            "UNSUPPORTED_TIMING_RANGE",
+            "SOLAR_RETURN_CONVERGENCE_FAILED",
+            "EPHEMERIS_FILE_MISSING",
+            "LICENSE_MODE_NOT_PRODUCTION_READY"
+          ]
+        },
+        "message": { "type": "string" }
+      }
+    },
+    "calculationProfile": {
+      "type": "object",
+      "required": [
+        "code",
+        "zodiac_type",
+        "ayanamsha",
+        "house_system",
+        "node_type",
+        "planets",
+        "aspect_orbs_deg"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string" },
+        "zodiac_type": { "type": "string", "enum": ["sidereal", "tropical"] },
+        "ayanamsha": { "type": "string" },
+        "house_system": { "type": "string" },
+        "node_type": { "type": "string" },
+        "planets": { "type": "array", "items": { "type": "string" } },
+        "aspect_orbs_deg": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        }
+      }
+    },
+    "planetPosition": {
+      "type": "object",
+      "required": [
+        "tropical_longitude_deg",
+        "ayanamsa_deg",
+        "sidereal_longitude_deg",
+        "ecliptic_latitude_deg",
+        "longitude_deg",
+        "latitude_deg",
+        "speed_longitude_deg_per_day",
+        "sign_index",
+        "sign_name_en",
+        "sign_name_th",
+        "degree_in_sign",
+        "retrograde",
+        "nakshatra",
+        "house_number",
+        "warnings"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tropical_longitude_deg": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 },
+        "ayanamsa_deg": { "type": ["number", "null"] },
+        "sidereal_longitude_deg": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 },
+        "ecliptic_latitude_deg": { "type": "number" },
+        "longitude_deg": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 },
+        "latitude_deg": { "type": "number" },
+        "speed_longitude_deg_per_day": { "type": "number" },
+        "sign_index": { "type": "integer", "minimum": 0, "maximum": 11 },
+        "sign_name_en": { "type": "string" },
+        "sign_name_th": { "type": "string" },
+        "degree_in_sign": { "type": "number", "minimum": 0, "exclusiveMaximum": 30 },
+        "retrograde": { "type": "boolean" },
+        "nakshatra": { "type": ["string", "null"] },
+        "house_number": { "type": ["integer", "null"], "minimum": 1, "maximum": 12 },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/warning" }
+        }
+      }
+    }
+  }
+}

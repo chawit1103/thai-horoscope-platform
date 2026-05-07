@@ -1,0 +1,63 @@
+{
+  "chart_type": "natal",
+  "engine": {
+    "name": "mock",
+    "version": "0.1.0",
+    "license_mode": "none",
+    "ephemeris_path_configured": false,
+    "ephemeris_fingerprint": "mock-th-nirayana-v1"
+  },
+  "engine_name": "mock",
+  "calculation_profile_code": "TH_NIRAYANA_V1",
+  "datetime": {
+    "local": "1990-05-12T08:30:00+07:00",
+    "utc": "1990-05-12T01:30:00Z",
+    "timezone": "Asia/Bangkok",
+    "julian_day_ut": 2448023.5625
+  },
+  "datetime_local": "1990-05-12T08:30:00",
+  "datetime_utc": "1990-05-12T01:30:00Z",
+  "location": {
+    "latitude": 13.7563,
+    "longitude": 100.5018,
+    "elevation_m": 0
+  },
+  "zodiac": {
+    "type": "sidereal",
+    "ayanamsa_code": "LAHIRI",
+    "ayanamsa_deg": 23.86540926
+  },
+  "calculation_hash": "eb245a89817c9b55c7e4bd12b5d8be06ffb0d3616c0384020e975be0e1276f42",
+  "ayanamsa_deg": 23.86540926,
+  "planets": {
+    "sun": {
+      "tropical_longitude_deg": 167.08030744,
+      "ayanamsa_deg": 23.86540926,
+      "sidereal_longitude_deg": 143.21489818,
+      "ecliptic_latitude_deg": -5.0,
+      "longitude_deg": 143.21489818,
+      "latitude_deg": -5.0,
+      "speed_longitude_deg_per_day": 0.985647,
+      "sign_index": 4,
+      "sign_name_en": "Leo",
+      "sign_name_th": "สิงห์",
+      "degree_in_sign": 23.21489818,
+      "retrograde": false,
+      "nakshatra": null,
+      "house_number": 9,
+      "warnings": []
+    }
+  },
+  "houses": {
+    "ascendant_deg": 269.64555244
+  },
+  "angles": {
+    "ascendant_deg": 269.64555244,
+    "lagna_deg": 269.64555244,
+    "mc_deg": 359.64555244,
+    "ic_deg": 179.64555244,
+    "descendant_deg": 89.64555244,
+    "reliable": true
+  },
+  "warnings": []
+}

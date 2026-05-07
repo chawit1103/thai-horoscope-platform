@@ -72,6 +72,16 @@ describe("observability", () => {
     assert.equal(serialized.includes("reader@example.test"), false);
   });
 
+  it("delivery failure reason fields are code-only", () => {
+    const event = emailDeliveryFailureEvent({ reason:"failed for birth place Bangkok 15/08/1992", email:"reader@example.test", topicCode:"daily_horoscope", now:new Date("2026-05-07T09:00:00.000Z") });
+    const serialized = JSON.stringify(event);
+
+    assert.equal(event.metadata.reason, "redacted_reason");
+    for (const unsafe of ["failed for birth place Bangkok 15/08/1992", "Bangkok", "15/08/1992", "reader@example.test"]) {
+      assert.equal(serialized.includes(unsafe), false, `leaked ${unsafe}`);
+    }
+  });
+
   it("LINE delivery failure event does not include raw LINE user ID", () => {
     const event = lineDeliveryFailureEvent({ reason:"line_provider_failed", lineUserId:"Uabcdef1234567890", topicCode:"weekly_horoscope", now:new Date("2026-05-07T09:00:00.000Z") });
     const serialized = JSON.stringify(event);

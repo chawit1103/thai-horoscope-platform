@@ -115,6 +115,8 @@ def redact_value(value: Any, key: str | None = None) -> Any:
     if isinstance(value, str):
         if key == "reason":
             return sanitize_reason_code(value)
+        if key in SAFE_KEY_ALLOWLIST:
+            return sanitize_allowlisted_string(key, value)
         if key and key not in SAFE_KEY_ALLOWLIST:
             return "[REDACTED_TEXT]"
         return redact_string(value)
@@ -156,3 +158,16 @@ def sanitize_reason_code(value: str) -> str:
     if re.fullmatch(r"(?:[a-z][a-z0-9_]{2,80}|[A-Z][A-Z0-9_]{2,80})", trimmed):
         return redact_string(trimmed)
     return "astro_error"
+
+
+def sanitize_allowlisted_string(key: str, value: str) -> str:
+    fallback_by_key = {
+        "engine": "redacted_engine",
+        "error_code": "ASTRO_ERROR",
+        "profile": "redacted_profile",
+        "status": "redacted_status",
+    }
+    trimmed = value.strip()
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]{1,80}", trimmed):
+        return redact_string(trimmed)
+    return fallback_by_key.get(key, "redacted_value")

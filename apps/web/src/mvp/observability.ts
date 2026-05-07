@@ -267,6 +267,7 @@ function redactValue(value:unknown, key?:string):RedactedJson {
   if (value === null || value === undefined) return value === undefined ? "[REDACTED]" : null;
   if (typeof value === "boolean" || typeof value === "number") return value;
   if (typeof value === "string") {
+    if (key && SAFE_KEY_ALLOWLIST.has(key)) return safeAllowlistedString(key, value);
     if (key && !SAFE_KEY_ALLOWLIST.has(key)) return "[REDACTED_TEXT]";
     return redactString(value);
   }
@@ -309,6 +310,26 @@ function safeReasonCode(value:string, fallback:string):string {
   const trimmed = value.trim();
   if (/^(?:[a-z][a-z0-9_]{2,80}|[A-Z][A-Z0-9_]{2,80})$/.test(trimmed)) return redactString(trimmed);
   return fallback;
+}
+
+function safeAllowlistedString(key:string, value:string):string {
+  const fallbackByKey:Record<string, string> = {
+    component:"redacted_component",
+    errorCode:"UNKNOWN_ERROR",
+    eventType:"redacted_event",
+    idempotencyStatus:"redacted_status",
+    mode:"redacted_mode",
+    periodKey:"redacted_period",
+    periodType:"redacted_period",
+    provider:"redacted_provider",
+    queueStatus:"redacted_status",
+    reason:"redacted_reason",
+    status:"redacted_status",
+    topicCode:"redacted_topic",
+  };
+  const trimmed = value.trim();
+  if (/^[A-Za-z][A-Za-z0-9_.:-]{1,80}$/.test(trimmed)) return redactString(trimmed);
+  return fallbackByKey[key] ?? "redacted_value";
 }
 
 function logLevelForSeverity(severity:MonitoringSeverity):StructuredLogEntry["level"] {

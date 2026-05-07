@@ -91,6 +91,25 @@ const SENSITIVE_KEY_PARTS = [
   "license",
 ] as const;
 const SAFE_KEY_ALLOWLIST = new Set(["eventType", "status", "reason", "errorCode", "component", "mode", "provider", "topicCode", "periodType", "periodKey", "queueStatus", "retryable", "idempotencyStatus"]);
+const KNOWN_REASON_CODES = new Set([
+  "calculation_failed",
+  "duplicate_send_prevented",
+  "ephemeris_config_invalid",
+  "astro_error",
+  "invalid_signature",
+  "invalid_token",
+  "line_provider_failed",
+  "processing_failed",
+  "provider_exception",
+  "provider_failed",
+  "provider_timeout",
+]);
+const KNOWN_STATUS_CODES = new Set(["accepted", "blocked", "critical", "degraded", "delivered", "dry_run", "duplicate", "error", "failed", "healthy", "ignored", "ok", "pending", "queued", "retryable", "sent", "warning"]);
+const KNOWN_COMPONENT_CODES = new Set(["admin_auth", "astro_calc", "email_gateway", "environment", "line_gateway", "notification_scheduler", "payment_provider", "privacy", "subscription_lifecycle"]);
+const KNOWN_MODE_CODES = new Set(["disabled", "dry_run", "http", "local", "mock", "production", "sandbox", "staging", "swisseph"]);
+const KNOWN_PROVIDER_CODES = new Set(["email", "http", "line", "mock", "payment", "sandbox", "stripe"]);
+const KNOWN_TOPIC_CODES = new Set(["daily_horoscope", "weekly_horoscope", "monthly_horoscope", "yearly_horoscope", "subscription_receipt", "system"]);
+const KNOWN_PERIOD_TYPES = new Set(["daily", "weekly", "monthly", "yearly"]);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const LINE_USER_ID_PATTERN = /\bU[0-9A-Za-z]{8,}\b/g;
 const CARD_PATTERN = /\b(?:\d[ -]?){12,19}\b/g;
@@ -308,7 +327,7 @@ function safeReference(value:string):string {
 
 function safeReasonCode(value:string, fallback:string):string {
   const trimmed = value.trim();
-  if (/^(?:[a-z][a-z0-9_]{2,80}|[A-Z][A-Z0-9_]{2,80})$/.test(trimmed)) return redactString(trimmed);
+  if (KNOWN_REASON_CODES.has(trimmed)) return redactString(trimmed);
   return fallback;
 }
 
@@ -328,7 +347,16 @@ function safeAllowlistedString(key:string, value:string):string {
     topicCode:"redacted_topic",
   };
   const trimmed = value.trim();
-  if (/^[A-Za-z][A-Za-z0-9_.:-]{1,80}$/.test(trimmed)) return redactString(trimmed);
+  if (key === "reason") return KNOWN_REASON_CODES.has(trimmed) ? redactString(trimmed) : fallbackByKey.reason;
+  if (key === "status" || key === "queueStatus" || key === "idempotencyStatus") return KNOWN_STATUS_CODES.has(trimmed) ? redactString(trimmed) : fallbackByKey[key];
+  if (key === "component") return KNOWN_COMPONENT_CODES.has(trimmed) ? redactString(trimmed) : fallbackByKey.component;
+  if (key === "mode") return KNOWN_MODE_CODES.has(trimmed) ? redactString(trimmed) : fallbackByKey.mode;
+  if (key === "provider") return KNOWN_PROVIDER_CODES.has(trimmed) ? redactString(trimmed) : fallbackByKey.provider;
+  if (key === "topicCode") return KNOWN_TOPIC_CODES.has(trimmed) ? redactString(trimmed) : fallbackByKey.topicCode;
+  if (key === "periodType") return KNOWN_PERIOD_TYPES.has(trimmed) ? redactString(trimmed) : fallbackByKey.periodType;
+  if (key === "errorCode") return /^[A-Z][A-Z0-9_]{2,80}$/.test(trimmed) ? redactString(trimmed) : fallbackByKey.errorCode;
+  if (key === "eventType") return /^[a-z][a-z0-9_]{2,80}$/.test(trimmed) ? redactString(trimmed) : fallbackByKey.eventType;
+  if (key === "periodKey") return /^\d{4}(?:-\d{2}){0,2}$/.test(trimmed) ? redactString(trimmed) : fallbackByKey.periodKey;
   return fallbackByKey[key] ?? "redacted_value";
 }
 

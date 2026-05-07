@@ -24,6 +24,10 @@ SENSITIVE_KEY_PARTS = (
     "ephemeris",
 )
 SAFE_KEY_ALLOWLIST = {"reason", "error_code", "engine", "profile", "status"}
+KNOWN_REASON_CODES = {"calculation_failed", "ephemeris_config_invalid"}
+KNOWN_STATUS_CODES = {"degraded", "error", "healthy", "ok", "warning"}
+KNOWN_ENGINE_CODES = {"mock", "swisseph"}
+KNOWN_PROFILE_CODES = {"TH_NIRAYANA_V1"}
 EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 LINE_USER_ID_PATTERN = re.compile(r"\bU[0-9A-Za-z]{8,}\b")
 CARD_PATTERN = re.compile(r"\b(?:\d[ -]?){12,19}\b")
@@ -155,7 +159,7 @@ def safe_reference(value: str) -> str:
 
 def sanitize_reason_code(value: str) -> str:
     trimmed = value.strip()
-    if re.fullmatch(r"(?:[a-z][a-z0-9_]{2,80}|[A-Z][A-Z0-9_]{2,80})", trimmed):
+    if trimmed in KNOWN_REASON_CODES:
         return redact_string(trimmed)
     return "astro_error"
 
@@ -168,6 +172,12 @@ def sanitize_allowlisted_string(key: str, value: str) -> str:
         "status": "redacted_status",
     }
     trimmed = value.strip()
-    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]{1,80}", trimmed):
+    if key == "status" and trimmed in KNOWN_STATUS_CODES:
+        return redact_string(trimmed)
+    if key == "engine" and trimmed in KNOWN_ENGINE_CODES:
+        return redact_string(trimmed)
+    if key == "profile" and trimmed in KNOWN_PROFILE_CODES:
+        return redact_string(trimmed)
+    if key == "error_code" and re.fullmatch(r"[A-Z][A-Z0-9_]{2,80}", trimmed):
         return redact_string(trimmed)
     return fallback_by_key.get(key, "redacted_value")

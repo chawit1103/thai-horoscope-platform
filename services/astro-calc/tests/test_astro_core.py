@@ -93,6 +93,41 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn("secret", str(raised.exception))
         self.assertIsNone(raised.exception.__cause__)
 
+
+    def test_datetime_local_fractional_seconds_are_rejected_without_raw_input(self) -> None:
+        raw_datetime = "1971-03-11T08:17:00.500"
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local=raw_datetime))
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertNotIn("1971-03-11", str(raised.exception))
+        self.assertNotIn("08:17", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_datetime_local_fractional_zero_seconds_are_rejected(self) -> None:
+        raw_datetime = "1971-03-11T08:17:00.000"
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local=raw_datetime))
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_birth_time_fractional_seconds_are_rejected_without_raw_input(self) -> None:
+        raw_birth_time = "08:17:00.500"
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            AstroCoreService().calculate_natal_chart(
+                ChartRequest(
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    birth_date="1971-03-11",
+                    birth_time=raw_birth_time,
+                    timezone="Asia/Bangkok",
+                    latitude=13.7563,
+                    longitude=100.5018,
+                )
+            )
+        self.assertNotIn(raw_birth_time, str(raised.exception))
+        self.assertNotIn("1971-03-11", str(raised.exception))
+        self.assertNotIn("08:17", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
     def test_malformed_birth_date_error_is_sanitized(self) -> None:
         raw_birth_date = "1990-birth-secret-12"
         with self.assertRaisesRegex(ValueError, "INVALID_BIRTH_DATE") as raised:
@@ -400,6 +435,20 @@ class AstroCoreTests(unittest.TestCase):
             )
         }
         self.assertEqual(len(hashes), 1)
+
+
+    def test_equivalent_second_precision_datetime_formats_are_canonicalized(self) -> None:
+        snapshots = [
+            AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local=datetime_local))
+            for datetime_local in (
+                "1971-03-11T08:17",
+                "1971-03-11T08:17:00",
+                "1971-03-11 08:17:00",
+            )
+        ]
+        self.assertEqual({snapshot.datetime_local for snapshot in snapshots}, {"1971-03-11T08:17:00"})
+        self.assertEqual({snapshot.datetime.local for snapshot in snapshots}, {"1971-03-11T08:17:00+07:00"})
+        self.assertEqual(len({snapshot.calculation_hash for snapshot in snapshots}), 1)
 
     def test_equivalent_datetime_local_formats_have_same_snapshot_positions(self) -> None:
         snapshots = [

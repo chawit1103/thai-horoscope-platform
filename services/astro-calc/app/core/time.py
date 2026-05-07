@@ -5,9 +5,26 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 UNKNOWN_BIRTH_TIME_FALLBACK = "12:00:00"
+UNSUPPORTED_SUBSECOND_DATETIME = "UNSUPPORTED_SUBSECOND_DATETIME"
+
+
+def _contains_fractional_time(value: str) -> bool:
+    if "T" in value:
+        time_part = value.rsplit("T", 1)[1]
+    elif " " in value:
+        time_part = value.rsplit(" ", 1)[1]
+    else:
+        time_part = value
+    return "." in time_part or "," in time_part
+
+
+def _reject_subsecond_time(value: str) -> None:
+    if _contains_fractional_time(value):
+        raise ValueError(UNSUPPORTED_SUBSECOND_DATETIME)
 
 
 def parse_datetime_local(datetime_local: str, error_code: str = "INVALID_DATETIME_LOCAL") -> datetime:
+    _reject_subsecond_time(datetime_local)
     try:
         local = datetime.fromisoformat(datetime_local)
     except ValueError:
@@ -25,6 +42,7 @@ def parse_birth_date(birth_date: str) -> date:
 
 
 def normalize_birth_time(birth_time: str) -> str:
+    _reject_subsecond_time(birth_time)
     candidate = f"{birth_time}:00" if len(birth_time) == 5 else birth_time
     try:
         parsed = time.fromisoformat(candidate)
@@ -32,7 +50,7 @@ def normalize_birth_time(birth_time: str) -> str:
         raise ValueError("INVALID_BIRTH_TIME") from None
     if parsed.tzinfo is not None:
         raise ValueError("INVALID_BIRTH_TIME")
-    return parsed.replace(microsecond=0).isoformat()
+    return parsed.isoformat()
 
 
 def birth_datetime_local(birth_date: str, birth_time: str) -> str:

@@ -451,12 +451,12 @@ class AstroCoreService:
             calculation_profile_code=profile.code,
             calculation_profile=profile,
             datetime=DateTimeInfo(
-                local=local_with_offset_iso(datetime_local, request.timezone),
+                local=local_with_offset_iso(canonical_datetime_local, request.timezone),
                 utc=utc_to_iso(utc_dt),
                 timezone=request.timezone,
                 julian_day_ut=jd_ut,
             ),
-            datetime_local=datetime_local,
+            datetime_local=canonical_datetime_local,
             datetime_utc=utc_to_iso(utc_dt),
             julian_day_ut=jd_ut,
             location=LocationInfo(

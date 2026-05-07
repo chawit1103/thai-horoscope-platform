@@ -1,4 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { assertProviderNetworkAllowed, validateProviderActivationReadiness } from "./provider-activation-guardrails";
+import type { EnvironmentInput } from "./environment-validation";
 
 export type EmailTopicCode = "email_verification"|"account_security"|"data_export"|"account_deletion"|"payment_receipt"|"system"|"daily_horoscope"|"weekly_horoscope"|"monthly_horoscope"|"yearly_horoscope"|"marketing"|"engagement";
 export type EmailDeliveryStatus = "sent"|"failed"|"blocked"|"bounced"|"complained"|"unsubscribed";
@@ -40,9 +42,10 @@ export class SandboxEmailProvider implements EmailProvider {
 }
 
 export class HttpEmailProvider implements EmailProvider {
-  constructor(private readonly config:{ endpoint:string; apiKey:string; webhookSecret?:string; fetcher?:typeof fetch }) {}
+  constructor(private readonly config:{ endpoint:string; apiKey:string; webhookSecret?:string; fetcher?:typeof fetch; activationEnv?:EnvironmentInput }) {}
 
   async send(request: EmailProviderRequest): Promise<EmailProviderResult> {
+    assertProviderNetworkAllowed(validateProviderActivationReadiness(this.config.activationEnv ?? process.env), "email");
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(this.config.endpoint, {
       method: "POST",

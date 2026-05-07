@@ -13,6 +13,22 @@ const periodStart = "2026-05-01T00:00:00.000Z";
 const periodEnd = "2026-06-01T00:00:00.000Z";
 const renewedPeriodEnd = "2026-07-01T00:00:00.000Z";
 const insidePeriod = new Date("2026-05-15T00:00:00.000Z");
+const paymentActivationEnv = {
+  APP_ENV:"staging",
+  ADMIN_SESSION_SECRET:"admin-session-secret",
+  EMAIL_PROVIDER_MODE:"sandbox",
+  EMAIL_AUDIT_HASH_SECRET:"email-audit-secret",
+  LINE_PROVIDER_MODE:"disabled",
+  PAYMENT_PROVIDER_MODE:"http",
+  PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"https://payments.example.test/checkout",
+  PAYMENT_PROVIDER_API_KEY:"test_api_key",
+  PAYMENT_WEBHOOK_SECRET:webhookSecret,
+  NOTIFICATION_SCHEDULER_MODE:"dry_run",
+  ASTRO_ENGINE:"mock",
+  SWISSEPH_LICENSE_MODE:"none",
+  ENABLE_REAL_PAYMENT_PROVIDER:"true",
+  REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+};
 
 const checkoutInput = (overrides:Partial<CreateCheckoutInput> = {}):CreateCheckoutInput => ({
   userId:"user_a",
@@ -132,7 +148,7 @@ describe("payment provider foundation", () => {
   });
 
   it("rejects checkout completion provider mismatches", async () => {
-    const httpProvider = new HttpPaymentProvider({ checkoutEndpoint:"https://payments.example.test/checkout", apiKey:"test_api_key", webhookSecret, fetcher:async () => new Response(JSON.stringify({ id:"shared_checkout", checkoutUrl:"https://payments.example.test/checkout/shared_checkout" }), { status:200, headers:{ "content-type":"application/json" } }) });
+    const httpProvider = new HttpPaymentProvider({ checkoutEndpoint:"https://payments.example.test/checkout", apiKey:"test_api_key", webhookSecret, activationEnv:paymentActivationEnv, fetcher:async () => new Response(JSON.stringify({ id:"shared_checkout", checkoutUrl:"https://payments.example.test/checkout/shared_checkout" }), { status:200, headers:{ "content-type":"application/json" } }) });
     await createPaymentCheckoutSession(httpProvider, checkoutInput());
     const mockProvider = new MockPaymentProvider({ webhookSecret });
 
@@ -215,7 +231,7 @@ describe("payment provider foundation", () => {
   });
 
   it("rejects subscription.created provider mismatches", async () => {
-    const httpProvider = new HttpPaymentProvider({ checkoutEndpoint:"https://payments.example.test/checkout", apiKey:"test_api_key", webhookSecret, fetcher:async () => new Response(JSON.stringify({ id:"shared_subscription_checkout", checkoutUrl:"https://payments.example.test/checkout/shared_subscription_checkout" }), { status:200, headers:{ "content-type":"application/json" } }) });
+    const httpProvider = new HttpPaymentProvider({ checkoutEndpoint:"https://payments.example.test/checkout", apiKey:"test_api_key", webhookSecret, activationEnv:paymentActivationEnv, fetcher:async () => new Response(JSON.stringify({ id:"shared_subscription_checkout", checkoutUrl:"https://payments.example.test/checkout/shared_subscription_checkout" }), { status:200, headers:{ "content-type":"application/json" } }) });
     await createPaymentCheckoutSession(httpProvider, checkoutInput({ providerSubscriptionId:"sub_shared_provider" }));
     const mockProvider = new MockPaymentProvider({ webhookSecret });
 

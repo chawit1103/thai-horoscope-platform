@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { type EmailProvider, type EmailProviderRequest } from "../src/mvp/email-gateway";
-import { type LineProvider, type LineProviderPushRequest } from "../src/mvp/line-gateway";
-import { type CreateCheckoutInput, type PaymentProvider } from "../src/mvp/payment-provider";
+import { HttpEmailProvider, type EmailProvider, type EmailProviderRequest } from "../src/mvp/email-gateway";
+import { HttpLineProvider, type LineProvider, type LineProviderPushRequest } from "../src/mvp/line-gateway";
+import { HttpPaymentProvider, type CreateCheckoutInput, type PaymentProvider } from "../src/mvp/payment-provider";
 import {
   assertProviderNetworkAllowed,
   readProviderActivationFlags,
@@ -208,6 +208,30 @@ describe("provider activation guardrails", () => {
     });
 
     assert.equal(harness.networkCallsAttempted, true);
+  });
+
+  it("HTTP providers enforce dry-run guardrails before fetch calls", async () => {
+    let fetchCalls = 0;
+    const fetcher = async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({ id:"checkout_1", checkoutUrl:"https://payments.example.test/checkout/checkout_1" }), { status:200, headers:{ "content-type":"application/json" } });
+    };
+    const dryRunEnv = { ...fullRealProviderEnv, ENABLE_PROVIDER_DRY_RUN:"true" };
+    const emailProvider = new HttpEmailProvider({ endpoint:"https://email-provider.example.test/send", apiKey:"email-api-secret-value", activationEnv:dryRunEnv, fetcher });
+    const lineProvider = new HttpLineProvider({ channelAccessToken:"line-access-token-value", activationEnv:dryRunEnv, fetcher });
+    const paymentProvider = new HttpPaymentProvider({ checkoutEndpoint:"https://payments.example.test/checkout", apiKey:"payment-api-secret-value", activationEnv:dryRunEnv, fetcher });
+
+    await assert.rejects(emailProvider.send({ to:"user@example.test", from:"noreply@example.test", subject:"Test", text:"Test", html:"<p>Test</p>", headers:{} }), /PROVIDER_NETWORK_CALL_BLOCKED:email/);
+    await assert.rejects(lineProvider.push({ to:"U123456789abcdef", messages:[{ type:"text", text:"Test" }] }), /PROVIDER_NETWORK_CALL_BLOCKED:line/);
+    await assert.rejects(paymentProvider.createCheckoutSession({
+      userId:"user_a",
+      planCode:"premium",
+      successUrl:"https://app.example.test/success",
+      cancelUrl:"https://app.example.test/cancel",
+      currentPeriodStart:"2026-05-01T00:00:00.000Z",
+      currentPeriodEnd:"2026-06-01T00:00:00.000Z",
+    }), /PROVIDER_NETWORK_CALL_BLOCKED:payment/);
+    assert.equal(fetchCalls, 0);
   });
 
   it("activation status redacts secrets and provider payloads", () => {

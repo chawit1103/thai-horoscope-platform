@@ -1,4 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { assertProviderNetworkAllowed, validateProviderActivationReadiness } from "./provider-activation-guardrails";
+import type { EnvironmentInput } from "./environment-validation";
 
 export type LineInboundEventType = "follow"|"unfollow"|"message"|"postback";
 export type LineDeliveryStatus = "sent"|"failed"|"blocked";
@@ -35,7 +37,7 @@ export class SandboxLineProvider implements LineProvider {
 }
 
 export class HttpLineProvider implements LineProvider {
-  constructor(private readonly config:{ channelAccessToken?:string; channelSecret?:string; pushEndpoint?:string; fetcher?:typeof fetch; userIdHashSecret?:string }) {}
+  constructor(private readonly config:{ channelAccessToken?:string; channelSecret?:string; pushEndpoint?:string; fetcher?:typeof fetch; userIdHashSecret?:string; activationEnv?:EnvironmentInput }) {}
 
   async push(request:LineProviderPushRequest):Promise<LineProviderPushResult> {
     const token = this.config.channelAccessToken ?? process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -43,6 +45,7 @@ export class HttpLineProvider implements LineProvider {
     if (request.retryKey !== undefined) {
       if (!request.retryKey.trim() || !isUuid(request.retryKey)) throw new Error("LINE retryKey must be a valid UUID.");
     }
+    assertProviderNetworkAllowed(validateProviderActivationReadiness(this.config.activationEnv ?? process.env), "line");
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(this.config.pushEndpoint ?? "https://api.line.me/v2/bot/message/push", {
       method:"POST",

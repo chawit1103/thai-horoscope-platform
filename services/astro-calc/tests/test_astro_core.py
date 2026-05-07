@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from dataclasses import replace
@@ -8,14 +9,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.config import AstroRuntimeConfig
+from app.config import AstroRuntimeConfig, read_runtime_environment
 from app.core.aspects import calculate_cross_aspects, calculate_transit_to_natal_hits
 from app.core.calculators import AstroCoreService
 from app.core.math import normalize_deg, sign_index
 from app.core.time import local_to_utc, utc_to_iso
-from app.main import create_service
 from app.engines.mock import MockAstroEngine
 from app.engines.swisseph import SwissEphemerisEngine, fingerprint_ephemeris_path
+from app.main import create_service, health
 from app.schemas import (
     ChartRequest,
     ChartSnapshot,
@@ -1456,11 +1457,213 @@ class AstroCoreTests(unittest.TestCase):
         self.assertIsNone(hits[0].applying_or_separating)
 
     def test_production_swisseph_guard_fails_closed(self) -> None:
+        with self.assertRaisesRegex(PermissionError, "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN"):
+            AstroRuntimeConfig(engine="mock", runtime_env="production").validate()
         with self.assertRaisesRegex(PermissionError, "LICENSE_MODE_NOT_PRODUCTION_READY"):
             AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="free", ephemeris_path="/tmp").validate()
         with self.assertRaisesRegex(PermissionError, "EPHEMERIS_FILE_MISSING"):
             AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="professional").validate()
         AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="professional", ephemeris_path="/tmp").validate()
+
+    def test_runtime_environment_reads_deployment_sources_before_node_env(self) -> None:
+        names = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV", "ENVIRONMENT"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "production"
+        os.environ["NODE_ENV"] = "development"
+        try:
+            self.assertEqual(read_runtime_environment(), "production")
+            self.assertEqual(AstroRuntimeConfig.from_env().runtime_env, "production")
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+    def test_runtime_environment_fails_closed_when_local_value_conflicts_with_production(self) -> None:
+        names = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV", "ENVIRONMENT"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "development"
+        os.environ["NODE_ENV"] = "production"
+        try:
+            self.assertEqual(read_runtime_environment(), "production")
+            self.assertEqual(AstroRuntimeConfig.from_env().runtime_env, "production")
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+    def test_runtime_environment_respects_explicit_staging_over_node_production(self) -> None:
+        names = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV", "ENVIRONMENT"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "staging"
+        os.environ["NODE_ENV"] = "production"
+        try:
+            self.assertEqual(read_runtime_environment(), "staging")
+            self.assertEqual(AstroRuntimeConfig.from_env().runtime_env, "staging")
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+    def test_runtime_environment_fails_closed_for_local_and_staging_conflict_with_production(self) -> None:
+        names = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV", "ENVIRONMENT"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "staging"
+        os.environ["DEPLOYMENT_ENV"] = "local"
+        os.environ["NODE_ENV"] = "production"
+        try:
+            self.assertEqual(read_runtime_environment(), "production")
+            self.assertEqual(AstroRuntimeConfig.from_env().runtime_env, "production")
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+    def test_health_reports_sanitized_config_errors_without_ephemeris_path(self) -> None:
+        previous = {name: os.environ.get(name) for name in ["ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]}
+        os.environ["ASTRO_ENGINE"] = "swisseph"
+        os.environ["NODE_ENV"] = "production"
+        os.environ["SWISSEPH_LICENSE_MODE"] = "free"
+        os.environ["ASTRO_EPHEMERIS_PATH"] = "/private/ephemeris/path"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "LICENSE_MODE_NOT_PRODUCTION_READY")
+        self.assertEqual(report["ephemeris_path_configured"], "true")
+        self.assertNotIn("/private/ephemeris/path", str(report))
+
+    def test_health_rejects_mock_engine_in_production_from_app_env(self) -> None:
+        names = ["APP_ENV", "ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "production"
+        os.environ["ASTRO_ENGINE"] = "mock"
+        os.environ["NODE_ENV"] = "development"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN")
+        self.assertNotIn("development", str(report))
+
+    def test_health_rejects_mock_engine_when_local_app_env_conflicts_with_production(self) -> None:
+        names = ["APP_ENV", "ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "development"
+        os.environ["ASTRO_ENGINE"] = "mock"
+        os.environ["NODE_ENV"] = "production"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN")
+
+    def test_health_sanitizes_invalid_config_values_without_echoing_them(self) -> None:
+        names = ["ASTRO_ENGINE", "ASTRO_CALCULATION_PROFILE", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["ASTRO_ENGINE"] = "secret-engine-token"
+        os.environ["ASTRO_CALCULATION_PROFILE"] = "private-profile-token"
+        os.environ["SWISSEPH_LICENSE_MODE"] = "secret-license-token"
+        os.environ["ASTRO_EPHEMERIS_PATH"] = "/private/ephemeris/path"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        serialized = str(report)
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["engine"], "invalid")
+        self.assertEqual(report["profile"], "invalid")
+        self.assertEqual(report["license_mode"], "invalid")
+        self.assertNotIn("secret-engine-token", serialized)
+        self.assertNotIn("private-profile-token", serialized)
+        self.assertNotIn("secret-license-token", serialized)
+        self.assertNotIn("/private/ephemeris/path", serialized)
+
+    def test_health_keeps_staging_mock_engine_when_node_env_is_production(self) -> None:
+        names = ["APP_ENV", "ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "staging"
+        os.environ["ASTRO_ENGINE"] = "mock"
+        os.environ["NODE_ENV"] = "production"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["engine"], "mock")
+
+    def test_health_rejects_mock_engine_when_local_and_staging_conflict_with_production(self) -> None:
+        names = ["APP_ENV", "DEPLOYMENT_ENV", "ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "staging"
+        os.environ["DEPLOYMENT_ENV"] = "local"
+        os.environ["ASTRO_ENGINE"] = "mock"
+        os.environ["NODE_ENV"] = "production"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN")
+
+    def test_health_verifies_swisseph_ephemeris_path_exists_without_exposing_it(self) -> None:
+        previous = {name: os.environ.get(name) for name in ["ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]}
+        os.environ["ASTRO_ENGINE"] = "swisseph"
+        os.environ["NODE_ENV"] = "production"
+        os.environ["SWISSEPH_LICENSE_MODE"] = "professional"
+        os.environ["ASTRO_EPHEMERIS_PATH"] = "/private/missing/ephemeris/path"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "EPHEMERIS_FILE_MISSING")
+        self.assertNotIn("/private/missing/ephemeris/path", str(report))
 
     def test_swisseph_adapter_fails_closed_when_ephemeris_path_is_missing(self) -> None:
         config = AstroRuntimeConfig(

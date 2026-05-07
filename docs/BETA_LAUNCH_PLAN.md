@@ -9,6 +9,7 @@ Provide a staged beta launch plan for the Thai horoscope platform that validates
 The beta may validate:
 
 - responsive web onboarding
+- beta invite codes and allowlist enrollment in mock mode
 - birth profile creation and update
 - daily, weekly, monthly, and yearly horoscope access paths
 - entitlement-gated access behavior
@@ -35,6 +36,9 @@ The beta must not present mock calculation output as approved production astrolo
 ```
 
 Do not invite broad public traffic until production privacy, payment, support, provider, and Swiss Ephemeris decisions are approved.
+
+Invite management is documented in [Beta invite management](BETA_INVITE_MANAGEMENT.md).
+Launch copy is documented in [Beta launch content](BETA_LAUNCH_CONTENT.md).
 
 ## Supported channels
 
@@ -150,6 +154,7 @@ Decision:
 
 ```text
 [ ] Explain beta scope and limitations
+[ ] Confirm invite/allowlist states are ready for approved beta users only
 [ ] State horoscope content is entertainment and self-reflection
 [ ] State payment, LINE, email, and astro production readiness gates plainly
 [ ] Include support contact/process

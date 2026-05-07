@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createBetaInvite, revokeBetaInvite } from "./beta-launch";
 import { approveContentPreviewBatch, rejectContentPreviewBatch } from "./content-preview-approval";
 import { approveDraft, queueMockOutboundMessage, recordAdminAudit, recordMockDeliveryAttempt, rejectDraft } from "./mock-flow";
 
@@ -134,6 +135,32 @@ export function rejectContentBatchWithAdminCookie(input: { sessionId: string; ba
   const rejected = rejectContentPreviewBatch({ sessionId: input.sessionId, batchId: input.batchId, actorId: auth.actorId });
   const adminAuditPartition = getAdminAuditPartition(auth);
   recordAdminAudit(adminAuditPartition, auth.actorId, "admin_content_batch_rejected", rejected.batchId, { role: auth.role, approvalStatus: rejected.approvalStatus, itemCount: String(rejected.items.length) });
+}
+
+export function createBetaInviteWithAdminCookie(input: { sessionId: string; inviteCode?: string; email?: string; userId?: string; sessionCookie?: string; sessionSecret?: string }): string {
+  const auth = validateAdminSession({ sessionCookie: input.sessionCookie, sessionSecret: input.sessionSecret });
+  if (!auth.ok) {
+    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", DENIED_ADMIN_ACTION_AUDIT_TARGET_ID, { reason: auth.reason, path: "/admin/beta/invites/create" });
+    throw new Error("Unauthorized: admin role is required.");
+  }
+
+  if (!input.inviteCode && !input.email && !input.userId) throw new Error("Beta invite requires a code, email allowlist, or user allowlist.");
+  const invite = createBetaInvite({ sessionId: input.sessionId, inviteCode: input.inviteCode, email: input.email, userId: input.userId });
+  const adminAuditPartition = getAdminAuditPartition(auth);
+  recordAdminAudit(adminAuditPartition, auth.actorId, "admin_beta_invite_created", invite.id, { role: auth.role, inviteKind: invite.kind, inviteStatus: invite.status });
+  return invite.id;
+}
+
+export function revokeBetaInviteWithAdminCookie(input: { sessionId: string; inviteId: string; sessionCookie?: string; sessionSecret?: string }): void {
+  const auth = validateAdminSession({ sessionCookie: input.sessionCookie, sessionSecret: input.sessionSecret });
+  if (!auth.ok) {
+    recordAdminAudit(UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, "anonymous", "admin_access_denied", DENIED_ADMIN_ACTION_AUDIT_TARGET_ID, { reason: auth.reason, path: "/admin/beta/invites/revoke" });
+    throw new Error("Unauthorized: admin role is required.");
+  }
+
+  const invite = revokeBetaInvite({ sessionId: input.sessionId, inviteId: input.inviteId });
+  const adminAuditPartition = getAdminAuditPartition(auth);
+  recordAdminAudit(adminAuditPartition, auth.actorId, "admin_beta_invite_revoked", invite.id, { role: auth.role, inviteKind: invite.kind, inviteStatus: invite.status });
 }
 
 function signAdminSession(session: AdminSession, secret: string): string {

@@ -212,6 +212,22 @@ overconfident unknown-birth-time copy, or medical/legal/financial/death/
 accident/guaranteed-outcome implication. Rejected beta batches must not be sent;
 approval after rejection requires regeneration or an explicit future reset flow.
 
+## PR31 beta launch copy
+
+Beta launch, invite, onboarding, support, and feedback copy must use the same
+entertainment/self-reflection framing as horoscope pages. The beta content pack
+must explain that results are experimental, unknown birth time lowers precision,
+and beta enrollment does not replace subscription entitlement.
+
+User-facing beta copy must not expose raw invite codes, email addresses, LINE
+user IDs, payment provider IDs, webhook payloads, birth hashes, calculation
+hashes, audit IDs, secrets, tokens, or API keys.
+
+Beta launch copy must not include deterministic guarantee language, medical
+diagnosis, legal advice, investment instruction, lottery or guaranteed money
+claims, death/accident/serious illness predictions, fear-based urgency, or 100%
+accuracy claims.
+
 ## Unknown birth time policy
 
 When chart warnings include `UNKNOWN_BIRTH_TIME` or

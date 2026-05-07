@@ -37,7 +37,30 @@ Stop and ask for human guidance if:
 - fix changes PR scope
 - same issue class has already been fixed twice
 - production credentials/license decisions are needed
+- Swiss Ephemeris license decision is needed
+- production ephemeris files or secrets are required
+- fix requires committing large binary ephemeris files
 - tests fail and root cause is unclear
+```
+
+## Additional checklist for Astro / PR18 / Python astro-calc findings
+
+Apply this section only when review findings touch `services/astro-calc`, astro calculation, ephemeris, Swiss Ephemeris, ayanamsa, natal/transit/solar return/hourly timing, or chart snapshot schemas/contracts.
+
+Checks:
+
+```text
+- Run Python tests from services/astro-calc with python3 -m pytest, or uv run pytest if uv is already configured.
+- If Python lint/type tools already exist, run them, for example ruff and mypy. Do not add new tooling just for this prompt.
+- No runtime ephemeris downloads.
+- No ephemeris binaries committed, including .bsp, .se1, .se2, .bin, .dat.
+- No production Swiss Ephemeris enablement unless SWISSEPH_LICENSE_MODE=professional.
+- Fail closed when ephemeris path is missing, empty, or contains no supported files.
+- calculation_hash must be deterministic and must include engine/profile/ephemeris/ayanamsa metadata.
+- Error messages must be sanitized and must not leak raw birth date, birth time, location, or user input.
+- Unknown birth time must not overclaim ascendant/houses/timing precision.
+- Hourly timing, solar return, and transit outputs must propagate relevant warnings.
+- Chart snapshot schema/contracts must include emitted warning codes.
 ```
 
 ## Never do these
@@ -60,10 +83,19 @@ Stop and ask for human guidance if:
 Findings fixed:
 - ...
 
+Files changed:
+- ...
+
 Tests added/updated:
 - ...
 
 Commands run:
+- ...
+
+Tests run:
+- ...
+
+Risks:
 - ...
 
 Commit:

@@ -207,6 +207,24 @@ describe("beta content preview approval", () => {
     assert.equal(g.lineProvider.networkSendCount, 0);
   });
 
+  it("marks an existing non-beta queued message as held when beta approval starts", async () => {
+    const userId = "preview_existing_queue_user";
+    approveHoroscopeArtifact({ userId });
+    const schedulerUser = user({ userId, subscription:await activeSubscription(userId) });
+    const first = runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:["daily_horoscope"], now });
+    const beta = runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
+
+    assert.equal(first.queued.length, 1);
+    assert.equal(beta.duplicates, 1);
+    assert.equal(beta.deferred, 1);
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.deliveryMetadata?.approvalStatus, "pending_review");
+
+    const g = gateways();
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[schedulerUser], emailGateway:g.emailGateway, lineGateway:g.lineGateway, now });
+    assert.equal(dispatch.sent, 0);
+    assert.equal(dispatch.attempts.at(-1)?.errorCode, "content_pending_approval");
+  });
+
   it("redacts PII while keeping rule hits safety flags warnings and source metadata visible", async () => {
     const batchId = await createPendingPreviewBatch("preview_redaction_user");
     const batch = getContentPreviewBatch(sessionId, batchId);

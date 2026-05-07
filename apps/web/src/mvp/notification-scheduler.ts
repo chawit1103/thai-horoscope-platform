@@ -121,7 +121,12 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         deliveryChannels:getPreparedDeliveryChannels(user, topicCode),
         now,
       }) : undefined;
+      const approvalDeferredReason = input.betaApprovalMode && approval?.approvalStatus !== "approved" ? "content_pending_approval" : undefined;
+
+      const queueKey = makeQueueKey(user.userId, topicCode, periodKey);
+      const existing = state.outboundMessages.find((message)=>message.queueKey===queueKey);
       if (input.betaApprovalMode && approval?.approvalStatus === "rejected") {
+        if (existing) applyApprovalMetadata(existing, approval);
         skipped += 1;
         writeAudit("notification_skipped", auditTarget(user.userId, topicCode, periodKey), now, {
           topicCode,
@@ -131,13 +136,15 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         });
         continue;
       }
-      const approvalDeferredReason = input.betaApprovalMode && approval?.approvalStatus !== "approved" ? "content_pending_approval" : undefined;
-
-      const queueKey = makeQueueKey(user.userId, topicCode, periodKey);
-      const existing = state.outboundMessages.find((message)=>message.queueKey===queueKey);
       if (existing) {
         duplicates += 1;
         refreshQueuedDeliveryPreferences(existing, user, topicCode, now);
+        if (approval) applyApprovalMetadata(existing, approval);
+        if (approvalDeferredReason && !hasPendingApprovalAttempt(existing.id)) {
+          deferred += 1;
+          const attempt = recordAttempt(existing, existing.channel, "deferred", now, false, approvalDeferredReason);
+          writeAudit("notification_deferred", existing.id, now, { topicCode, periodKey, reason:approvalDeferredReason, attemptId:attempt.id, previewBatchId:approval?.batchId ?? "" });
+        }
         writeAudit("notification_duplicate", existing.id, now, { topicCode, periodKey, channel, queuePolicy:"user_topic_period" });
         continue;
       }
@@ -158,10 +165,11 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         title:deliveryPayload.title,
         body:deliveryPayload.previewText,
         horoscopeContent:deliveryPayload.content,
-        deliveryMetadata:{ ...deliveryPayload.metadata, ...(approval ? { previewBatchId:approval.batchId, approvalStatus:approval.approvalStatus } : {}) },
+        deliveryMetadata:{ ...deliveryPayload.metadata },
         status:"queued",
         createdAt:now.toISOString(),
       };
+      if (approval) applyApprovalMetadata(message, approval);
       state.outboundMessages.push(message);
       queued.push(structuredClone(message));
       writeAudit("notification_queued", message.id, now, { topicCode, periodKey, channel, fallbackChannel:message.fallbackChannel ?? "" });
@@ -412,6 +420,14 @@ function getPreparedDeliveryChannels(user:NotificationSchedulerUser, topicCode:N
 
 function messageRequiresContentApproval(message:ScheduledNotificationMessage):boolean {
   return Boolean(message.deliveryMetadata?.previewBatchId || message.deliveryMetadata?.approvalStatus);
+}
+
+function applyApprovalMetadata(message:ScheduledNotificationMessage, approval:{ batchId:string; approvalStatus:string }):void {
+  message.deliveryMetadata = { ...(message.deliveryMetadata ?? {}), previewBatchId:approval.batchId, approvalStatus:approval.approvalStatus };
+}
+
+function hasPendingApprovalAttempt(outboundMessageId:string):boolean {
+  return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.status==="deferred"&&attempt.errorCode==="content_pending_approval");
 }
 
 function isFallbackAllowed(user:NotificationSchedulerUser, topicCode:NotificationTopic):boolean {

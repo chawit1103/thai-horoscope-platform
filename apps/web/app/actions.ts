@@ -143,10 +143,10 @@ export async function unsubscribeNotificationsAction(formData: FormData): Promis
   redirect("/settings/notifications");
 }
 
-export async function deleteBirthProfileAction(): Promise<void> {
+export async function deleteBirthProfileAction(birthProfileId: string): Promise<void> {
   const { sessionId, userId } = await requireSessionContext();
   const state = getMockMvpState(sessionId);
-  const profile = state.birthProfiles.find((item)=>item.userId === userId);
+  const profile = state.birthProfiles.find((item)=>item.userId === userId && item.id === birthProfileId);
   if (profile) deleteBirthProfile({ sessionId, userId }, profile.id);
   redirect("/settings/privacy");
 }

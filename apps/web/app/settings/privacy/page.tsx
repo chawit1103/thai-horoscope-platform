@@ -31,12 +31,13 @@ export default async function PrivacySettingsPage() {
       <section className="grid">
         {profiles.length === 0 ? <article className="panel"><h2>Birth profile</h2><p>ยังไม่มี birth profile</p></article> : profiles.map((profile)=> {
           const summary = buildBirthProfileSummary(profile);
+          const deleteSelectedBirthProfile = deleteBirthProfileAction.bind(null, profile.id);
           return (
             <article className="panel" key={profile.id}>
               <h2>Birth profile</h2>
               <p>{summary.birthDateLabel} · {summary.birthTimeLabel} · {summary.birthPlaceLabel}</p>
               {summary.warnings.map((warning)=><p className="guard" key={warning}>{warning}</p>)}
-              <form action={deleteBirthProfileAction}>
+              <form action={deleteSelectedBirthProfile}>
                 <button type="submit">Delete birth profile</button>
               </form>
             </article>

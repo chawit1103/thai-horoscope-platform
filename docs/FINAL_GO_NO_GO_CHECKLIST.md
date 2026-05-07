@@ -34,7 +34,7 @@ Decision: go / no-go
 [ ] Rollback checklist is complete
 [ ] Operator console is available and admin-protected
 [ ] Monitoring redaction is verified
-[ ] Beta invite/enrollment plan is ready or marked pending if PR31 is not merged
+[ ] Beta invite/enrollment plan is ready; if PR31 is not merged, the beta invite decision is pending/no-go
 [ ] Real provider activation guardrails are ready or marked pending if PR29 is not merged
 [ ] Swiss Ephemeris production license decision is documented or production Swiss Ephemeris is disabled
 [ ] No real payment is enabled unless explicitly approved
@@ -61,7 +61,7 @@ Decision: go / no-go
 [ ] Mock astro output is presented as production astrology
 [ ] Swiss Ephemeris production use is enabled without license and file-manifest approval
 [ ] PR29 dependency is pending but real provider activation is marked ready
-[ ] PR31 dependency is pending but invite/enrollment readiness is overclaimed
+[ ] PR31 dependency is pending but invite/enrollment readiness is overclaimed or beta invite is marked go
 ```
 
 ## Pending dependency record
@@ -69,7 +69,7 @@ Decision: go / no-go
 | Dependency | Status | Beta impact | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | PR29 real provider activation guardrails | pending / merged / not applicable | pending if real provider activation is needed |  |  |
-| PR31 beta launch content and invite management | pending / merged / not applicable | pending if beta invitations/enrollment are needed |  |  |
+| PR31 beta launch content and invite management | pending / merged / not applicable | no-go for beta invite while pending |  |  |
 
 ## Decision table
 

@@ -146,7 +146,7 @@ Human approval is required before merge, staging deploy, production deploy, prod
 | E2E smoke matrix | `docs/E2E_BETA_SMOKE_TEST_MATRIX.md` complete | pending |  |  |
 | Provider modes | Mock/sandbox/dry-run confirmed | pending |  |  |
 | PR29 dependency | Merged or pending/no-go noted | pending |  |  |
-| PR31 dependency | Merged or pending/no-go noted | pending |  |  |
+| PR31 dependency | Merged or pending/no-go for beta invite noted | pending |  |  |
 | Rollback | Owner and target recorded | pending |  |  |
 | Support | Owner and feedback path ready | pending |  |  |
 | Final decision | Go or no-go recorded by human | pending |  |  |

@@ -62,6 +62,12 @@ class TimingRangeResult:
         self.warning = warning
 
 
+class SnapshotDateTimeValidation:
+    def __init__(self, local: datetime, utc: datetime) -> None:
+        self.local = local
+        self.utc = utc
+
+
 class AstroCoreService:
     def __init__(
         self,
@@ -107,6 +113,7 @@ class AstroCoreService:
 
     def calculate_transit_to_natal(self, request: TransitSnapshotRequest) -> TransitComparison:
         natal = request.natal_chart_snapshot
+        validated_natal_datetime = validate_chart_snapshot_datetimes(natal)
         profile = get_profile(request.calculation_profile_code)
         transit_utc = parse_transit_datetime_utc(request.transit_datetime_utc)
         transit_location = request.transit_location
@@ -130,6 +137,8 @@ class AstroCoreService:
             {
                 "kind": "transit_to_natal",
                 "natal": natal.calculation_hash,
+                "natal_datetime_local": validated_natal_datetime.local.isoformat(timespec="seconds"),
+                "natal_datetime_utc": utc_to_iso(validated_natal_datetime.utc),
                 "transit": transit.calculation_hash,
                 "aspect_orbs": aspect_orbs,
                 "aspects": [asdict(a) for a in cross_aspects],
@@ -161,12 +170,13 @@ class AstroCoreService:
         year = request.solar_return_year or request.return_year
         if year is None:
             raise ValueError("Solar return requires solar_return_year.")
-        validated_natal_datetime_local = validate_solar_return_natal_snapshot_datetimes(natal)
+        validated_natal_datetime = validate_chart_snapshot_datetimes(natal)
+        propagated_warnings = timing_warnings_from_natal(natal)
         profile_code = request.calculation_profile_code or natal.calculation_profile_code
         profile = get_profile(profile_code)
         target = sun_reference_longitude(natal, profile.zodiac_type)
         location = request.location or location_from_natal_request(request.natal)
-        bracket_center = solar_return_search_center(validated_natal_datetime_local, year, location)
+        bracket_center = solar_return_search_center(validated_natal_datetime.local, year, location)
         search = self._find_solar_return(
             target=target,
             profile_code=profile_code,
@@ -176,6 +186,7 @@ class AstroCoreService:
             accuracy_arc_minutes=request.accuracy_arc_minutes,
             max_iterations=request.max_iterations,
         )
+        warnings = dedupe_warnings([*propagated_warnings, *search.warnings])
         return_chart = self.store.store(self._calculate_chart(chart_request_for_utc(profile_code, search.datetime_utc, location)))
         sun_at_return = sun_reference_longitude(return_chart, profile.zodiac_type)
         delta_arc_seconds = round(angular_distance(sun_at_return, target) * 3600, 6)
@@ -184,11 +195,13 @@ class AstroCoreService:
                 "kind": "solar_return",
                 "year": year,
                 "natal": natal.calculation_hash,
+                "natal_datetime_local": validated_natal_datetime.local.isoformat(timespec="seconds"),
+                "natal_datetime_utc": utc_to_iso(validated_natal_datetime.utc),
                 "return": return_chart.calculation_hash,
                 "target": target,
                 "sun_at_return": sun_at_return,
                 "delta_arc_seconds": delta_arc_seconds,
-                "warnings": [asdict(warning) for warning in search.warnings],
+                "warnings": [asdict(warning) for warning in warnings],
             }
         )
         datetime_utc = utc_to_iso(search.datetime_utc)
@@ -204,7 +217,7 @@ class AstroCoreService:
             natal_sun_longitude_reference=target,
             delta_arc_seconds=delta_arc_seconds,
             solar_return_chart_snapshot=return_chart,
-            warnings=search.warnings,
+            warnings=warnings,
             calculation_hash=calculation_hash,
         )
 
@@ -216,6 +229,7 @@ class AstroCoreService:
             if request.natal is None:
                 raise ValueError("Hourly timing requires natal_chart_snapshot or natal chart input.")
             natal = self.calculate_natal_chart(request.natal)
+        validated_natal_datetime = validate_chart_snapshot_datetimes(natal)
         profile_code = request.calculation_profile_code or natal.calculation_profile_code
         profile = get_profile(profile_code)
         aspect_orbs = request.orb_thresholds or profile.aspect_orbs_deg
@@ -228,6 +242,8 @@ class AstroCoreService:
                 {
                     "kind": "hourly_timing",
                     "natal": natal.calculation_hash,
+                    "natal_datetime_local": validated_natal_datetime.local.isoformat(timespec="seconds"),
+                    "natal_datetime_utc": utc_to_iso(validated_natal_datetime.utc),
                     "range_warning": asdict(range_result.warning),
                     "profile": profile_code,
                     "warnings": [asdict(warning) for warning in warnings],
@@ -255,6 +271,8 @@ class AstroCoreService:
             {
                 "kind": "hourly_timing",
                 "natal": natal.calculation_hash,
+                "natal_datetime_local": validated_natal_datetime.local.isoformat(timespec="seconds"),
+                "natal_datetime_utc": utc_to_iso(validated_natal_datetime.utc),
                 "start": utc_to_iso(range_result.start_utc),
                 "end": utc_to_iso(range_result.end_utc),
                 "timezone": request.timezone,
@@ -608,7 +626,7 @@ def build_hourly_timing_window(
     )
 
 
-def validate_solar_return_natal_snapshot_datetimes(natal: ChartSnapshot) -> datetime:
+def validate_chart_snapshot_datetimes(natal: ChartSnapshot) -> SnapshotDateTimeValidation:
     parsed_local = parse_datetime_local(natal.datetime_local, "INVALID_DATETIME")
     parsed_utc = parse_datetime_utc(natal.datetime_utc, "INVALID_DATETIME")
     nested_local = parse_datetime_snapshot_local(natal.datetime.local, "INVALID_DATETIME")
@@ -617,7 +635,9 @@ def validate_solar_return_natal_snapshot_datetimes(natal: ChartSnapshot) -> date
         raise ValueError("INVALID_DATETIME")
     if utc_to_iso(nested_utc) != utc_to_iso(parsed_utc):
         raise ValueError("INVALID_DATETIME")
-    return parsed_local
+    if nested_local.tzinfo is not None and utc_to_iso(nested_local) != utc_to_iso(parsed_utc):
+        raise ValueError("INVALID_DATETIME")
+    return SnapshotDateTimeValidation(local=parsed_local, utc=parsed_utc)
 
 
 def location_from_natal_request(request: ChartRequest | None) -> TransitLocation | None:

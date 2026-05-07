@@ -646,6 +646,27 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn("05:00:00.999", str(raised.exception))
         self.assertIsNone(raised.exception.__cause__)
 
+    def test_transit_rejects_fractional_snapshot_datetime_before_use_without_raw_input(self) -> None:
+        raw_datetime = "1990-05-12T08:30:00.500"
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        invalid_snapshot = replace(natal, datetime=replace(natal.datetime, local=f"{raw_datetime}+07:00"))
+
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            service.calculate_transit_to_natal(
+                TransitSnapshotRequest(
+                    natal_chart_snapshot=invalid_snapshot,
+                    transit_datetime_utc="2026-05-06T05:00:00Z",
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    transit_location=TransitLocation(latitude=13.7563, longitude=100.5018),
+                )
+            )
+
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertNotIn("1990-05-12", str(raised.exception))
+        self.assertNotIn("08:30:00.500", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
     def test_valid_second_precision_transit_datetime_utc_still_works(self) -> None:
         service = AstroCoreService()
         natal = service.calculate_natal_chart(bangkok_request())
@@ -860,6 +881,28 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn("00:00:00.250", str(raised.exception))
         self.assertIsNone(raised.exception.__cause__)
 
+    def test_hourly_timing_rejects_fractional_snapshot_datetime_before_range_handling(self) -> None:
+        raw_datetime = "1990-05-12T01:30:00.500Z"
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        invalid_snapshot = replace(natal, datetime_utc=raw_datetime)
+
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            service.calculate_hourly_timing(
+                HourlyTimingRequest(
+                    natal_chart_snapshot=invalid_snapshot,
+                    start_datetime_utc="2026-05-01T00:00:00Z",
+                    end_datetime_utc="2026-05-20T00:00:00Z",
+                    timezone="Asia/Bangkok",
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertNotIn("1990-05-12", str(raised.exception))
+        self.assertNotIn("01:30:00.500", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
     def test_hourly_timing_windows_are_deterministic(self) -> None:
         service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
         natal = service.calculate_natal_chart(bangkok_request())
@@ -1018,6 +1061,42 @@ class AstroCoreTests(unittest.TestCase):
         self.assertTrue(all(planet.house_number is not None for planet in with_location.solar_return_chart_snapshot.planets.values()))
         self.assertFalse(no_location.solar_return_chart_snapshot.houses.reliable)
         self.assertTrue(all(planet.house_number is None for planet in no_location.solar_return_chart_snapshot.planets.values()))
+        self.assertEqual(
+            [warning.code for warning in with_location.warnings],
+            [
+                "UNKNOWN_BIRTH_TIME",
+                "UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK",
+                "FAST_PLANET_POSITIONS_APPROXIMATE",
+                "UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE",
+            ],
+        )
+        repeated = service.calculate_solar_return(
+            SolarReturnRequest(
+                natal_chart_snapshot=natal,
+                solar_return_year=2026,
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+            )
+        )
+        self.assertEqual(with_location.calculation_hash, repeated.calculation_hash)
+
+    def test_solar_return_rejects_snapshot_local_offset_mismatch(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_solar_return=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        invalid_snapshot = replace(natal, datetime=replace(natal.datetime, local="1990-05-12T08:30:00+08:00"))
+
+        with self.assertRaisesRegex(ValueError, "INVALID_DATETIME") as raised:
+            service.calculate_solar_return(
+                SolarReturnRequest(
+                    natal_chart_snapshot=invalid_snapshot,
+                    solar_return_year=2026,
+                    location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+
+        self.assertNotIn("1990-05-12", str(raised.exception))
+        self.assertNotIn("08:30", str(raised.exception))
 
     def test_transit_to_natal_applying_uses_transit_motion_toward_exact_aspect(self) -> None:
         hits = calculate_transit_to_natal_hits(

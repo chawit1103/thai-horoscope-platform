@@ -3,7 +3,8 @@
 import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, authorizeAdminRoute, recordAdminSessionStartedWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken } from "../src/mvp/admin-auth";
+import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, approveContentBatchWithAdminCookie, authorizeAdminRoute, recordAdminSessionStartedWithAdminCookie, rejectContentBatchWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken } from "../src/mvp/admin-auth";
+import { CONTENT_PREVIEW_APPROVAL_SESSION_ID } from "../src/mvp/content-preview-approval";
 import { readDeploymentEnvironment } from "../src/mvp/environment-validation";
 import { callMockAstroCalc, generateHoroscopeResult, getMockPeriodKey, recordAdminAudit, saveBirthProfile, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
 
@@ -113,4 +114,28 @@ export async function rejectDraftAction(formData: FormData): Promise<void> {
     sessionSecret: process.env.ADMIN_SESSION_SECRET,
   });
   redirect("/admin");
+}
+
+export async function approveContentBatchAction(formData: FormData): Promise<void> {
+  const c = await cookies();
+  await requireAdminSession("/admin/content-preview");
+  approveContentBatchWithAdminCookie({
+    sessionId: CONTENT_PREVIEW_APPROVAL_SESSION_ID,
+    batchId: String(formData.get("batchId") ?? ""),
+    sessionCookie: c.get(ADMIN_COOKIE_NAME)?.value,
+    sessionSecret: process.env.ADMIN_SESSION_SECRET,
+  });
+  redirect("/admin/content-preview");
+}
+
+export async function rejectContentBatchAction(formData: FormData): Promise<void> {
+  const c = await cookies();
+  await requireAdminSession("/admin/content-preview");
+  rejectContentBatchWithAdminCookie({
+    sessionId: CONTENT_PREVIEW_APPROVAL_SESSION_ID,
+    batchId: String(formData.get("batchId") ?? ""),
+    sessionCookie: c.get(ADMIN_COOKIE_NAME)?.value,
+    sessionSecret: process.env.ADMIN_SESSION_SECRET,
+  });
+  redirect("/admin/content-preview");
 }

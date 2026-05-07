@@ -16,6 +16,7 @@ export default async function AdminPage() {
       <p className="lead">Role: {adminSession.role}. Actor: {adminSession.actorId}.</p>
       <div className="actions">
         <a className="button-link secondary" href="/admin/operator">Open beta operator console</a>
+        <a className="button-link secondary" href="/admin/content-preview">Open content preview approval</a>
       </div>
       <section className="grid">
         {drafts.map((draft) => (

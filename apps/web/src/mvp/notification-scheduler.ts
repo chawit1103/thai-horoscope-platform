@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { CONTENT_PREVIEW_APPROVAL_SESSION_ID, ensureContentPreviewBatch, getContentPreviewApprovalForResult } from "./content-preview-approval";
 import { EmailGateway, type EmailChannelAccount, type EmailDeliveryResult, type EmailMessage } from "./email-gateway";
 import { generateHoroscopeDeliveryPayload, horoscopeContentToEmailMessage, horoscopeContentToLineMessage, type HoroscopeDeliveryPayload } from "./horoscope-delivery-integration";
 import { type HoroscopeContentOutput } from "./horoscope-content-engine";
@@ -59,7 +60,7 @@ let state:NotificationSchedulerState = { outboundMessages:[], deliveryAttempts:[
 export function resetNotificationSchedulerState():void { state = { outboundMessages:[], deliveryAttempts:[], auditLogs:[], nextOutboundSeq:1, nextAttemptSeq:1 }; }
 export function getNotificationSchedulerState():NotificationSchedulerState { return structuredClone(state); }
 
-export function runNotificationSchedulerJob(input:{ sessionId?:string; users:NotificationSchedulerUser[]; topics?:NotificationTopic[]; now?:Date; dispatchWindowMinutes?:number }):SchedulerRunResult {
+export function runNotificationSchedulerJob(input:{ sessionId?:string; users:NotificationSchedulerUser[]; topics?:NotificationTopic[]; now?:Date; dispatchWindowMinutes?:number; betaApprovalMode?:boolean }):SchedulerRunResult {
   const sessionId = input.sessionId ?? "dev-default";
   const now = input.now ?? new Date();
   const topics = input.topics ?? allTopics;
@@ -112,11 +113,43 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         continue;
       }
 
+      const approval = input.betaApprovalMode ? ensureContentPreviewBatch({
+        sessionId:CONTENT_PREVIEW_APPROVAL_SESSION_ID,
+        horoscopeResult:result,
+        topicCode,
+        deliveryPayload,
+        deliveryChannels:getPreparedDeliveryChannels(user, topicCode),
+        now,
+      }) : undefined;
+      const approvalDeferredReason = input.betaApprovalMode && approval?.approvalStatus !== "approved" ? "content_pending_approval" : undefined;
+
       const queueKey = makeQueueKey(user.userId, topicCode, periodKey);
       const existing = state.outboundMessages.find((message)=>message.queueKey===queueKey);
+      if (input.betaApprovalMode && approval?.approvalStatus === "rejected") {
+        if (existing) applyApprovalMetadata(existing, approval);
+        skipped += 1;
+        writeAudit("notification_skipped", auditTarget(user.userId, topicCode, periodKey), now, {
+          topicCode,
+          periodKey,
+          reason:"content_rejected",
+          previewBatchId:approval.batchId,
+        });
+        continue;
+      }
       if (existing) {
         duplicates += 1;
+        if (input.betaApprovalMode && isApprovalSuppressedMessage(existing)) {
+          existing.status = "queued";
+          writeAudit("notification_duplicate", existing.id, now, { topicCode, periodKey, queuePolicy:"reopened_beta_approval_hold" });
+        }
         refreshQueuedDeliveryPreferences(existing, user, topicCode, now);
+        if (input.betaApprovalMode) refreshQueuedHoroscopeContent(existing, result, deliveryPayload, now);
+        if (approval) applyApprovalMetadata(existing, approval);
+        if (approvalDeferredReason && !hasPendingApprovalAttempt(existing.id)) {
+          deferred += 1;
+          const attempt = recordAttempt(existing, existing.channel, "deferred", now, false, approvalDeferredReason);
+          writeAudit("notification_deferred", existing.id, now, { topicCode, periodKey, reason:approvalDeferredReason, attemptId:attempt.id, previewBatchId:approval?.batchId ?? "" });
+        }
         writeAudit("notification_duplicate", existing.id, now, { topicCode, periodKey, channel, queuePolicy:"user_topic_period" });
         continue;
       }
@@ -137,13 +170,19 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         title:deliveryPayload.title,
         body:deliveryPayload.previewText,
         horoscopeContent:deliveryPayload.content,
-        deliveryMetadata:deliveryPayload.metadata,
+        deliveryMetadata:{ ...deliveryPayload.metadata },
         status:"queued",
         createdAt:now.toISOString(),
       };
+      if (approval) applyApprovalMetadata(message, approval);
       state.outboundMessages.push(message);
       queued.push(structuredClone(message));
       writeAudit("notification_queued", message.id, now, { topicCode, periodKey, channel, fallbackChannel:message.fallbackChannel ?? "" });
+      if (approvalDeferredReason) {
+        deferred += 1;
+        const attempt = recordAttempt(message, channel, "deferred", now, false, approvalDeferredReason);
+        writeAudit("notification_deferred", message.id, now, { topicCode, periodKey, reason:approvalDeferredReason, attemptId:attempt.id, previewBatchId:approval?.batchId ?? "" });
+      }
       if ("deferredReason" in eligibility && eligibility.deferredReason) {
         deferred += 1;
         const attempt = recordAttempt(message, channel, "deferred", now, false, eligibility.deferredReason);
@@ -155,7 +194,7 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
   return { queued, skipped, deferred, duplicates };
 }
 
-export async function dispatchQueuedNotifications(input:{ sessionId?:string; users:NotificationSchedulerUser[]; emailGateway?:EmailGateway; lineGateway?:LineGateway; now?:Date }):Promise<DispatchResult> {
+export async function dispatchQueuedNotifications(input:{ sessionId?:string; users:NotificationSchedulerUser[]; emailGateway?:EmailGateway; lineGateway?:LineGateway; now?:Date; betaApprovalMode?:boolean }):Promise<DispatchResult> {
   const sessionId = input.sessionId ?? "dev-default";
   const now = input.now ?? new Date();
   const attempts:NotificationDeliveryAttempt[] = [];
@@ -178,6 +217,21 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
       duplicates += 1;
       writeAudit("notification_duplicate", message.id, now, { topicCode:message.topicCode, periodKey:message.periodKey, channel:message.channel });
       continue;
+    }
+
+    if (input.betaApprovalMode || messageRequiresContentApproval(message)) {
+      const approval = getContentPreviewApprovalForResult(CONTENT_PREVIEW_APPROVAL_SESSION_ID, message.horoscopeResultId);
+      if (!approval || approval.approvalStatus === "rejected") {
+        const attempt = recordAttempt(message, message.channel, "deferred", now, false, approval ? "content_rejected" : "content_approval_missing");
+        attempts.push(attempt);
+        continue;
+      }
+      if (approval.approvalStatus !== "approved") {
+        const attempt = recordAttempt(message, message.channel, "deferred", now, false, "content_pending_approval");
+        attempts.push(attempt);
+        continue;
+      }
+      applyApprovalMetadata(message, approval);
     }
 
     const guard = getDispatchGuard(message, user, now);
@@ -352,13 +406,66 @@ function refreshQueuedDeliveryPreferences(message:ScheduledNotificationMessage, 
   // Horoscope queue idempotency is user/topic/period. If a duplicate scheduler snapshot chooses
   // a different channel before dispatch starts, keep the exact horoscope source/content but refresh
   // the delivery preference snapshot to the latest eligible primary/fallback channels on this message.
-  // Once any delivery attempt exists, retain the original queued delivery fields to avoid changing an
-  // in-flight provider claim or retry target.
-  if (message.status !== "queued" || state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===message.id)) return;
+  // Once a real provider attempt exists, retain the original queued delivery fields to avoid changing an
+  // in-flight provider claim or retry target. Approval holds happen before provider dispatch, so they can
+  // still follow the user's latest eligible channel preferences.
+  if (message.status !== "queued" || hasProviderDeliveryAttempt(message.id)) return;
   message.channel = user.primaryChannel;
   message.fallbackChannel = user.fallbackChannel;
   message.allowFallback = isFallbackAllowed(user, topicCode);
   writeAudit("notification_duplicate", message.id, now, { topicCode, periodKey:message.periodKey, channel:user.primaryChannel, queuePolicy:"refreshed_pending_delivery_preferences" });
+}
+
+function refreshQueuedHoroscopeContent(message:ScheduledNotificationMessage, result:HoroscopeResult, deliveryPayload:HoroscopeDeliveryPayload, now:Date):void {
+  if (message.status !== "queued") return;
+  const contentChanged = message.horoscopeContent?.content_hash !== deliveryPayload.content.content_hash;
+  const sourceChanged = message.horoscopeResultId !== result.id || message.birthProfileId !== result.birthProfileId || message.chartSnapshotId !== result.chartSnapshotId;
+  if (!contentChanged && !sourceChanged) return;
+  message.horoscopeResultId = result.id;
+  message.birthProfileId = result.birthProfileId;
+  message.chartSnapshotId = result.chartSnapshotId;
+  if (contentChanged) {
+    message.title = deliveryPayload.title;
+    message.body = deliveryPayload.previewText;
+    message.horoscopeContent = deliveryPayload.content;
+    message.deliveryMetadata = {
+      ...deliveryPayload.metadata,
+      ...(message.deliveryMetadata?.previewBatchId ? { previewBatchId:message.deliveryMetadata.previewBatchId } : {}),
+      ...(message.deliveryMetadata?.approvalStatus ? { approvalStatus:message.deliveryMetadata.approvalStatus } : {}),
+    };
+  }
+  writeAudit("notification_duplicate", message.id, now, { topicCode:message.topicCode, periodKey:message.periodKey, queuePolicy:contentChanged ? "refreshed_changed_horoscope_content" : "refreshed_source_artifact" });
+}
+
+function getPreparedDeliveryChannels(user:NotificationSchedulerUser, topicCode:NotificationTopic):NotificationChannel[] {
+  const channels = new Set<NotificationChannel>();
+  if (isChannelPreferenceEnabled(user, topicCode, user.primaryChannel) && !isChannelUnsubscribed(user, user.primaryChannel)) channels.add(user.primaryChannel);
+  if (user.fallbackChannel && user.fallbackChannel !== user.primaryChannel && isFallbackAllowed(user, topicCode) && isChannelPreferenceEnabled(user, topicCode, user.fallbackChannel) && !isChannelUnsubscribed(user, user.fallbackChannel) && !isChannelBlockedOrBounced(user, user.fallbackChannel)) channels.add(user.fallbackChannel);
+  return [...channels].sort();
+}
+
+function messageRequiresContentApproval(message:ScheduledNotificationMessage):boolean {
+  return Boolean(message.deliveryMetadata?.previewBatchId || message.deliveryMetadata?.approvalStatus);
+}
+
+function applyApprovalMetadata(message:ScheduledNotificationMessage, approval:{ batchId:string; approvalStatus:string }):void {
+  message.deliveryMetadata = { ...(message.deliveryMetadata ?? {}), previewBatchId:approval.batchId, approvalStatus:approval.approvalStatus };
+}
+
+function hasPendingApprovalAttempt(outboundMessageId:string):boolean {
+  return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.status==="deferred"&&attempt.errorCode==="content_pending_approval");
+}
+
+function hasProviderDeliveryAttempt(outboundMessageId:string):boolean {
+  return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&!isApprovalHoldAttempt(attempt));
+}
+
+function isApprovalHoldAttempt(attempt:NotificationDeliveryAttempt):boolean {
+  return attempt.status === "deferred" && (attempt.errorCode === "content_pending_approval" || attempt.errorCode === "content_approval_missing" || attempt.errorCode === "content_rejected");
+}
+
+function isApprovalSuppressedMessage(message:ScheduledNotificationMessage):boolean {
+  return message.status === "suppressed" && state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===message.id&&attempt.status==="suppressed"&&(attempt.errorCode==="content_approval_missing"||attempt.errorCode==="content_rejected"));
 }
 
 function isFallbackAllowed(user:NotificationSchedulerUser, topicCode:NotificationTopic):boolean {

@@ -82,6 +82,29 @@ Investigation:
 5. Confirm fallback did not duplicate sends.
 6. Keep scheduler in `dry_run` or sandbox mode during staging smoke tests unless a human approves real sends.
 
+## Beta content approval
+
+Events:
+
+- `admin_content_batch_approved`
+- `admin_content_batch_rejected`
+
+Investigation:
+
+1. Open `/admin/content-preview` with an authenticated admin session.
+2. Confirm the batch shows period type, period key, topic code, content profile,
+   safety flags, warnings, rule hits, source calculation hash, and prepared
+   delivery channels.
+3. Confirm no raw birth date, birth time, birth place, email address, LINE user
+   ID, payment identifier, provider payload, API key, token, or secret is visible.
+4. Reject content with unsafe flags, overconfident unknown-birth-time wording, or
+   medical/legal/financial/death/accident/guaranteed-outcome language.
+5. After approval, rerun the scheduler in beta approval mode and confirm existing
+   entitlement, deletion, unsubscribe, quiet-hour, and duplicate-send guards still
+   apply.
+6. Do not use approval as permission for real sends; real Email/LINE delivery
+   still requires the normal human provider activation gate.
+
 ## Astro-calc failures
 
 Events:

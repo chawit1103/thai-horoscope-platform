@@ -9,7 +9,17 @@ from app.core.aspects import calculate_aspects, calculate_cross_aspects, calcula
 from app.core.math import angular_distance, sign_index, stable_hash
 from app.core.profiles import get_profile, validate_profile_engine_compatibility
 from app.core.storage import ChartSnapshotStore
-from app.core.time import birth_datetime_local, date_from_datetime_local, julian_day_ut, local_to_utc, parse_birth_date, parse_datetime_local, utc_to_iso
+from app.core.time import (
+    birth_datetime_local,
+    date_from_datetime_local,
+    julian_day_ut,
+    local_to_utc,
+    normalize_birth_time,
+    parse_birth_date,
+    parse_datetime_local,
+    parse_datetime_utc,
+    utc_to_iso,
+)
 from app.core.zodiac import degree_in_sign, sign_name_en, sign_name_th, whole_sign_house_number
 from app.engines.base import AstroEngine
 from app.engines.mock import MockAstroEngine
@@ -519,13 +529,7 @@ def _day(datetime_local: str) -> int:
 
 
 def parse_transit_datetime_utc(value: str) -> datetime:
-    normalized = value.replace("Z", "+00:00")
-    parsed = datetime.fromisoformat(normalized)
-    if parsed.tzinfo is None:
-        raise ValueError("transit_datetime_utc must include UTC timezone information.")
-    if parsed.utcoffset() != timedelta(0):
-        raise ValueError("transit_datetime_utc must be expressed in UTC.")
-    return parsed.astimezone(UTC).replace(microsecond=0)
+    return parse_datetime_utc(value, "INVALID_TRANSIT_DATETIME_UTC")
 
 
 def chart_request_for_utc(profile_code: str, value_utc: datetime, location: TransitLocation | None) -> ChartRequest:
@@ -678,6 +682,10 @@ def group_hit_keys(hits: list[TransitToNatalHit], field: str) -> dict[str, list[
 
 def resolve_datetime_local(request: ChartRequest) -> str:
     if request.birth_time_unknown:
+        if request.datetime_local:
+            parse_datetime_local(request.datetime_local)
+        if request.birth_time:
+            normalize_birth_time(request.birth_time)
         birth_date = request.birth_date or date_from_datetime_local(request.datetime_local)
         if not birth_date:
             raise ValueError("Either datetime_local or birth_date is required.")

@@ -23,6 +23,10 @@ def _reject_subsecond_time(value: str) -> None:
         raise ValueError(UNSUPPORTED_SUBSECOND_DATETIME)
 
 
+def reject_subsecond_datetime(value: str, _field_name: str) -> None:
+    _reject_subsecond_time(value)
+
+
 def parse_datetime_local(datetime_local: str, error_code: str = "INVALID_DATETIME_LOCAL") -> datetime:
     _reject_subsecond_time(datetime_local)
     try:
@@ -32,6 +36,20 @@ def parse_datetime_local(datetime_local: str, error_code: str = "INVALID_DATETIM
     if local.tzinfo is not None:
         raise ValueError("INVALID_DATETIME_LOCAL_OFFSET")
     return local
+
+
+def parse_datetime_utc(value: str, error_code: str = "INVALID_DATETIME_UTC") -> datetime:
+    _reject_subsecond_time(value)
+    normalized = f"{value[:-1]}+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        raise ValueError(error_code) from None
+    if parsed.tzinfo is None:
+        raise ValueError(error_code)
+    if parsed.utcoffset() != timedelta(0):
+        raise ValueError(error_code)
+    return parsed.astimezone(UTC)
 
 
 def parse_birth_date(birth_date: str) -> date:

@@ -110,6 +110,25 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn(raw_datetime, str(raised.exception))
         self.assertIsNone(raised.exception.__cause__)
 
+    def test_unknown_birth_time_still_rejects_fractional_datetime_local_when_birth_date_is_supplied(self) -> None:
+        raw_datetime = "1971-03-11T08:17:00.500"
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            AstroCoreService().calculate_natal_chart(
+                ChartRequest(
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    birth_date="1971-03-11",
+                    datetime_local=raw_datetime,
+                    birth_time_unknown=True,
+                    timezone="Asia/Bangkok",
+                    latitude=13.7563,
+                    longitude=100.5018,
+                )
+            )
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertNotIn("1971-03-11", str(raised.exception))
+        self.assertNotIn("08:17:00.500", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
     def test_birth_time_fractional_seconds_are_rejected_without_raw_input(self) -> None:
         raw_birth_time = "08:17:00.500"
         with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
@@ -126,6 +145,25 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn(raw_birth_time, str(raised.exception))
         self.assertNotIn("1971-03-11", str(raised.exception))
         self.assertNotIn("08:17", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_unknown_birth_time_still_rejects_fractional_birth_time_when_birth_date_is_supplied(self) -> None:
+        raw_birth_time = "08:17:00.500"
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            AstroCoreService().calculate_natal_chart(
+                ChartRequest(
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    birth_date="1971-03-11",
+                    birth_time=raw_birth_time,
+                    birth_time_unknown=True,
+                    timezone="Asia/Bangkok",
+                    latitude=13.7563,
+                    longitude=100.5018,
+                )
+            )
+        self.assertNotIn(raw_birth_time, str(raised.exception))
+        self.assertNotIn("1971-03-11", str(raised.exception))
+        self.assertNotIn("08:17:00.500", str(raised.exception))
         self.assertIsNone(raised.exception.__cause__)
 
     def test_malformed_birth_date_error_is_sanitized(self) -> None:
@@ -361,6 +399,23 @@ class AstroCoreTests(unittest.TestCase):
         self.assertIn("UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK", warning_codes)
         self.assertIn("FAST_PLANET_POSITIONS_APPROXIMATE", warning_codes)
 
+    def test_unknown_birth_time_with_birth_date_and_no_subsecond_fields_uses_noon_fallback(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_V1",
+                birth_date="1971-03-11",
+                birth_time_unknown=True,
+                timezone="Asia/Bangkok",
+                latitude=13.7563,
+                longitude=100.5018,
+            )
+        )
+        self.assertEqual(snapshot.datetime_local, "1971-03-11T12:00:00")
+        self.assertEqual(snapshot.datetime_utc, "1971-03-11T05:00:00Z")
+        warning_codes = {warning.code for warning in snapshot.warnings}
+        self.assertIn("UNKNOWN_BIRTH_TIME", warning_codes)
+        self.assertIn("UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK", warning_codes)
+
     def test_unknown_birth_time_ignores_any_supplied_clock_time_and_hash_is_stable(self) -> None:
         service = AstroCoreService()
         early = service.calculate_natal_chart(replace(bangkok_request(birth_time_unknown=True), datetime_local="1990-05-12T04:15:00"))
@@ -574,6 +629,37 @@ class AstroCoreTests(unittest.TestCase):
                 )
             )
 
+    def test_transit_datetime_utc_fractional_seconds_are_rejected_without_raw_input(self) -> None:
+        raw_transit = "2026-05-06T05:00:00.999Z"
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            service.calculate_transit_to_natal(
+                TransitSnapshotRequest(
+                    natal_chart_snapshot=natal,
+                    transit_datetime_utc=raw_transit,
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                    transit_location=TransitLocation(latitude=13.7563, longitude=100.5018),
+                )
+            )
+        self.assertNotIn(raw_transit, str(raised.exception))
+        self.assertNotIn("05:00:00.999", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_valid_second_precision_transit_datetime_utc_still_works(self) -> None:
+        service = AstroCoreService()
+        natal = service.calculate_natal_chart(bangkok_request())
+        result = service.calculate_transit_to_natal(
+            TransitSnapshotRequest(
+                natal_chart_snapshot=natal,
+                transit_datetime_utc="2026-05-06T05:00:00Z",
+                calculation_profile_code="TH_NIRAYANA_V1",
+                transit_location=TransitLocation(latitude=13.7563, longitude=100.5018),
+            )
+        )
+        self.assertEqual(result.transit_chart_snapshot.datetime_utc, "2026-05-06T05:00:00Z")
+        self.assertGreaterEqual(len(result.transit_planets), 1)
+
     def test_transit_aspects_respect_configured_orbs(self) -> None:
         service = AstroCoreService()
         natal = service.calculate_natal_chart(bangkok_request())
@@ -753,6 +839,26 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(result.timing_windows, [])
         self.assertEqual(result.windows, [])
         self.assertEqual(result.warnings[0].code, "UNSUPPORTED_TIMING_RANGE")
+
+    def test_hourly_timing_utc_fractional_seconds_are_rejected_without_raw_input(self) -> None:
+        raw_start = "2026-05-06T00:00:00.250Z"
+        raw_end = "2026-05-06T06:00:00.250Z"
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        with self.assertRaisesRegex(ValueError, "UNSUPPORTED_SUBSECOND_DATETIME") as raised:
+            service.calculate_hourly_timing(
+                HourlyTimingRequest(
+                    natal_chart_snapshot=natal,
+                    start_datetime_utc=raw_start,
+                    end_datetime_utc=raw_end,
+                    timezone="Asia/Bangkok",
+                    calculation_profile_code="TH_NIRAYANA_V1",
+                )
+            )
+        self.assertNotIn(raw_start, str(raised.exception))
+        self.assertNotIn(raw_end, str(raised.exception))
+        self.assertNotIn("00:00:00.250", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
 
     def test_hourly_timing_windows_are_deterministic(self) -> None:
         service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))

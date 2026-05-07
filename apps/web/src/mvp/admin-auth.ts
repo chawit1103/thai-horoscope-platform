@@ -13,12 +13,13 @@ type ParsedAdminCookie = { encodedPayload: string; signature: string; canonicalC
 export type AdminAuthResult = { ok: true; actorId: string; role: AdminRole; issuedAt: number; expiresAt: number; signature: string; canonicalCookie: string } | { ok: false; reason: string };
 export type AdminRouteAccess = { ok: true; actorId: string; role: AdminRole } | { ok: false; reason: string; redirectTo: string };
 
-export function isDevMockAdminLoginEnabled(input: { isProduction: boolean }): boolean {
+export function isDevMockAdminLoginEnabled(input: { isProduction: boolean; deploymentEnvironment?: "local"|"staging"|"production" }): boolean {
+  if (input.deploymentEnvironment) return input.deploymentEnvironment !== "production";
   return !input.isProduction;
 }
 
-export function startDevMockAdminSessionForToken(input: { token: string; expectedToken?: string; sessionSecret?: string; isProduction: boolean; now?: Date }): string | undefined {
-  if (!isDevMockAdminLoginEnabled({ isProduction: input.isProduction })) return undefined;
+export function startDevMockAdminSessionForToken(input: { token: string; expectedToken?: string; sessionSecret?: string; isProduction: boolean; deploymentEnvironment?: "local"|"staging"|"production"; now?: Date }): string | undefined {
+  if (!isDevMockAdminLoginEnabled({ isProduction: input.isProduction, deploymentEnvironment: input.deploymentEnvironment })) return undefined;
   if (!input.expectedToken || !input.sessionSecret) return undefined;
   if (input.token !== input.expectedToken) return undefined;
   const actorId = `admin_${createHash("sha256").update(`admin-actor:${input.expectedToken}`).digest("hex").slice(0, 12)}`;

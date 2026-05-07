@@ -107,6 +107,8 @@ describe("mock mvp flow", () => {
     assert.equal(validateAdminSession({ sessionCookie, sessionSecret: "wrong-secret" }).ok, false);
     assert.equal(startDevMockAdminSessionForToken({ token: "wrong", expectedToken: token, sessionSecret: "session-secret", isProduction: false }), undefined);
     assert.equal(startDevMockAdminSessionForToken({ token, expectedToken: token, isProduction: false }), undefined);
+    assert.ok(startDevMockAdminSessionForToken({ token, expectedToken: token, sessionSecret: "session-secret", isProduction: true, deploymentEnvironment: "staging" }));
+    assert.equal(startDevMockAdminSessionForToken({ token, expectedToken: token, sessionSecret: "session-secret", isProduction: true, deploymentEnvironment: "production" }), undefined);
   });
 
   it("strictly rejects admin session cookies with extra dot segments", () => {

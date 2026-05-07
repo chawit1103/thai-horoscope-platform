@@ -91,6 +91,15 @@ describe("environment validation", () => {
     assert.equal(component(report, "payment_provider").errors.some((error)=>error.code === "PAYMENT_MOCK_MODE_PRODUCTION_FORBIDDEN"), false);
   });
 
+  it("conflicting local and staging deployment selectors fail closed with production runtime", () => {
+    const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"staging", DEPLOYMENT_ENV:"local", NODE_ENV:"production" });
+
+    assert.equal(report.environment, "production");
+    assert.equal(report.status, "error");
+    assertIssueIncludesVariables(component(report, "deployment_environment").errors, "DEPLOYMENT_ENVIRONMENT_CONFLICT", ["APP_ENV", "DEPLOYMENT_ENV"]);
+    assertIssueVariables(component(report, "astro_calc").errors, "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN", ["ASTRO_ENGINE"]);
+  });
+
   it("production fails closed for sandbox or mock provider modes", () => {
     const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"production", ADMIN_SESSION_SECRET:"admin-secret", EMAIL_AUDIT_HASH_SECRET:"email-audit", LINE_AUDIT_HASH_SECRET:"line-audit" });
 
@@ -191,6 +200,11 @@ function assertIssueVariables(errors:ConfigIssue[], code:string, variables:strin
   const found = errors.find((error)=>error.code === code);
   assert.ok(found, `missing issue ${code}`);
   assert.deepEqual(found.variables, [...variables].sort());
+}
+
+function assertIssueIncludesVariables(errors:ConfigIssue[], code:string, variables:string[]):void {
+  const foundVariables = new Set(errors.filter((error)=>error.code === code).flatMap((error)=>error.variables));
+  for (const variable of variables) assert.equal(foundVariables.has(variable), true, `missing variable ${variable} for ${code}`);
 }
 
 function restoreEnv(name:string, value:string|undefined):void {

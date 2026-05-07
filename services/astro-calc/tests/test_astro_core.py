@@ -1510,6 +1510,22 @@ class AstroCoreTests(unittest.TestCase):
                 else:
                     os.environ[name] = value
 
+    def test_runtime_environment_fails_closed_for_local_and_staging_conflict_with_production(self) -> None:
+        names = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV", "ENVIRONMENT"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "staging"
+        os.environ["DEPLOYMENT_ENV"] = "local"
+        os.environ["NODE_ENV"] = "production"
+        try:
+            self.assertEqual(read_runtime_environment(), "production")
+            self.assertEqual(AstroRuntimeConfig.from_env().runtime_env, "production")
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
     def test_health_reports_sanitized_config_errors_without_ephemeris_path(self) -> None:
         previous = {name: os.environ.get(name) for name in ["ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]}
         os.environ["ASTRO_ENGINE"] = "swisseph"
@@ -1610,6 +1626,25 @@ class AstroCoreTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "ok")
         self.assertEqual(report["engine"], "mock")
+
+    def test_health_rejects_mock_engine_when_local_and_staging_conflict_with_production(self) -> None:
+        names = ["APP_ENV", "DEPLOYMENT_ENV", "ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "staging"
+        os.environ["DEPLOYMENT_ENV"] = "local"
+        os.environ["ASTRO_ENGINE"] = "mock"
+        os.environ["NODE_ENV"] = "production"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN")
 
     def test_health_verifies_swisseph_ephemeris_path_exists_without_exposing_it(self) -> None:
         previous = {name: os.environ.get(name) for name in ["ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]}

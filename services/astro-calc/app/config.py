@@ -63,12 +63,12 @@ def read_runtime_environment() -> str:
     deployment_values = read_environment_values(DEPLOYMENT_ENVIRONMENT_SOURCES)
     if any(raw in PRODUCTION_ENVIRONMENTS for raw in deployment_values):
         return "production"
-    if any(raw in STAGING_ENVIRONMENTS for raw in deployment_values):
-        return "staging"
     if any(raw in LOCAL_ENVIRONMENTS for raw in deployment_values) and any(
         raw in PRODUCTION_ENVIRONMENTS for raw in read_environment_values(RUNTIME_ENVIRONMENT_SOURCES)
     ):
         return "production"
+    if any(raw in STAGING_ENVIRONMENTS for raw in deployment_values):
+        return "staging"
     if any(raw in LOCAL_ENVIRONMENTS for raw in deployment_values):
         return "development"
 

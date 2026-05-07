@@ -55,8 +55,8 @@ export function validateDeploymentEnvironment(env:EnvironmentInput = process.env
 export function readDeploymentEnvironment(env:EnvironmentInput = process.env):DeploymentEnvironment {
   const deploymentValues = readDeploymentEnvironmentValues(env, DEPLOYMENT_ENVIRONMENT_SOURCES);
   if (deploymentValues.some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw))) return "production";
-  if (deploymentValues.some(({ raw })=>STAGING_ENVIRONMENTS.has(raw))) return "staging";
   if (deploymentValues.some(({ raw })=>LOCAL_ENVIRONMENTS.has(raw)) && hasRuntimeProductionSignal(env)) return "production";
+  if (deploymentValues.some(({ raw })=>STAGING_ENVIRONMENTS.has(raw))) return "staging";
   if (deploymentValues.some(({ raw })=>LOCAL_ENVIRONMENTS.has(raw))) return "local";
 
   const runtimeValues = readDeploymentEnvironmentValues(env, RUNTIME_ENVIRONMENT_SOURCES);

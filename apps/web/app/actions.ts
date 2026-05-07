@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, authorizeAdminRoute, recordAdminSessionStartedWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken } from "../src/mvp/admin-auth";
+import { readDeploymentEnvironment } from "../src/mvp/environment-validation";
 import { callMockAstroCalc, generateHoroscopeResult, getMockPeriodKey, recordAdminAudit, saveBirthProfile, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
 
 type AdminRole = "admin";
@@ -42,6 +43,7 @@ export async function startDevMockAdminSessionAction(formData: FormData): Promis
     expectedToken: process.env.MOCK_ADMIN_TOKEN,
     sessionSecret: process.env.ADMIN_SESSION_SECRET,
     isProduction: process.env.NODE_ENV === "production",
+    deploymentEnvironment: readDeploymentEnvironment(),
   });
   const c = await cookies();
   if (!cookieValue) {

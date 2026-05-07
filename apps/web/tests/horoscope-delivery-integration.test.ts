@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { EmailGateway, SandboxEmailProvider, createEmailChannelAccount, type EmailProviderRequest } from "../src/mvp/email-gateway";
-import { assertSafeHoroscopeDeliveryContent, horoscopeContentToEmailMessage } from "../src/mvp/horoscope-delivery-integration";
+import { assertSafeHoroscopeDeliveryContent, horoscopeContentToEmailMessage, horoscopeContentToLineMessage } from "../src/mvp/horoscope-delivery-integration";
 import { type LineMessage } from "../src/mvp/line-gateway";
 import { approveDraft, callMockAstroCalc, deleteBirthProfile, generateHoroscopeResult, requestAccountDeletion, resetMockMvpState, saveBirthProfile, setMockUserPlan, storeChartSnapshot, type BirthProfileInput, type PeriodType } from "../src/mvp/mock-flow";
 import { dispatchQueuedNotifications, getNotificationPeriodKey, getNotificationSchedulerState, resetNotificationSchedulerState, runNotificationSchedulerJob, type NotificationSchedulerUser, type NotificationTopic } from "../src/mvp/notification-scheduler";
@@ -111,6 +111,19 @@ describe("horoscope delivery integration", () => {
 
     assert.throws(() => assertSafeHoroscopeDeliveryContent(unsafeContent), /Unsafe horoscope delivery content/);
     assert.throws(() => horoscopeContentToEmailMessage({ topicCode:"daily_horoscope", content:unsafeContent, idempotencyKey:"test_key" }), /Unsafe horoscope delivery content/);
+  });
+
+  it("sanitizes caller-supplied delivery metadata before Email or LINE handoff", () => {
+    const queuedContent = queueSingleContent("metadata_safety_user");
+    const unsafeMetadata = { email:rawEmail, lineUserId:rawLineUserId, birthDate, birthTime, token:"provider-token", safeCode:"ok" };
+
+    const email = horoscopeContentToEmailMessage({ topicCode:"daily_horoscope", content:queuedContent, idempotencyKey:"test_key", metadata:unsafeMetadata });
+    const line = horoscopeContentToLineMessage({ topicCode:"daily_horoscope", content:queuedContent, metadata:unsafeMetadata });
+
+    assert.equal(email.metadata?.safeCode, "ok");
+    assert.equal(line.metadata?.safeCode, "ok");
+    assertNoRawPrivateData(JSON.stringify(email.metadata));
+    assertNoRawPrivateData(JSON.stringify(line.metadata));
   });
 
   it("does not deliver after birth profile deletion account deletion unsubscribe or duplicate dispatch", async () => {

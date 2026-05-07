@@ -85,7 +85,7 @@ export function horoscopeContentToEmailMessage(input:{ topicCode:HoroscopeDelive
     html: payload.emailHtml,
     transactional: false,
     idempotencyKey: input.idempotencyKey,
-    metadata: { ...payload.metadata, ...(input.metadata ?? {}), idempotencyKey: input.idempotencyKey },
+    metadata: sanitizeDeliveryMetadata({ ...payload.metadata, ...(input.metadata ?? {}), idempotencyKey: input.idempotencyKey }),
   };
 }
 
@@ -97,7 +97,7 @@ export function horoscopeContentToLineMessage(input:{ topicCode:HoroscopeDeliver
     body: payload.previewText,
     periodKey: input.content.period_key,
     ctaUrl: "https://example.test/horoscope",
-    metadata: { ...payload.metadata, ...(input.metadata ?? {}) },
+    metadata: sanitizeDeliveryMetadata({ ...payload.metadata, ...(input.metadata ?? {}) }),
   };
 }
 

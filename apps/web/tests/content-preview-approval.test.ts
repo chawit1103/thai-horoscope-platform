@@ -192,6 +192,21 @@ describe("beta content preview approval", () => {
     assert.equal(getNotificationSchedulerState().deliveryAttempts.at(-1)?.errorCode, "content_approval_missing");
   });
 
+  it("enforces approval for beta-held messages even when dispatch omits beta mode", async () => {
+    const userId = "preview_dispatch_no_flag_user";
+    await createPendingPreviewBatch(userId);
+    const schedulerUser = user({ userId, subscription:await activeSubscription(userId) });
+    const g = gateways();
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[schedulerUser], emailGateway:g.emailGateway, lineGateway:g.lineGateway, now });
+
+    assert.equal(dispatch.sent, 0);
+    assert.equal(dispatch.attempts[0]?.status, "deferred");
+    assert.equal(dispatch.attempts[0]?.errorCode, "content_pending_approval");
+    assert.equal(g.emailProvider.networkSendCount, 0);
+    assert.equal(g.lineProvider.networkSendCount, 0);
+  });
+
   it("redacts PII while keeping rule hits safety flags warnings and source metadata visible", async () => {
     const batchId = await createPendingPreviewBatch("preview_redaction_user");
     const batch = getContentPreviewBatch(sessionId, batchId);

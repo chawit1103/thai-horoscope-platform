@@ -206,7 +206,7 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
       continue;
     }
 
-    if (input.betaApprovalMode) {
+    if (input.betaApprovalMode || messageRequiresContentApproval(message)) {
       const approval = getContentPreviewApprovalForResult(sessionId, message.horoscopeResultId);
       if (!approval || approval.approvalStatus === "rejected") {
         const attempt = recordAttempt(message, message.channel, "suppressed", now, false, approval ? "content_rejected" : "content_approval_missing");
@@ -408,6 +408,10 @@ function getPreparedDeliveryChannels(user:NotificationSchedulerUser, topicCode:N
   if (isChannelPreferenceEnabled(user, topicCode, user.primaryChannel) && !isChannelUnsubscribed(user, user.primaryChannel)) channels.add(user.primaryChannel);
   if (user.fallbackChannel && user.fallbackChannel !== user.primaryChannel && isFallbackAllowed(user, topicCode) && isChannelPreferenceEnabled(user, topicCode, user.fallbackChannel) && !isChannelUnsubscribed(user, user.fallbackChannel) && !isChannelBlockedOrBounced(user, user.fallbackChannel)) channels.add(user.fallbackChannel);
   return [...channels].sort();
+}
+
+function messageRequiresContentApproval(message:ScheduledNotificationMessage):boolean {
+  return Boolean(message.deliveryMetadata?.previewBatchId || message.deliveryMetadata?.approvalStatus);
 }
 
 function isFallbackAllowed(user:NotificationSchedulerUser, topicCode:NotificationTopic):boolean {

@@ -16,9 +16,9 @@ delivery until an admin approves that batch.
 Pending batches are retained as queued/deferred delivery holds so an admin can
 approve after the original notification window without dropping the same-period
 send. Rejected batches must not be dispatched. If a queued message is checked
-again in beta approval mode and the approval record is missing or no longer
-approved, dispatch is suppressed or deferred before any provider gateway is
-called.
+again and contains beta approval metadata, or dispatch is explicitly run in beta
+approval mode, the approval record is rechecked. Missing, pending, or rejected
+approval suppresses or defers dispatch before any provider gateway is called.
 
 ## Who can approve or reject
 

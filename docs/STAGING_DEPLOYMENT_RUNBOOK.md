@@ -66,6 +66,7 @@ Minimum smoke paths:
 - payment webhook rejects invalid signatures
 - notification scheduler remains dry-run or sandboxed
 - astro-calc uses mock or approved test engine only
+- structured monitoring events and mock alert hooks contain sanitized metadata only
 
 ## Rollback
 
@@ -77,6 +78,7 @@ Rollback triggers:
 - admin auth fails open
 - payment webhook mutates state after invalid signature
 - astro engine/profile/fingerprint differs from expected staging plan
+- logs or alerts contain raw PII, secrets, raw payment payloads, birth data, ephemeris paths, or license data
 
 Rollback actions:
 
@@ -100,4 +102,5 @@ Astro engine/profile:
 Smoke test result:
 Rollback target:
 Known accepted warnings:
+Monitoring events checked:
 ```

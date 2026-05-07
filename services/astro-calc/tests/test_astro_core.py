@@ -16,7 +16,17 @@ from app.core.time import local_to_utc, utc_to_iso
 from app.main import create_service
 from app.engines.mock import MockAstroEngine
 from app.engines.swisseph import SwissEphemerisEngine, fingerprint_ephemeris_path
-from app.schemas import ChartRequest, HourlyTimingRequest, PlanetPosition, SolarReturnRequest, TransitLocation, TransitRequest, TransitSnapshotRequest, WarningMessage
+from app.schemas import (
+    ChartRequest,
+    ChartSnapshot,
+    HourlyTimingRequest,
+    PlanetPosition,
+    SolarReturnRequest,
+    TransitLocation,
+    TransitRequest,
+    TransitSnapshotRequest,
+    WarningMessage,
+)
 
 
 def bangkok_request(profile: str = "TH_NIRAYANA_V1", birth_time_unknown: bool = False) -> ChartRequest:
@@ -377,6 +387,70 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(first.calculation_hash, second.calculation_hash)
         self.assertIs(first, second)
         self.assertNotEqual(first.calculation_hash, simple.calculation_hash)
+
+    def test_equivalent_datetime_local_formats_have_same_calculation_hash(self) -> None:
+        hashes = {
+            AstroCoreService()
+            .calculate_natal_chart(replace(bangkok_request(), datetime_local=datetime_local))
+            .calculation_hash
+            for datetime_local in (
+                "1971-03-11T08:17",
+                "1971-03-11T08:17:00",
+                "1971-03-11 08:17:00",
+            )
+        }
+        self.assertEqual(len(hashes), 1)
+
+    def test_equivalent_datetime_local_formats_have_same_snapshot_positions(self) -> None:
+        snapshots = [
+            AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local=datetime_local))
+            for datetime_local in (
+                "1971-03-11T08:17",
+                "1971-03-11T08:17:00",
+                "1971-03-11 08:17:00",
+            )
+        ]
+
+        def position_payload(snapshot: ChartSnapshot) -> dict[str, object]:
+            return {
+                "julian_day_ut": snapshot.julian_day_ut,
+                "planets": {
+                    name: (
+                        planet.tropical_longitude_deg,
+                        planet.sidereal_longitude_deg,
+                        planet.longitude_deg,
+                        planet.house_number,
+                    )
+                    for name, planet in sorted(snapshot.planets.items())
+                },
+                "houses": (snapshot.houses.ascendant_deg, tuple(snapshot.houses.cusps_deg)),
+                "angles": (
+                    snapshot.angles.lagna_deg,
+                    snapshot.angles.descendant_deg,
+                    snapshot.angles.mc_deg,
+                    snapshot.angles.ic_deg,
+                ),
+            }
+
+        self.assertEqual(position_payload(snapshots[0]), position_payload(snapshots[1]))
+        self.assertEqual(position_payload(snapshots[0]), position_payload(snapshots[2]))
+
+    def test_different_datetime_local_times_have_different_calculation_hashes(self) -> None:
+        first = AstroCoreService().calculate_natal_chart(
+            replace(bangkok_request(), datetime_local="1971-03-11T08:17:00")
+        )
+        second = AstroCoreService().calculate_natal_chart(
+            replace(bangkok_request(), datetime_local="1971-03-11T08:18:00")
+        )
+        self.assertNotEqual(first.calculation_hash, second.calculation_hash)
+
+    def test_malformed_datetime_local_hash_normalization_error_is_sanitized(self) -> None:
+        raw_datetime = "1971-03-11T08:birth-secret"
+        with self.assertRaisesRegex(ValueError, "INVALID_DATETIME_LOCAL") as raised:
+            AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local=raw_datetime))
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertNotIn("birth-secret", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
 
     def test_sign_boundary_and_retrograde_flags(self) -> None:
         self.assertEqual(sign_index(29.9999), 0)

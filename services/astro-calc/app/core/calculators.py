@@ -395,8 +395,9 @@ class AstroCoreService:
         validate_profile_engine_compatibility(profile, self.engine.name)
         datetime_local = resolve_datetime_local(request)
         parsed_datetime_local = parse_datetime_local(datetime_local)
+        canonical_datetime_local = parsed_datetime_local.isoformat(timespec="seconds")
         warnings = validate_request_warnings(request, parsed_datetime_local)
-        utc_dt = local_to_utc(datetime_local, request.timezone)
+        utc_dt = local_to_utc(canonical_datetime_local, request.timezone)
         jd_ut = round(julian_day_ut(utc_dt), 8)
         ayanamsha_value = self.engine.ayanamsha_deg(jd_ut, profile.ayanamsha)
         planets = self.engine.planet_positions(jd_ut, profile.planets, profile.ayanamsha, profile.node_type)
@@ -422,7 +423,7 @@ class AstroCoreService:
         derived_points = build_derived_points(houses, ayanamsha_value)
         aspects = calculate_aspects(planets, profile.aspect_orbs_deg)
         hash_payload = {
-            "datetime_local": datetime_local,
+            "datetime_local": canonical_datetime_local,
             "datetime_utc": utc_to_iso(utc_dt),
             "latitude": round(request.latitude, 6),
             "longitude": round(request.longitude, 6),

@@ -38,6 +38,9 @@ describe("operator status", () => {
     assert.equal(findOperatorCard(status, "line_gateway").mode, "sandbox");
     assert.equal(findOperatorCard(status, "payment_provider").mode, "mock");
     assert.equal(findOperatorCard(status, "astro_calc").mode, "mock");
+    assert.equal(findOperatorCard(status, "privacy_controls").mode, "documented");
+    assert.equal(findOperatorCard(status, "subscription_lifecycle").mode, "mock_foundation");
+    assert.equal(findOperatorCard(status, "monitoring_alerting").mode, "mock_alert_provider");
   });
 
   it("operator status output redacts secrets and raw private data", () => {

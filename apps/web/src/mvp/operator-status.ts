@@ -56,7 +56,7 @@ const DOC_LINKS = {
   astroReadiness:doc("Astro release readiness", "ASTRO_RELEASE_READINESS_CHECKLIST.md"),
 } as const;
 
-const SAFE_MODES = new Set(["local", "staging", "production", "sandbox", "mock", "http", "disabled", "dry_run", "enabled", "swisseph", "signed_cookie"]);
+const SAFE_MODES = new Set(["local", "staging", "production", "sandbox", "mock", "http", "disabled", "dry_run", "enabled", "swisseph", "signed_cookie", "documented", "mock_foundation", "mock_alert_provider"]);
 
 export function buildOperatorConsoleStatus(input:{ env?:EnvironmentInput; now?:Date } = {}):OperatorConsoleStatus {
   const report = toPublicHealthReport(validateDeploymentEnvironment(input.env));

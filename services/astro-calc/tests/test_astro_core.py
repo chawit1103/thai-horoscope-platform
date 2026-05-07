@@ -16,7 +16,7 @@ from app.core.time import local_to_utc, utc_to_iso
 from app.main import create_service
 from app.engines.mock import MockAstroEngine
 from app.engines.swisseph import SwissEphemerisEngine, fingerprint_ephemeris_path
-from app.schemas import ChartRequest, HourlyTimingRequest, PlanetPosition, SolarReturnRequest, TransitLocation, TransitRequest, TransitSnapshotRequest
+from app.schemas import ChartRequest, HourlyTimingRequest, PlanetPosition, SolarReturnRequest, TransitLocation, TransitRequest, TransitSnapshotRequest, WarningMessage
 
 
 def bangkok_request(profile: str = "TH_NIRAYANA_V1", birth_time_unknown: bool = False) -> ChartRequest:
@@ -72,6 +72,15 @@ class AstroCoreTests(unittest.TestCase):
             AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local=raw_datetime))
         self.assertNotIn(raw_datetime, str(raised.exception))
         self.assertNotIn("birth-secret", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_malformed_datetime_local_without_year_prefix_is_sanitized(self) -> None:
+        raw_datetime = "secret-05-12T08:30:00"
+        with self.assertRaisesRegex(ValueError, "INVALID_DATETIME_LOCAL") as raised:
+            AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local=raw_datetime))
+        self.assertNotIn(raw_datetime, str(raised.exception))
+        self.assertNotIn("secr", str(raised.exception))
+        self.assertNotIn("secret", str(raised.exception))
         self.assertIsNone(raised.exception.__cause__)
 
     def test_malformed_birth_date_error_is_sanitized(self) -> None:
@@ -321,6 +330,17 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(snapshot.datetime_local, "1990-05-12T04:15:00")
         self.assertEqual(snapshot.datetime_utc, "1990-05-11T21:15:00Z")
 
+    def test_valid_datetime_local_still_derives_year_for_supported_range(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local="1900-01-01T00:00:00"))
+        self.assertEqual(snapshot.datetime_local, "1900-01-01T00:00:00")
+        warning_codes = {warning.code for warning in snapshot.warnings}
+        self.assertNotIn("UNSUPPORTED_DATE_RANGE", warning_codes)
+
+    def test_unsupported_date_range_warning_still_works_after_datetime_parse(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(replace(bangkok_request(), datetime_local="2101-01-01T00:00:00"))
+        warning_codes = {warning.code for warning in snapshot.warnings}
+        self.assertIn("UNSUPPORTED_DATE_RANGE", warning_codes)
+
     def test_changing_birth_time_or_location_changes_ascendant(self) -> None:
         service = AstroCoreService()
         base = service.calculate_natal_chart(bangkok_request())
@@ -487,6 +507,72 @@ class AstroCoreTests(unittest.TestCase):
         self.assertNotIn("prediction", encoded.lower())
         self.assertNotIn("interpretation_text", encoded)
         self.assertNotIn("prose", encoded.lower())
+
+    def test_hourly_timing_propagates_unknown_time_warnings(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request(birth_time_unknown=True))
+        result = service.calculate_hourly_timing(
+            HourlyTimingRequest(
+                natal_chart_snapshot=natal,
+                start_datetime_local="2026-05-06T09:00:00",
+                end_datetime_local="2026-05-06T13:00:00",
+                timezone="Asia/Bangkok",
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+                orb_thresholds={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+            )
+        )
+        warning_codes = [warning.code for warning in result.warnings]
+        self.assertEqual(
+            warning_codes,
+            [
+                "UNKNOWN_BIRTH_TIME",
+                "UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK",
+                "FAST_PLANET_POSITIONS_APPROXIMATE",
+                "UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE",
+            ],
+        )
+        self.assertGreater(len(result.timing_windows), 0)
+
+    def test_hourly_timing_known_birth_time_has_no_unknown_time_warnings(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request())
+        result = service.calculate_hourly_timing(
+            HourlyTimingRequest(
+                natal_chart_snapshot=natal,
+                start_datetime_local="2026-05-06T09:00:00",
+                end_datetime_local="2026-05-06T13:00:00",
+                timezone="Asia/Bangkok",
+                location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+                calculation_profile_code="TH_NIRAYANA_V1",
+                orb_thresholds={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+            )
+        )
+        warning_codes = {warning.code for warning in result.warnings}
+        self.assertNotIn("UNKNOWN_BIRTH_TIME", warning_codes)
+        self.assertNotIn("UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK", warning_codes)
+        self.assertNotIn("FAST_PLANET_POSITIONS_APPROXIMATE", warning_codes)
+        self.assertEqual(result.warnings, [])
+
+    def test_hourly_timing_warning_hash_is_deterministic_and_warnings_dedupe(self) -> None:
+        service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))
+        natal = service.calculate_natal_chart(bangkok_request(birth_time_unknown=True))
+        duplicate_warning = WarningMessage(code="UNKNOWN_BIRTH_TIME", message="duplicate should be ignored")
+        natal_with_duplicate = replace(natal, warnings=[*natal.warnings, duplicate_warning])
+        request = HourlyTimingRequest(
+            natal_chart_snapshot=natal_with_duplicate,
+            start_datetime_local="2026-05-06T09:00:00",
+            end_datetime_local="2026-05-06T13:00:00",
+            timezone="Asia/Bangkok",
+            location=TransitLocation(latitude=13.7563, longitude=100.5018, timezone="Asia/Bangkok"),
+            calculation_profile_code="TH_NIRAYANA_V1",
+            orb_thresholds={"conjunction": 180, "opposition": 180, "square": 180, "trine": 180, "sextile": 180},
+        )
+        first = service.calculate_hourly_timing(request)
+        second = service.calculate_hourly_timing(request)
+        self.assertEqual(first.calculation_hash, second.calculation_hash)
+        self.assertEqual([warning.code for warning in first.warnings].count("UNKNOWN_BIRTH_TIME"), 1)
+        self.assertEqual(first.to_json_dict(), second.to_json_dict())
 
     def test_hourly_timing_has_no_duplicate_triggers_and_peak_is_inside_window(self) -> None:
         service = AstroCoreService(config=AstroRuntimeConfig(enable_hourly_timing=True))

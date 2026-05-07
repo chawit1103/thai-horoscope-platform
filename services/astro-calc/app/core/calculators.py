@@ -208,14 +208,17 @@ class AstroCoreService:
         profile = get_profile(profile_code)
         aspect_orbs = request.orb_thresholds or profile.aspect_orbs_deg
         enabled_aspects = set(request.enabled_aspect_types)
+        propagated_warnings = timing_warnings_from_natal(natal)
         range_result = resolve_timing_range(request)
         if range_result.warning:
+            warnings = dedupe_warnings([range_result.warning, *propagated_warnings])
             calculation_hash = stable_hash(
                 {
                     "kind": "hourly_timing",
                     "natal": natal.calculation_hash,
                     "range_warning": asdict(range_result.warning),
                     "profile": profile_code,
+                    "warnings": [asdict(warning) for warning in warnings],
                 }
             )
             return HourlyTimingResult(
@@ -223,7 +226,7 @@ class AstroCoreService:
                 timezone=request.timezone,
                 timing_windows=[],
                 windows=[],
-                warnings=[range_result.warning],
+                warnings=warnings,
                 calculation_hash=calculation_hash,
             )
         timing_windows = self._calculate_timing_windows(
@@ -248,6 +251,7 @@ class AstroCoreService:
                 "enabled_aspects": sorted(enabled_aspects),
                 "aspect_orbs": aspect_orbs,
                 "windows": [asdict(window) for window in timing_windows],
+                "warnings": [asdict(warning) for warning in propagated_warnings],
             }
         )
         return HourlyTimingResult(
@@ -255,7 +259,7 @@ class AstroCoreService:
             timezone=request.timezone,
             timing_windows=timing_windows,
             windows=timing_windows,
-            warnings=[],
+            warnings=propagated_warnings,
             calculation_hash=calculation_hash,
         )
 
@@ -390,7 +394,8 @@ class AstroCoreService:
         profile = get_profile(request.calculation_profile_code)
         validate_profile_engine_compatibility(profile, self.engine.name)
         datetime_local = resolve_datetime_local(request)
-        warnings = validate_request_warnings(request, datetime_local)
+        parsed_datetime_local = parse_datetime_local(datetime_local)
+        warnings = validate_request_warnings(request, parsed_datetime_local)
         utc_dt = local_to_utc(datetime_local, request.timezone)
         jd_ut = round(julian_day_ut(utc_dt), 8)
         ayanamsha_value = self.engine.ayanamsha_deg(jd_ut, profile.ayanamsha)
@@ -479,6 +484,29 @@ class AstroCoreService:
                 "calculation_profile_version": profile.code,
             },
         )
+
+
+TIMING_NATAL_WARNING_CODES = {
+    "UNKNOWN_BIRTH_TIME",
+    "UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK",
+    "FAST_PLANET_POSITIONS_APPROXIMATE",
+    "UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE",
+}
+
+
+def timing_warnings_from_natal(natal: ChartSnapshot) -> list[WarningMessage]:
+    return dedupe_warnings([warning for warning in natal.warnings if warning.code in TIMING_NATAL_WARNING_CODES])
+
+
+def dedupe_warnings(warnings: list[WarningMessage]) -> list[WarningMessage]:
+    seen: set[str] = set()
+    deduped: list[WarningMessage] = []
+    for warning in warnings:
+        if warning.code in seen:
+            continue
+        seen.add(warning.code)
+        deduped.append(warning)
+    return deduped
 
 
 def _month(datetime_local: str) -> int:
@@ -663,11 +691,11 @@ def resolve_datetime_local(request: ChartRequest) -> str:
     return birth_datetime_local(request.birth_date, birth_time)
 
 
-def validate_request_warnings(request: ChartRequest, datetime_local: str) -> list[WarningMessage]:
+def validate_request_warnings(request: ChartRequest, datetime_local: datetime) -> list[WarningMessage]:
     warnings: list[WarningMessage] = []
     if request.latitude == 0 and request.longitude == 0:
         warnings.append(WarningMessage(code="MISSING_LOCATION", message="Latitude/longitude are missing or set to 0,0."))
-    year = int(datetime_local[:4])
+    year = datetime_local.year
     if year < 1900 or year > 2100:
         warnings.append(WarningMessage(code="UNSUPPORTED_DATE_RANGE", message="Date is outside the currently validated 1900-2100 range."))
     return warnings

@@ -4,9 +4,11 @@ import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, approveContentBatchWithAdminCookie, authorizeAdminRoute, recordAdminSessionStartedWithAdminCookie, rejectContentBatchWithAdminCookie, rejectDraftWithAdminCookie, startDevMockAdminSessionForToken } from "../src/mvp/admin-auth";
+import { buildBetaMockSubscriptionWindow, validateOnboardingFields } from "../src/mvp/beta-user-ux";
 import { CONTENT_PREVIEW_APPROVAL_SESSION_ID } from "../src/mvp/content-preview-approval";
 import { readDeploymentEnvironment } from "../src/mvp/environment-validation";
-import { callMockAstroCalc, generateHoroscopeResult, getMockPeriodKey, recordAdminAudit, saveBirthProfile, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
+import { callMockAstroCalc, deleteBirthProfile, exportUserData, generateHoroscopeResult, getMockMvpState, getMockPeriodKey, recordAdminAudit, requestAccountDeletion, saveBirthProfile, setMockUserPlan, setNotificationPreference, storeChartSnapshot, unsubscribeNotifications, type PeriodType, type PlanCode } from "../src/mvp/mock-flow";
+import { processMockSubscriptionWebhook } from "../src/mvp/subscription-lifecycle";
 
 type AdminRole = "admin";
 
@@ -83,13 +85,82 @@ export async function requireAdminSession(path = "/admin"): Promise<{ actorId: s
 
 export async function saveOnboardingAction(formData: FormData): Promise<void> {
   const { sessionId, userId } = await getOrCreateSessionContext();
-  const birthTimeUnknown = formData.get("birthTimeUnknown") === "on";
-  const profile = saveBirthProfile({ birthDate: String(formData.get("birthDate") ?? ""), birthTime: String(formData.get("birthTime") ?? ""), birthTimeUnknown, birthPlaceText: String(formData.get("birthPlaceText") ?? ""), timezone: String(formData.get("timezone") ?? ""), consentBirthData: formData.get("consentBirthData") === "on" }, { sessionId, userId });
+  const state = getMockMvpState(sessionId);
+  if (!state.userPlans[userId]) setMockUserPlan(userId, "free", sessionId);
+  const validation = validateOnboardingFields({
+    birthDate:formData.get("birthDate"),
+    birthTime:formData.get("birthTime"),
+    birthTimeUnknown:formData.get("birthTimeUnknown"),
+    birthPlaceText:formData.get("birthPlaceText"),
+    timezone:formData.get("timezone"),
+    consentBirthData:formData.get("consentBirthData"),
+  });
+  if (!validation.ok) throw new Error(validation.errors.map((error)=>error.message).join(", "));
+  for (const existingProfile of state.birthProfiles.filter((profile)=>profile.userId === userId)) {
+    deleteBirthProfile({ sessionId, userId }, existingProfile.id);
+  }
+  const profile = saveBirthProfile(validation.normalized, { sessionId, userId });
   const chartSnapshot = storeChartSnapshot(callMockAstroCalc(profile), sessionId);
   for (const periodType of ["daily", "weekly", "monthly", "yearly"] as PeriodType[]) {
     generateHoroscopeResult({ chartSnapshot, periodType, periodKey: getMockPeriodKey(periodType), sessionId });
   }
   redirect("/today");
+}
+
+export async function selectMockPlanAction(formData: FormData): Promise<void> {
+  const { sessionId, userId } = await requireSessionContext();
+  const planCode = String(formData.get("planCode") ?? "free") as PlanCode;
+  if (!["free", "basic", "premium"].includes(planCode)) throw new Error("Invalid plan.");
+  setMockUserPlan(userId, planCode, sessionId);
+  if (planCode !== "free") {
+    const window = buildBetaMockSubscriptionWindow();
+    await processMockSubscriptionWebhook({
+      id:`evt_beta_plan_${crypto.randomUUID()}`,
+      type:"subscription.created",
+      subscriptionId:`sub_beta_${crypto.randomUUID()}`,
+      userId,
+      planCode,
+      status:"active",
+      currentPeriodStart:window.currentPeriodStart,
+      currentPeriodEnd:window.currentPeriodEnd,
+      occurredAt:window.currentPeriodStart,
+    });
+  }
+  redirect("/account");
+}
+
+export async function saveNotificationPreferenceAction(formData: FormData): Promise<void> {
+  const { sessionId, userId } = await requireSessionContext();
+  const topicCode = String(formData.get("topicCode") ?? "all");
+  const enabled = String(formData.get("enabled") ?? "false") === "true";
+  setNotificationPreference({ sessionId, userId }, topicCode, enabled);
+  redirect("/settings/notifications");
+}
+
+export async function unsubscribeNotificationsAction(formData: FormData): Promise<void> {
+  const { sessionId, userId } = await requireSessionContext();
+  unsubscribeNotifications({ sessionId, userId }, String(formData.get("topicCode") ?? "all"));
+  redirect("/settings/notifications");
+}
+
+export async function deleteBirthProfileAction(birthProfileId: string): Promise<void> {
+  const { sessionId, userId } = await requireSessionContext();
+  const state = getMockMvpState(sessionId);
+  const profile = state.birthProfiles.find((item)=>item.userId === userId && item.id === birthProfileId);
+  if (profile) deleteBirthProfile({ sessionId, userId }, profile.id);
+  redirect("/settings/privacy");
+}
+
+export async function requestAccountDeletionAction(): Promise<void> {
+  const { sessionId, userId } = await requireSessionContext();
+  requestAccountDeletion({ sessionId, userId });
+  redirect("/settings/privacy");
+}
+
+export async function exportMyDataAction(): Promise<void> {
+  const { sessionId, userId } = await requireSessionContext();
+  exportUserData({ sessionId, userId });
+  redirect("/settings/privacy");
 }
 
 export async function approveAndQueueAction(formData: FormData): Promise<void> {

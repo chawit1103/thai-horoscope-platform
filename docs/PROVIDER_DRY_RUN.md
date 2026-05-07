@@ -33,7 +33,7 @@ ENABLE_REAL_PAYMENT_PROVIDER=false
 ## Procedure
 
 1. Configure only the provider being evaluated.
-2. Run `pnpm test -- --test-name-pattern provider` when available, or the full `pnpm test`.
+2. Run `pnpm test`. For a focused local pre-check, run `cd apps/web && node --import tsx --test --test-name-pattern "provider activation guardrails" tests/provider-activation-guardrails.test.ts`.
 3. Run the provider activation safety harness through the web test suite with provider/fetch network telemetry supplied.
 4. Open `/api/health` in staging after human deployment.
 5. Confirm dry-run warnings are expected and sanitized.

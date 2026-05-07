@@ -32,9 +32,9 @@ def test_redacts_birth_data_and_secret_like_values() -> None:
 def test_redacts_prefixed_secrets_in_allowlisted_astro_strings() -> None:
     redacted = redact_for_observability(
         {
-            "reason": "failed with whsec_abcdef1234567890 and sk_live_secret123456 and bearer sk-proj-abcdef1234567890",
+            "reason": "failed with whsec_abcdef1234567890 and sk_live_secret123456 and bearer sk-proj-abcdef1234567890 and authorization=opaqueToken123456",
             "status": "token_abcdef1234567890",
-            "error_code": "KEY_ABCDEF1234567890 Authorization: sk-proj-zyxwvut987654321",
+            "error_code": "KEY_ABCDEF1234567890 Authorization: sk-proj-zyxwvut987654321 api_key=anotherOpaqueToken123456",
         }
     )
     serialized = str(redacted)
@@ -46,6 +46,8 @@ def test_redacts_prefixed_secrets_in_allowlisted_astro_strings() -> None:
         "KEY_ABCDEF1234567890",
         "sk-proj-abcdef1234567890",
         "sk-proj-zyxwvut987654321",
+        "opaqueToken123456",
+        "anotherOpaqueToken123456",
     ]:
         assert unsafe not in serialized
 

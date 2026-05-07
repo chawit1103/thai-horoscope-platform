@@ -28,7 +28,11 @@ EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNO
 LINE_USER_ID_PATTERN = re.compile(r"\bU[0-9A-Za-z]{8,}\b")
 CARD_PATTERN = re.compile(r"\b(?:\d[ -]?){12,19}\b")
 PREFIXED_SECRET_PATTERN = re.compile(r"\b(?:sk|pk|rk|whsec|key|token|secret)[_-][A-Za-z0-9_-]{8,}\b", re.IGNORECASE)
-AUTH_TOKEN_PATTERN = re.compile(r"\b(?:authorization|bearer)\s*[:=]?\s+[A-Za-z0-9._~+/=-]{8,}\b", re.IGNORECASE)
+KEY_VALUE_SECRET_PATTERN = re.compile(
+    r"\b(?:authorization|bearer|api[_-]?key|webhook[_-]?secret|secret|token)\s*[:=]\s*[A-Za-z0-9._~+/=-]{8,}\b",
+    re.IGNORECASE,
+)
+AUTH_TOKEN_PATTERN = re.compile(r"\b(?:authorization|bearer)\s+[A-Za-z0-9._~+/=-]{8,}\b", re.IGNORECASE)
 ISO_DATE_PATTERN = re.compile(r"(?<!\d)(?:19|20)\d{2}-\d{2}-\d{2}(?!\d)")
 TIME_PATTERN = re.compile(r"(?<!\d)(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:\.\d+)?(?!\d)")
 SECRET_WORD_PATTERN = re.compile(r"\b(?:bearer|secret|token|api[_-]?key|webhook[_-]?secret|authorization)\b", re.IGNORECASE)
@@ -122,6 +126,7 @@ def redact_string(value: str) -> str:
     redacted = LINE_USER_ID_PATTERN.sub("[REDACTED_LINE_USER]", redacted)
     redacted = CARD_PATTERN.sub("[REDACTED_CARD]", redacted)
     redacted = PREFIXED_SECRET_PATTERN.sub("[REDACTED_SECRET]", redacted)
+    redacted = KEY_VALUE_SECRET_PATTERN.sub("[REDACTED_SECRET]", redacted)
     redacted = AUTH_TOKEN_PATTERN.sub("[REDACTED_SECRET]", redacted)
     redacted = ISO_DATE_PATTERN.sub("[REDACTED_DATE]", redacted)
     redacted = TIME_PATTERN.sub("[REDACTED_TIME]", redacted)

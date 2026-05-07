@@ -39,9 +39,9 @@ describe("observability", () => {
   });
 
   it("redacts API keys secrets and card-like values", () => {
-    const redacted = JSON.stringify(redactForObservability({ apiKey:"sk_live_secret123456", authorization:"Bearer payment-secret", cardNumber:"4242424242424242", message:"card 4242 4242 4242 4242 webhook whsec_1234567890abcdef bearer sk-proj-abcdef1234567890", reason:"Authorization: sk-proj-zyxwvut987654321" }));
+    const redacted = JSON.stringify(redactForObservability({ apiKey:"sk_live_secret123456", authorization:"Bearer payment-secret", cardNumber:"4242424242424242", message:"card 4242 4242 4242 4242 webhook whsec_1234567890abcdef bearer sk-proj-abcdef1234567890 authorization=opaqueToken123456", reason:"Authorization: sk-proj-zyxwvut987654321 api_key=anotherOpaqueToken123456" }));
 
-    for (const unsafe of ["sk_live_secret123456", "Bearer payment-secret", "4242424242424242", "4242 4242 4242 4242", "whsec_1234567890abcdef", "whsec_abcdef1234567890", "sk-proj-abcdef1234567890", "sk-proj-zyxwvut987654321"]) {
+    for (const unsafe of ["sk_live_secret123456", "Bearer payment-secret", "4242424242424242", "4242 4242 4242 4242", "whsec_1234567890abcdef", "whsec_abcdef1234567890", "sk-proj-abcdef1234567890", "sk-proj-zyxwvut987654321", "opaqueToken123456", "anotherOpaqueToken123456"]) {
       assert.equal(redacted.includes(unsafe), false, `leaked ${unsafe}`);
     }
   });

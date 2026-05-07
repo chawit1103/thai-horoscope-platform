@@ -105,6 +105,7 @@ describe("observability", () => {
 
     assert.equal(event.type, "astro_calc_health_failed");
     assert.equal(event.metadata.reason, "astro_error");
+    assert.equal(event.metadata.errorCode, "INVALID_DATETIME");
     for (const unsafe of ["1971-03-11", "08:17", "Bangkok"]) assert.equal(serialized.includes(unsafe), false);
   });
 

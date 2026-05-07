@@ -229,7 +229,7 @@ export function lineDeliveryFailureEvent(input:{ reason:string; lineUserId?:stri
 
 export function astroCalcFailureEvent(input:{ reason:string; errorCode?:string; birthDate?:string; birthTime?:string; birthPlace?:string; rawError?:unknown; now?:Date }):MonitoringEvent {
   const reason = safeReasonCode(input.reason, "astro_error");
-  const errorCode = input.errorCode ? safeReasonCode(input.errorCode, "ASTRO_ERROR") : undefined;
+  const errorCode = input.errorCode ? safeErrorCode(input.errorCode, "ASTRO_ERROR") : undefined;
   return createMonitoringEvent({
     type:reason === "ephemeris_config_invalid" ? "astro_ephemeris_config_invalid" : "astro_calc_health_failed",
     severity:"critical",
@@ -328,6 +328,12 @@ function safeReference(value:string):string {
 function safeReasonCode(value:string, fallback:string):string {
   const trimmed = value.trim();
   if (KNOWN_REASON_CODES.has(trimmed)) return redactString(trimmed);
+  return fallback;
+}
+
+function safeErrorCode(value:string, fallback:string):string {
+  const trimmed = value.trim();
+  if (/^[A-Z][A-Z0-9_]{2,80}$/.test(trimmed)) return redactString(trimmed);
   return fallback;
 }
 

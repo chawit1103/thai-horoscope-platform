@@ -166,7 +166,7 @@ describe("beta content preview approval", () => {
     assert.equal(refreshed.approvedAt, undefined);
   });
 
-  it("holds unapproved beta content without dispatching and suppresses rejected content", async () => {
+  it("holds unapproved and rejected beta content without dispatching", async () => {
     const pendingUser = user({ userId:"preview_pending_user", subscription:await activeSubscription("preview_pending_user") });
     approveHoroscopeArtifact({ userId:pendingUser.userId });
     const pending = runNotificationSchedulerJob({ sessionId, users:[pendingUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
@@ -179,8 +179,10 @@ describe("beta content preview approval", () => {
     const g = gateways();
     const rejected = await dispatchQueuedNotifications({ sessionId, users:[pendingUser], emailGateway:g.emailGateway, lineGateway:g.lineGateway, now, betaApprovalMode:true });
     assert.equal(rejected.sent, 0);
-    assert.equal(rejected.suppressed, 1);
+    assert.equal(rejected.suppressed, 0);
+    assert.equal(rejected.attempts.at(-1)?.status, "deferred");
     assert.equal(getNotificationSchedulerState().deliveryAttempts.at(-1)?.errorCode, "content_rejected");
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "queued");
   });
 
   it("dispatches approved content through mock gateways only", async () => {
@@ -211,8 +213,18 @@ describe("beta content preview approval", () => {
     const dispatch = await dispatchQueuedNotifications({ sessionId, users:[schedulerUser], emailGateway:g.emailGateway, lineGateway:g.lineGateway, now, betaApprovalMode:true });
 
     assert.equal(dispatch.sent, 0);
-    assert.equal(dispatch.suppressed, 1);
+    assert.equal(dispatch.suppressed, 0);
+    assert.equal(dispatch.attempts.at(-1)?.status, "deferred");
     assert.equal(getNotificationSchedulerState().deliveryAttempts.at(-1)?.errorCode, "content_approval_missing");
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "queued");
+
+    runNotificationSchedulerJob({ sessionId, users:[schedulerUser], topics:["daily_horoscope"], now, betaApprovalMode:true });
+    const regeneratedBatchId = getContentPreviewApprovalState(approvalSessionId).batches[0]?.batchId;
+    assert.ok(regeneratedBatchId);
+    approveContentBatchWithAdminCookie({ sessionId:approvalSessionId, batchId:regeneratedBatchId, sessionCookie:adminCookie, sessionSecret:adminSecret });
+
+    const approvedDispatch = await dispatchQueuedNotifications({ sessionId, users:[schedulerUser], emailGateway:g.emailGateway, lineGateway:g.lineGateway, now, betaApprovalMode:true });
+    assert.equal(approvedDispatch.sent, 1);
   });
 
   it("enforces approval for beta-held messages even when dispatch omits beta mode", async () => {

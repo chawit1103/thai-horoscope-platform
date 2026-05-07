@@ -138,6 +138,10 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
       }
       if (existing) {
         duplicates += 1;
+        if (input.betaApprovalMode && isApprovalSuppressedMessage(existing)) {
+          existing.status = "queued";
+          writeAudit("notification_duplicate", existing.id, now, { topicCode, periodKey, queuePolicy:"reopened_beta_approval_hold" });
+        }
         refreshQueuedDeliveryPreferences(existing, user, topicCode, now);
         if (input.betaApprovalMode) refreshQueuedHoroscopeContent(existing, result, deliveryPayload, now);
         if (approval) applyApprovalMetadata(existing, approval);
@@ -218,10 +222,8 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
     if (input.betaApprovalMode || messageRequiresContentApproval(message)) {
       const approval = getContentPreviewApprovalForResult(CONTENT_PREVIEW_APPROVAL_SESSION_ID, message.horoscopeResultId);
       if (!approval || approval.approvalStatus === "rejected") {
-        const attempt = recordAttempt(message, message.channel, "suppressed", now, false, approval ? "content_rejected" : "content_approval_missing");
+        const attempt = recordAttempt(message, message.channel, "deferred", now, false, approval ? "content_rejected" : "content_approval_missing");
         attempts.push(attempt);
-        message.status = "suppressed";
-        suppressed += 1;
         continue;
       }
       if (approval.approvalStatus !== "approved") {
@@ -450,6 +452,10 @@ function applyApprovalMetadata(message:ScheduledNotificationMessage, approval:{ 
 
 function hasPendingApprovalAttempt(outboundMessageId:string):boolean {
   return state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===outboundMessageId&&attempt.status==="deferred"&&attempt.errorCode==="content_pending_approval");
+}
+
+function isApprovalSuppressedMessage(message:ScheduledNotificationMessage):boolean {
+  return message.status === "suppressed" && state.deliveryAttempts.some((attempt)=>attempt.outboundMessageId===message.id&&attempt.status==="suppressed"&&(attempt.errorCode==="content_approval_missing"||attempt.errorCode==="content_rejected"));
 }
 
 function isFallbackAllowed(user:NotificationSchedulerUser, topicCode:NotificationTopic):boolean {

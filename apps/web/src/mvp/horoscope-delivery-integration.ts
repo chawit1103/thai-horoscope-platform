@@ -85,7 +85,7 @@ export function horoscopeContentToEmailMessage(input:{ topicCode:HoroscopeDelive
     html: payload.emailHtml,
     transactional: false,
     idempotencyKey: input.idempotencyKey,
-    metadata: sanitizeDeliveryMetadata({ ...payload.metadata, ...(input.metadata ?? {}), idempotencyKey: input.idempotencyKey }),
+    metadata: providerSafeMetadata({ ...payload.metadata, ...(input.metadata ?? {}), idempotencyKey: input.idempotencyKey }),
   };
 }
 
@@ -97,7 +97,7 @@ export function horoscopeContentToLineMessage(input:{ topicCode:HoroscopeDeliver
     body: payload.previewText,
     periodKey: input.content.period_key,
     ctaUrl: "https://example.test/horoscope",
-    metadata: sanitizeDeliveryMetadata({ ...payload.metadata, ...(input.metadata ?? {}) }),
+    metadata: providerSafeMetadata({ ...payload.metadata, ...(input.metadata ?? {}) }),
   };
 }
 
@@ -178,9 +178,17 @@ function sanitizeDeliveryMetadata(metadata:Record<string,string>):Record<string,
   return Object.fromEntries(Object.entries(metadata).filter(([key,value])=>!isSensitiveMetadataKey(key)&&!isSensitiveMetadataValue(value)));
 }
 
+function providerSafeMetadata(metadata:Record<string,string>):Record<string,string> {
+  return Object.fromEntries(Object.entries(sanitizeDeliveryMetadata(metadata)).filter(([key])=>!isProviderSensitiveDerivedKey(key)));
+}
+
 function isSensitiveMetadataKey(key:string):boolean {
   const normalized = key.toLowerCase();
   return ["email","lineuserid","userid","birthdate","birthtime","birthplace","location","secret","token","authorization","raw","payload","card"].some((blocked)=>normalized.includes(blocked));
+}
+
+function isProviderSensitiveDerivedKey(key:string):boolean {
+  return new Set(["calculationHash", "chartSnapshotId", "contentHash"]).has(key);
 }
 
 function isSensitiveMetadataValue(value:string):boolean {

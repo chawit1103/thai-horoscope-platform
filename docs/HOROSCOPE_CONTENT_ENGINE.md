@@ -151,6 +151,10 @@ warningCodes
 
 It must not include raw birth date, birth time, birth place, email address, LINE
 user ID, payment identifiers, provider payloads, API keys, tokens, or secrets.
+Provider-facing Email and LINE metadata must additionally omit stable
+birth-data-derived identifiers such as calculation hash, chart snapshot ID, and
+content hash. Those identifiers may remain only in internal queue/audit-safe
+state where needed to trace deterministic content generation.
 
 The final delivery adapter reruns content validation and safety scanning before
 building Email or LINE messages. If content has safety flags or validation

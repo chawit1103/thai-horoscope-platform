@@ -46,8 +46,10 @@ describe("horoscope delivery integration", () => {
     assert.equal(requests[0]!.metadata?.topicCode, "daily_horoscope");
     assert.equal(requests[0]!.metadata?.periodKey, "2026-05-03");
     assert.ok(requests[0]!.metadata?.contentProfileCode);
-    assert.ok(requests[0]!.metadata?.calculationHash);
     assert.ok(requests[0]!.metadata?.ruleHitIds);
+    assert.equal("calculationHash" in requests[0]!.metadata!, false);
+    assert.equal("chartSnapshotId" in requests[0]!.metadata!, false);
+    assert.equal("contentHash" in requests[0]!.metadata!, false);
     assert.equal(provider.networkSendCount, 0);
   });
 
@@ -90,6 +92,9 @@ describe("horoscope delivery integration", () => {
     assert.match(sentMessages[0]!.body, /เพื่อความบันเทิงและการทบทวนตนเอง/u);
     assert.equal(sentMessages[0]!.metadata?.topicCode, "daily_horoscope");
     assert.ok(sentMessages[0]!.metadata?.contentProfileCode);
+    assert.equal("calculationHash" in sentMessages[0]!.metadata!, false);
+    assert.equal("chartSnapshotId" in sentMessages[0]!.metadata!, false);
+    assert.equal("contentHash" in sentMessages[0]!.metadata!, false);
     assertNoRawPrivateData(JSON.stringify(sentMessages[0]));
   });
 
@@ -122,6 +127,12 @@ describe("horoscope delivery integration", () => {
 
     assert.equal(email.metadata?.safeCode, "ok");
     assert.equal(line.metadata?.safeCode, "ok");
+    assert.equal("calculationHash" in email.metadata!, false);
+    assert.equal("chartSnapshotId" in email.metadata!, false);
+    assert.equal("contentHash" in email.metadata!, false);
+    assert.equal("calculationHash" in line.metadata!, false);
+    assert.equal("chartSnapshotId" in line.metadata!, false);
+    assert.equal("contentHash" in line.metadata!, false);
     assertNoRawPrivateData(JSON.stringify(email.metadata));
     assertNoRawPrivateData(JSON.stringify(line.metadata));
   });

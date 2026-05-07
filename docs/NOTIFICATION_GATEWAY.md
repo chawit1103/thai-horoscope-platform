@@ -258,11 +258,13 @@ Email delivery receives escaped HTML and plain text. LINE delivery receives a
 safe preview body rendered by the existing Flex preview helper. Both channels
 share the same content output and metadata.
 
-The delivery metadata may include period, topic, content profile, content hash,
-calculation hash, chart snapshot ID, safety flags, warning codes, and rule-hit
-IDs. It must not include raw email addresses, LINE user IDs, birth date/time,
-birth place/location, payment IDs, provider raw payloads, API keys, webhook
-secrets, or tokens.
+Internal delivery metadata may include period, topic, content profile, content
+hash, calculation hash, chart snapshot ID, safety flags, warning codes, and
+rule-hit IDs. Provider-facing Email and LINE metadata must omit stable
+birth-data-derived identifiers such as calculation hash, chart snapshot ID, and
+content hash. It must not include raw email addresses, LINE user IDs, birth
+date/time, birth place/location, payment IDs, provider raw payloads, API keys,
+webhook secrets, or tokens.
 
 If the birth time is unknown or houses are unreliable, delivered content keeps
 the softened warning from the content engine and avoids house/ascendant-specific

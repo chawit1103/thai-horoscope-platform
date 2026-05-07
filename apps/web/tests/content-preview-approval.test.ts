@@ -195,6 +195,7 @@ describe("beta content preview approval", () => {
     const dispatched = await dispatchQueuedNotifications({ sessionId, users:[schedulerUser], emailGateway:g.emailGateway, lineGateway:g.lineGateway, now, betaApprovalMode:true });
 
     assert.equal(dispatched.sent, 1);
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.deliveryMetadata?.approvalStatus, "approved");
     assert.equal(g.emailProvider.networkSendCount, 0);
     assert.equal(g.lineProvider.networkSendCount, 0);
     assert.equal(g.emailProvider.sent.length, 0);

@@ -231,6 +231,7 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
         attempts.push(attempt);
         continue;
       }
+      applyApprovalMetadata(message, approval);
     }
 
     const guard = getDispatchGuard(message, user, now);

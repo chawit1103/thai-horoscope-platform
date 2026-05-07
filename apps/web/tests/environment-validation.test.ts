@@ -82,6 +82,15 @@ describe("environment validation", () => {
     assertIssueVariables(component(report, "astro_calc").errors, "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN", ["ASTRO_ENGINE"]);
   });
 
+  it("explicit staging deployment values are not promoted by production node runtime", () => {
+    const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"staging", NODE_ENV:"production", ADMIN_SESSION_SECRET:"admin-secret", EMAIL_AUDIT_HASH_SECRET:"email-audit", LINE_AUDIT_HASH_SECRET:"line-audit" });
+
+    assert.equal(report.environment, "staging");
+    assert.equal(report.status, "ok");
+    assert.equal(component(report, "deployment_environment").errors.length, 0);
+    assert.equal(component(report, "payment_provider").errors.some((error)=>error.code === "PAYMENT_MOCK_MODE_PRODUCTION_FORBIDDEN"), false);
+  });
+
   it("production fails closed for sandbox or mock provider modes", () => {
     const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"production", ADMIN_SESSION_SECRET:"admin-secret", EMAIL_AUDIT_HASH_SECRET:"email-audit", LINE_AUDIT_HASH_SECRET:"line-audit" });
 

@@ -29,7 +29,9 @@ export type EnvironmentInput = Record<string, string|undefined>;
 const LOCAL_ENVIRONMENTS = new Set(["local", "development", "test"]);
 const STAGING_ENVIRONMENTS = new Set(["staging", "preview"]);
 const PRODUCTION_ENVIRONMENTS = new Set(["production"]);
-const ENVIRONMENT_SOURCES = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV"] as const;
+const DEPLOYMENT_ENVIRONMENT_SOURCES = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV"] as const;
+const RUNTIME_ENVIRONMENT_SOURCES = ["NODE_ENV"] as const;
+const ENVIRONMENT_SOURCES = [...DEPLOYMENT_ENVIRONMENT_SOURCES, ...RUNTIME_ENVIRONMENT_SOURCES] as const;
 
 export function validateDeploymentEnvironment(env:EnvironmentInput = process.env):EnvironmentValidationReport {
   const environment = readDeploymentEnvironment(env);
@@ -51,16 +53,22 @@ export function validateDeploymentEnvironment(env:EnvironmentInput = process.env
 }
 
 export function readDeploymentEnvironment(env:EnvironmentInput = process.env):DeploymentEnvironment {
-  const values = readDeploymentEnvironmentValues(env);
-  if (values.some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw))) return "production";
-  if (values.some(({ raw })=>STAGING_ENVIRONMENTS.has(raw))) return "staging";
-  if (values.some(({ raw })=>LOCAL_ENVIRONMENTS.has(raw))) return "local";
+  const deploymentValues = readDeploymentEnvironmentValues(env, DEPLOYMENT_ENVIRONMENT_SOURCES);
+  if (deploymentValues.some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw))) return "production";
+  if (deploymentValues.some(({ raw })=>STAGING_ENVIRONMENTS.has(raw))) return "staging";
+  if (deploymentValues.some(({ raw })=>LOCAL_ENVIRONMENTS.has(raw)) && hasRuntimeProductionSignal(env)) return "production";
+  if (deploymentValues.some(({ raw })=>LOCAL_ENVIRONMENTS.has(raw))) return "local";
+
+  const runtimeValues = readDeploymentEnvironmentValues(env, RUNTIME_ENVIRONMENT_SOURCES);
+  if (runtimeValues.some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw))) return "production";
+  if (runtimeValues.some(({ raw })=>STAGING_ENVIRONMENTS.has(raw))) return "staging";
+  if (runtimeValues.some(({ raw })=>LOCAL_ENVIRONMENTS.has(raw))) return "local";
   return "local";
 }
 
-function readDeploymentEnvironmentValues(env:EnvironmentInput):{ source:typeof ENVIRONMENT_SOURCES[number]; raw:string }[] {
-  const values:{ source:typeof ENVIRONMENT_SOURCES[number]; raw:string }[] = [];
-  for (const source of ENVIRONMENT_SOURCES) {
+function readDeploymentEnvironmentValues<T extends readonly (typeof ENVIRONMENT_SOURCES[number])[]>(env:EnvironmentInput, sources:T):{ source:T[number]; raw:string }[] {
+  const values:{ source:T[number]; raw:string }[] = [];
+  for (const source of sources) {
     const raw = normalize(env[source] ?? "");
     if (!raw) continue;
     values.push({ source, raw });
@@ -107,8 +115,12 @@ function validateAdminAuth(env:EnvironmentInput, environment:DeploymentEnvironme
 
 function validateDeploymentEnvironmentSource(env:EnvironmentInput):ComponentHealth {
   const errors:ConfigIssue[] = [];
-  const values = readDeploymentEnvironmentValues(env);
-  const hasProductionSignal = values.some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw));
+  const deploymentValues = readDeploymentEnvironmentValues(env, DEPLOYMENT_ENVIRONMENT_SOURCES);
+  const runtimeValues = readDeploymentEnvironmentValues(env, RUNTIME_ENVIRONMENT_SOURCES);
+  const values = [...deploymentValues, ...runtimeValues];
+  const hasDeploymentProductionSignal = deploymentValues.some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw));
+  const hasRuntimeProductionSignalOnly = deploymentValues.length === 0 || deploymentValues.some(({ raw })=>LOCAL_ENVIRONMENTS.has(raw));
+  const hasProductionSignal = hasDeploymentProductionSignal || (hasRuntimeProductionSignalOnly && runtimeValues.some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw)));
   for (const { source, raw } of values) {
     if (!PRODUCTION_ENVIRONMENTS.has(raw) && !STAGING_ENVIRONMENTS.has(raw) && !LOCAL_ENVIRONMENTS.has(raw)) {
       errors.push(issue("DEPLOYMENT_ENVIRONMENT_INVALID", `${source} must be local, development, test, staging, preview, or production.`, [source]));
@@ -118,6 +130,10 @@ function validateDeploymentEnvironmentSource(env:EnvironmentInput):ComponentHeal
     }
   }
   return component("deployment_environment", readDeploymentEnvironment(env), errors, []);
+}
+
+function hasRuntimeProductionSignal(env:EnvironmentInput):boolean {
+  return readDeploymentEnvironmentValues(env, RUNTIME_ENVIRONMENT_SOURCES).some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw));
 }
 
 function validateEmailGateway(env:EnvironmentInput, environment:DeploymentEnvironment):ComponentHealth {

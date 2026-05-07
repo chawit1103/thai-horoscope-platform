@@ -9,6 +9,8 @@ LOCAL_ENVIRONMENTS = {"local", "development", "test"}
 STAGING_ENVIRONMENTS = {"staging", "preview"}
 PRODUCTION_ENVIRONMENTS = {"production"}
 ENVIRONMENT_SOURCES = ("APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV", "ENVIRONMENT")
+DEPLOYMENT_ENVIRONMENT_SOURCES = ("APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV")
+RUNTIME_ENVIRONMENT_SOURCES = ("NODE_ENV", "ENVIRONMENT")
 
 
 @dataclass(frozen=True)
@@ -58,16 +60,32 @@ class AstroRuntimeConfig:
 
 
 def read_runtime_environment() -> str:
-    values: list[str] = []
-    for source in ENVIRONMENT_SOURCES:
-        raw = (os.getenv(source) or "").strip().lower()
-        if not raw:
-            continue
-        values.append(raw)
-    if any(raw in PRODUCTION_ENVIRONMENTS for raw in values):
+    deployment_values = read_environment_values(DEPLOYMENT_ENVIRONMENT_SOURCES)
+    if any(raw in PRODUCTION_ENVIRONMENTS for raw in deployment_values):
         return "production"
-    if any(raw in STAGING_ENVIRONMENTS for raw in values):
+    if any(raw in STAGING_ENVIRONMENTS for raw in deployment_values):
         return "staging"
-    if any(raw in LOCAL_ENVIRONMENTS for raw in values):
+    if any(raw in LOCAL_ENVIRONMENTS for raw in deployment_values) and any(
+        raw in PRODUCTION_ENVIRONMENTS for raw in read_environment_values(RUNTIME_ENVIRONMENT_SOURCES)
+    ):
+        return "production"
+    if any(raw in LOCAL_ENVIRONMENTS for raw in deployment_values):
+        return "development"
+
+    runtime_values = read_environment_values(RUNTIME_ENVIRONMENT_SOURCES)
+    if any(raw in PRODUCTION_ENVIRONMENTS for raw in runtime_values):
+        return "production"
+    if any(raw in STAGING_ENVIRONMENTS for raw in runtime_values):
+        return "staging"
+    if any(raw in LOCAL_ENVIRONMENTS for raw in runtime_values):
         return "development"
     return "development"
+
+
+def read_environment_values(sources: tuple[str, ...]) -> list[str]:
+    values: list[str] = []
+    for source in sources:
+        raw = (os.getenv(source) or "").strip().lower()
+        if raw:
+            values.append(raw)
+    return values

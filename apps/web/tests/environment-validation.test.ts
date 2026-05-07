@@ -72,6 +72,16 @@ describe("environment validation", () => {
     assertIssueVariables(component(report, "payment_provider").errors, "PAYMENT_MOCK_MODE_PRODUCTION_FORBIDDEN", ["PAYMENT_PROVIDER_MODE"]);
   });
 
+  it("production signals fail closed when mixed with local environment values", () => {
+    const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"local", VERCEL_ENV:"production" });
+
+    assert.equal(report.environment, "production");
+    assert.equal(report.status, "error");
+    assertIssueVariables(component(report, "deployment_environment").errors, "DEPLOYMENT_ENVIRONMENT_CONFLICT", ["APP_ENV"]);
+    assertIssueVariables(component(report, "payment_provider").errors, "PAYMENT_MOCK_MODE_PRODUCTION_FORBIDDEN", ["PAYMENT_PROVIDER_MODE"]);
+    assertIssueVariables(component(report, "astro_calc").errors, "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN", ["ASTRO_ENGINE"]);
+  });
+
   it("production fails closed for sandbox or mock provider modes", () => {
     const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"production", ADMIN_SESSION_SECRET:"admin-secret", EMAIL_AUDIT_HASH_SECRET:"email-audit", LINE_AUDIT_HASH_SECRET:"line-audit" });
 
@@ -80,6 +90,13 @@ describe("environment validation", () => {
     assertIssueVariables(component(report, "line_gateway").errors, "LINE_SANDBOX_MODE_PRODUCTION_FORBIDDEN", ["LINE_PROVIDER_MODE"]);
     assertIssueVariables(component(report, "payment_provider").errors, "PAYMENT_MOCK_MODE_PRODUCTION_FORBIDDEN", ["PAYMENT_PROVIDER_MODE"]);
     assertIssueVariables(component(report, "astro_calc").errors, "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN", ["ASTRO_ENGINE"]);
+  });
+
+  it("staging enabled notification scheduler requires a trigger token", () => {
+    const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"staging", ADMIN_SESSION_SECRET:"admin-secret", EMAIL_AUDIT_HASH_SECRET:"email-audit", LINE_AUDIT_HASH_SECRET:"line-audit", NOTIFICATION_SCHEDULER_MODE:"enabled" });
+
+    assert.equal(report.status, "error");
+    assertIssueVariables(component(report, "notification_scheduler").errors, "NOTIFICATION_SCHEDULER_CONFIG_MISSING", ["NOTIFICATION_SCHEDULER_TOKEN"]);
   });
 
   it("health config output never includes raw secrets", () => {

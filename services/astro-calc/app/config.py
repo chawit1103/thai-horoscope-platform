@@ -54,14 +54,16 @@ class AstroRuntimeConfig:
 
 
 def read_runtime_environment() -> str:
+    values: list[str] = []
     for source in ENVIRONMENT_SOURCES:
         raw = (os.getenv(source) or "").strip().lower()
         if not raw:
             continue
-        if raw in PRODUCTION_ENVIRONMENTS:
-            return "production"
-        if raw in STAGING_ENVIRONMENTS:
-            return "staging"
-        if raw in LOCAL_ENVIRONMENTS:
-            return "development"
+        values.append(raw)
+    if any(raw in PRODUCTION_ENVIRONMENTS for raw in values):
+        return "production"
+    if any(raw in STAGING_ENVIRONMENTS for raw in values):
+        return "staging"
+    if any(raw in LOCAL_ENVIRONMENTS for raw in values):
+        return "development"
     return "development"

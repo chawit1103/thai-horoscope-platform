@@ -134,7 +134,7 @@ Notification scheduler:
 NOTIFICATION_SCHEDULER_MODE=disabled|dry_run|enabled
 ```
 
-`NOTIFICATION_SCHEDULER_MODE=enabled` in production requires:
+`NOTIFICATION_SCHEDULER_MODE=enabled` in staging or production requires:
 
 ```text
 NOTIFICATION_SCHEDULER_TOKEN

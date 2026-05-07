@@ -51,14 +51,21 @@ export function validateDeploymentEnvironment(env:EnvironmentInput = process.env
 }
 
 export function readDeploymentEnvironment(env:EnvironmentInput = process.env):DeploymentEnvironment {
+  const values = readDeploymentEnvironmentValues(env);
+  if (values.some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw))) return "production";
+  if (values.some(({ raw })=>STAGING_ENVIRONMENTS.has(raw))) return "staging";
+  if (values.some(({ raw })=>LOCAL_ENVIRONMENTS.has(raw))) return "local";
+  return "local";
+}
+
+function readDeploymentEnvironmentValues(env:EnvironmentInput):{ source:typeof ENVIRONMENT_SOURCES[number]; raw:string }[] {
+  const values:{ source:typeof ENVIRONMENT_SOURCES[number]; raw:string }[] = [];
   for (const source of ENVIRONMENT_SOURCES) {
     const raw = normalize(env[source] ?? "");
     if (!raw) continue;
-    if (PRODUCTION_ENVIRONMENTS.has(raw)) return "production";
-    if (STAGING_ENVIRONMENTS.has(raw)) return "staging";
-    if (LOCAL_ENVIRONMENTS.has(raw)) return "local";
+    values.push({ source, raw });
   }
-  return "local";
+  return values;
 }
 
 export function assertDeploymentEnvironmentReady(env:EnvironmentInput = process.env):EnvironmentValidationReport {
@@ -100,11 +107,14 @@ function validateAdminAuth(env:EnvironmentInput, environment:DeploymentEnvironme
 
 function validateDeploymentEnvironmentSource(env:EnvironmentInput):ComponentHealth {
   const errors:ConfigIssue[] = [];
-  for (const source of ENVIRONMENT_SOURCES) {
-    const raw = normalize(env[source] ?? "");
-    if (!raw) continue;
+  const values = readDeploymentEnvironmentValues(env);
+  const hasProductionSignal = values.some(({ raw })=>PRODUCTION_ENVIRONMENTS.has(raw));
+  for (const { source, raw } of values) {
     if (!PRODUCTION_ENVIRONMENTS.has(raw) && !STAGING_ENVIRONMENTS.has(raw) && !LOCAL_ENVIRONMENTS.has(raw)) {
       errors.push(issue("DEPLOYMENT_ENVIRONMENT_INVALID", `${source} must be local, development, test, staging, preview, or production.`, [source]));
+    }
+    if (hasProductionSignal && !PRODUCTION_ENVIRONMENTS.has(raw)) {
+      errors.push(issue("DEPLOYMENT_ENVIRONMENT_CONFLICT", "Production environment signals must not be mixed with local or staging values.", [source]));
     }
   }
   return component("deployment_environment", readDeploymentEnvironment(env), errors, []);
@@ -157,8 +167,8 @@ function validateNotificationScheduler(env:EnvironmentInput, environment:Deploym
   const errors:ConfigIssue[] = [];
   const warnings:ConfigIssue[] = [];
   if (mode === "invalid") errors.push(issue("NOTIFICATION_SCHEDULER_MODE_INVALID", "NOTIFICATION_SCHEDULER_MODE must be disabled, dry_run, or enabled.", ["NOTIFICATION_SCHEDULER_MODE"]));
-  if (environment === "production" && mode === "enabled") {
-    requireVars(env, ["NOTIFICATION_SCHEDULER_TOKEN"], errors, "NOTIFICATION_SCHEDULER_CONFIG_MISSING", "Enabled production scheduler requires an internal trigger token.");
+  if (environment !== "local" && mode === "enabled") {
+    requireVars(env, ["NOTIFICATION_SCHEDULER_TOKEN"], errors, "NOTIFICATION_SCHEDULER_CONFIG_MISSING", "Enabled staging or production scheduler requires an internal trigger token.");
   }
   if (environment !== "local" && mode === "disabled") warnings.push(issue("NOTIFICATION_SCHEDULER_DISABLED", "Notification scheduler is disabled.", ["NOTIFICATION_SCHEDULER_MODE"]));
   return component("notification_scheduler", mode, errors, warnings);

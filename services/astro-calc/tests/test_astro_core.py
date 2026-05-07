@@ -1483,6 +1483,25 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(report["ephemeris_path_configured"], "true")
         self.assertNotIn("/private/ephemeris/path", str(report))
 
+    def test_health_verifies_swisseph_ephemeris_path_exists_without_exposing_it(self) -> None:
+        previous = {name: os.environ.get(name) for name in ["ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]}
+        os.environ["ASTRO_ENGINE"] = "swisseph"
+        os.environ["NODE_ENV"] = "production"
+        os.environ["SWISSEPH_LICENSE_MODE"] = "professional"
+        os.environ["ASTRO_EPHEMERIS_PATH"] = "/private/missing/ephemeris/path"
+        try:
+            report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "EPHEMERIS_FILE_MISSING")
+        self.assertNotIn("/private/missing/ephemeris/path", str(report))
+
     def test_swisseph_adapter_fails_closed_when_ephemeris_path_is_missing(self) -> None:
         config = AstroRuntimeConfig(
             engine="swisseph",

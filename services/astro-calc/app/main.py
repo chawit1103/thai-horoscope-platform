@@ -1,6 +1,7 @@
 from app.config import AstroRuntimeConfig
 from app.core.calculators import AstroCoreService
 from app.engines.factory import create_engine
+from app.engines.swisseph import fingerprint_ephemeris_path
 
 
 def create_service(config: AstroRuntimeConfig | None = None) -> AstroCoreService:
@@ -18,6 +19,8 @@ def health() -> dict[str, str]:
     }
     try:
         config.validate()
+        if config.engine == "swisseph":
+            fingerprint_ephemeris_path(config.ephemeris_path)
     except (PermissionError, ValueError, FileNotFoundError) as error:
         return {**base, "status": "error", "error_code": str(error).split(":", 1)[0]}
     return {**base, "status": "ok"}

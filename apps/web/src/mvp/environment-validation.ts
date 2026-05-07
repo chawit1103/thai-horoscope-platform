@@ -10,7 +10,7 @@ export interface ConfigIssue {
 }
 
 export interface ComponentHealth {
-  component:"admin_auth"|"email_gateway"|"line_gateway"|"payment_provider"|"notification_scheduler"|"astro_calc";
+  component:"deployment_environment"|"admin_auth"|"email_gateway"|"line_gateway"|"payment_provider"|"notification_scheduler"|"astro_calc";
   status:ComponentStatus;
   mode:string;
   errors:ConfigIssue[];
@@ -29,10 +29,12 @@ export type EnvironmentInput = Record<string, string|undefined>;
 const LOCAL_ENVIRONMENTS = new Set(["local", "development", "test"]);
 const STAGING_ENVIRONMENTS = new Set(["staging", "preview"]);
 const PRODUCTION_ENVIRONMENTS = new Set(["production"]);
+const ENVIRONMENT_SOURCES = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV"] as const;
 
 export function validateDeploymentEnvironment(env:EnvironmentInput = process.env):EnvironmentValidationReport {
   const environment = readDeploymentEnvironment(env);
   const components = [
+    validateDeploymentEnvironmentSource(env),
     validateAdminAuth(env, environment),
     validateEmailGateway(env, environment),
     validateLineGateway(env, environment),
@@ -49,10 +51,13 @@ export function validateDeploymentEnvironment(env:EnvironmentInput = process.env
 }
 
 export function readDeploymentEnvironment(env:EnvironmentInput = process.env):DeploymentEnvironment {
-  const raw = normalize(env.APP_ENV ?? env.DEPLOYMENT_ENV ?? env.VERCEL_ENV ?? env.NODE_ENV ?? "local");
-  if (PRODUCTION_ENVIRONMENTS.has(raw)) return "production";
-  if (STAGING_ENVIRONMENTS.has(raw)) return "staging";
-  if (LOCAL_ENVIRONMENTS.has(raw)) return "local";
+  for (const source of ENVIRONMENT_SOURCES) {
+    const raw = normalize(env[source] ?? "");
+    if (!raw) continue;
+    if (PRODUCTION_ENVIRONMENTS.has(raw)) return "production";
+    if (STAGING_ENVIRONMENTS.has(raw)) return "staging";
+    if (LOCAL_ENVIRONMENTS.has(raw)) return "local";
+  }
   return "local";
 }
 
@@ -91,6 +96,18 @@ function validateAdminAuth(env:EnvironmentInput, environment:DeploymentEnvironme
     warnings.push(issue("MOCK_ADMIN_TOKEN_NOT_CONFIGURED", "Staging mock admin sign-in is unavailable unless explicitly configured.", ["MOCK_ADMIN_TOKEN"]));
   }
   return component("admin_auth", environment === "local" ? "local" : "signed_cookie", errors, warnings);
+}
+
+function validateDeploymentEnvironmentSource(env:EnvironmentInput):ComponentHealth {
+  const errors:ConfigIssue[] = [];
+  for (const source of ENVIRONMENT_SOURCES) {
+    const raw = normalize(env[source] ?? "");
+    if (!raw) continue;
+    if (!PRODUCTION_ENVIRONMENTS.has(raw) && !STAGING_ENVIRONMENTS.has(raw) && !LOCAL_ENVIRONMENTS.has(raw)) {
+      errors.push(issue("DEPLOYMENT_ENVIRONMENT_INVALID", `${source} must be local, development, test, staging, preview, or production.`, [source]));
+    }
+  }
+  return component("deployment_environment", readDeploymentEnvironment(env), errors, []);
 }
 
 function validateEmailGateway(env:EnvironmentInput, environment:DeploymentEnvironment):ComponentHealth {

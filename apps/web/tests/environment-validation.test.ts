@@ -63,6 +63,15 @@ describe("environment validation", () => {
     assertIssueVariables(admin.errors, "ADMIN_AUTH_CONFIG_MISSING", ["ADMIN_SESSION_SECRET"]);
   });
 
+  it("misspelled higher-priority environment names do not bypass production guardrails", () => {
+    const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"prod", NODE_ENV:"production" });
+
+    assert.equal(report.environment, "production");
+    assert.equal(report.status, "error");
+    assertIssueVariables(component(report, "deployment_environment").errors, "DEPLOYMENT_ENVIRONMENT_INVALID", ["APP_ENV"]);
+    assertIssueVariables(component(report, "payment_provider").errors, "PAYMENT_MOCK_MODE_PRODUCTION_FORBIDDEN", ["PAYMENT_PROVIDER_MODE"]);
+  });
+
   it("production fails closed for sandbox or mock provider modes", () => {
     const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"production", ADMIN_SESSION_SECRET:"admin-secret", EMAIL_AUDIT_HASH_SECRET:"email-audit", LINE_AUDIT_HASH_SECRET:"line-audit" });
 

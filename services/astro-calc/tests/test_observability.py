@@ -34,7 +34,7 @@ def test_redacts_prefixed_secrets_in_allowlisted_astro_strings() -> None:
         {
             "reason": "failed with whsec_abcdef1234567890 and sk_live_secret123456 and bearer sk-proj-abcdef1234567890 and authorization=opaqueToken123456",
             "status": "token_abcdef1234567890",
-            "error_code": "KEY_ABCDEF1234567890 Authorization: sk-proj-zyxwvut987654321 api_key=anotherOpaqueToken123456",
+            "error_code": "KEY_ABCDEF1234567890 Authorization: sk-proj-zyxwvut987654321 api_key=anotherOpaqueToken123456 authorization=Basic dXNlcjpwYXNzd29yZA==",
         }
     )
     serialized = str(redacted)
@@ -48,6 +48,7 @@ def test_redacts_prefixed_secrets_in_allowlisted_astro_strings() -> None:
         "sk-proj-zyxwvut987654321",
         "opaqueToken123456",
         "anotherOpaqueToken123456",
+        "dXNlcjpwYXNzd29yZA==",
     ]:
         assert unsafe not in serialized
 

@@ -29,7 +29,7 @@ LINE_USER_ID_PATTERN = re.compile(r"\bU[0-9A-Za-z]{8,}\b")
 CARD_PATTERN = re.compile(r"\b(?:\d[ -]?){12,19}\b")
 PREFIXED_SECRET_PATTERN = re.compile(r"\b(?:sk|pk|rk|whsec|key|token|secret)[_-][A-Za-z0-9_-]{8,}\b", re.IGNORECASE)
 KEY_VALUE_SECRET_PATTERN = re.compile(
-    r"\b(?:authorization|bearer|api[_-]?key|webhook[_-]?secret|secret|token)\s*[:=]\s*[A-Za-z0-9._~+/=-]{8,}\b",
+    r"\b(?:authorization|bearer|api[_-]?key|webhook[_-]?secret|secret|token)\s*[:=]\s*(?:(?:basic|bearer|digest|token)\s+)?[A-Za-z0-9._~+/=-]{8,}\b",
     re.IGNORECASE,
 )
 AUTH_TOKEN_PATTERN = re.compile(r"\b(?:authorization|bearer)\s+[A-Za-z0-9._~+/=-]{8,}\b", re.IGNORECASE)

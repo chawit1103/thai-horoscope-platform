@@ -64,6 +64,20 @@ describe("observability", () => {
     assert.equal(serialized.includes("evt_raw_001"), false);
   });
 
+  it("payment webhook malformed payload reason is preserved as a code", () => {
+    const event = paymentWebhookFailureEvent({
+      reason:"invalid_payload",
+      provider:"mock",
+      rawPayload:{ note:"birth place Bangkok" },
+      now:new Date("2026-05-07T09:00:00.000Z"),
+    });
+    const serialized = JSON.stringify(event);
+
+    assert.equal(event.type, "payment_webhook_processing_failed");
+    assert.equal(event.metadata.reason, "invalid_payload");
+    assert.equal(serialized.includes("Bangkok"), false);
+  });
+
   it("email delivery failure event does not include raw email", () => {
     const event = emailDeliveryFailureEvent({ reason:"provider_timeout", email:"reader@example.test", topicCode:"daily_horoscope", now:new Date("2026-05-07T09:00:00.000Z") });
     const serialized = JSON.stringify(event);

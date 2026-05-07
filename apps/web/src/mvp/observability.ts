@@ -97,6 +97,7 @@ const KNOWN_REASON_CODES = new Set([
   "ephemeris_config_invalid",
   "astro_error",
   "invalid_signature",
+  "invalid_payload",
   "invalid_token",
   "line_provider_failed",
   "processing_failed",

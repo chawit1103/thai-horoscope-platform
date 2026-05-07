@@ -14,6 +14,9 @@ export default async function AdminPage() {
       <p className="eyebrow">Protected admin</p>
       <h1>Admin approve และ mock notification queue</h1>
       <p className="lead">Role: {adminSession.role}. Actor: {adminSession.actorId}.</p>
+      <div className="actions">
+        <a className="button-link secondary" href="/admin/operator">Open beta operator console</a>
+      </div>
       <section className="grid">
         {drafts.map((draft) => (
           <article className="panel" key={draft.id}>

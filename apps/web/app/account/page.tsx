@@ -8,7 +8,7 @@ export default async function AccountPage() {
   if (!session) return <EmptyAccount />;
   const state = getMockMvpState(session.sessionId);
   const subscription = getLatestUserSubscription(session.userId);
-  const subscriptionSummary = buildSubscriptionSummary({ state, userId:session.userId, subscription, now:new Date("2026-05-03T00:00:00.000Z") });
+  const subscriptionSummary = buildSubscriptionSummary({ state, userId:session.userId, subscription, now:new Date() });
   const profile = state.birthProfiles.find((item)=>item.userId===session.userId);
   const birthProfile = buildBirthProfileSummary(profile);
   const preferences = buildNotificationPreferenceSummary(state, session.userId);

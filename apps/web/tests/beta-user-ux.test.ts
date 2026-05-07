@@ -185,4 +185,25 @@ describe("beta user onboarding and subscription UX", () => {
     assert.equal(window.currentPeriodEnd, "2026-09-09T12:00:00.000Z");
     assert.equal(Date.parse(window.currentPeriodEnd) > Date.parse(window.currentPeriodStart), true);
   });
+
+  it("allows paid access when checked inside the dynamic signup window", async () => {
+    createHoroscopes({ planCode:"premium" });
+    const signupAt = new Date("2026-08-10T12:00:00.000Z");
+    const window = buildBetaMockSubscriptionWindow(signupAt);
+    const event:MockSubscriptionWebhookEvent = {
+      id:"evt_dynamic_beta_window",
+      type:"subscription.created",
+      subscriptionId:"sub_dynamic_beta_window",
+      userId,
+      planCode:"premium",
+      status:"active",
+      currentPeriodStart:window.currentPeriodStart,
+      currentPeriodEnd:window.currentPeriodEnd,
+      occurredAt:window.currentPeriodStart,
+    };
+    const result = await processMockSubscriptionWebhook(event);
+    const view = buildSafeHoroscopeView({ state:getMockMvpState(sessionId), userId, periodType:"yearly", subscription:result.subscription, now:new Date("2026-08-10T12:05:00.000Z") });
+
+    assert.equal(view.allowed, true);
+  });
 });

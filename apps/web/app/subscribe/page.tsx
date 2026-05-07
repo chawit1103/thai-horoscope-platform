@@ -13,7 +13,7 @@ const plans = [
 export default async function SubscribePage() {
   const session = await getOptionalMockSession();
   const state = getMockMvpState(session?.sessionId);
-  const summary = session ? buildSubscriptionSummary({ state, userId:session.userId, subscription:getLatestUserSubscription(session.userId), now:new Date("2026-05-03T00:00:00.000Z") }) : undefined;
+  const summary = session ? buildSubscriptionSummary({ state, userId:session.userId, subscription:getLatestUserSubscription(session.userId), now:new Date() }) : undefined;
 
   return (
     <section className="page">

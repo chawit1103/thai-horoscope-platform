@@ -21,8 +21,9 @@ export async function HoroscopePage({ periodType }: { periodType: PeriodType }) 
   }
   const state = getMockMvpState(sessionId);
   const subscription = getLatestUserSubscription(userId);
-  const currentPlan = buildSubscriptionSummary({ state, userId, subscription, now:new Date("2026-05-03T00:00:00.000Z") }).planCode;
-  const view = buildSafeHoroscopeView({ state, userId, periodType, subscription, now:new Date("2026-05-03T00:00:00.000Z") });
+  const now = new Date();
+  const currentPlan = buildSubscriptionSummary({ state, userId, subscription, now }).planCode;
+  const view = buildSafeHoroscopeView({ state, userId, periodType, subscription, now });
 
   if (!view.allowed) {
     return (

@@ -1,0 +1,19 @@
+{
+  "artifacts": [
+    {
+      "name": "project-instructions",
+      "path": "./AGENTS.md",
+      "description": "Codex worker instructions, architecture constraints, security gates, and definition of done for this Thai horoscope platform."
+    },
+    {
+      "name": "architecture-docs",
+      "path": "./docs",
+      "description": "Product, architecture, data model, notification, payment, security, deployment, content safety, and astrology calculation documentation."
+    },
+    {
+      "name": "contracts",
+      "path": "./packages/contracts",
+      "description": "Shared contracts and schemas used across the web app and astrology calculation service."
+    }
+  ]
+}

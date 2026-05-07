@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 export type LineInboundEventType = "follow"|"unfollow"|"message"|"postback";
 export type LineDeliveryStatus = "sent"|"failed"|"blocked";
-export type LineMessage = { topicCode:string; title:string; body:string; ctaUrl?:string; imageUrl?:string; periodKey?:string; idempotencyKey?:string; };
+export type LineMessage = { topicCode:string; title:string; body:string; ctaUrl?:string; imageUrl?:string; periodKey?:string; idempotencyKey?:string; metadata?:Record<string,string>; };
 export type LinePushMessage = LineTextMessage | LineFlexMessage;
 export interface LineTextMessage { type:"text"; text:string; }
 export interface LineFlexMessage { type:"flex"; altText:string; contents:Record<string,unknown>; }

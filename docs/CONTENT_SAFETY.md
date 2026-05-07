@@ -172,6 +172,32 @@ If any safety flag appears, the content must be rejected, held for manual
 review, or regenerated from approved templates. Tests must cover banned phrase
 examples and verify the production renderer does not emit those categories.
 
+## PR26 delivery safety gate
+
+Before Email or LINE payloads are built for scheduled horoscope delivery, the
+delivery adapter reruns schema validation and the automated safety filter on the
+content output. Unsafe delivery content is blocked before provider dispatch.
+
+Notification previews and emails must not include raw:
+
+- birth date
+- birth time
+- birth place or location
+- email address
+- LINE user ID
+- payment IDs or raw payment payloads
+- API keys, tokens, webhook secrets, or ephemeris license data
+
+Delivery copy may include the short preview disclaimer:
+
+```text
+เพื่อความบันเทิงและการทบทวนตนเอง
+```
+
+Longer Email content should include the full entertainment/self-reflection
+disclaimer. Unknown birth time warnings should remain visible in a softened,
+non-alarmist form.
+
 ## Unknown birth time policy
 
 When chart warnings include `UNKNOWN_BIRTH_TIME` or

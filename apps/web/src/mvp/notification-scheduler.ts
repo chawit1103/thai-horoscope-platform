@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { EmailGateway, type EmailChannelAccount, type EmailDeliveryResult, type EmailMessage } from "./email-gateway";
+import { generateHoroscopeDeliveryPayload, horoscopeContentToEmailMessage, horoscopeContentToLineMessage, type HoroscopeDeliveryPayload } from "./horoscope-delivery-integration";
+import { type HoroscopeContentOutput } from "./horoscope-content-engine";
 import { LineGateway, type LineChannelAccount, type LineDeliveryResult, type LineMessage } from "./line-gateway";
 import { canAccessPeriod, type PeriodType as SubscriptionPeriodType, type PlanCode, type SubscriptionRecord } from "./subscription-lifecycle";
 import { getMockMvpState, type HoroscopeResult, type PeriodType } from "./mock-flow";
@@ -39,6 +41,8 @@ export interface ScheduledNotificationMessage {
   allowFallback:boolean;
   title:string;
   body:string;
+  horoscopeContent?:HoroscopeContentOutput;
+  deliveryMetadata?:Record<string,string>;
   status:NotificationQueueStatus;
   createdAt:string;
 }
@@ -88,6 +92,18 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         writeAudit("notification_skipped", auditTarget(user.userId, topicCode, periodKey), now, { topicCode, periodKey, reason:"missing_active_horoscope_artifact" });
         continue;
       }
+      const chartSnapshot = mockState.chartSnapshots.find((snapshot)=>snapshot.id===result.chartSnapshotId&&snapshot.userId===user.userId&&snapshot.birthProfileId===result.birthProfileId);
+      if (!chartSnapshot) {
+        skipped += 1;
+        writeAudit("notification_skipped", auditTarget(user.userId, topicCode, periodKey), now, { topicCode, periodKey, reason:"missing_chart_snapshot" });
+        continue;
+      }
+      const deliveryPayload = buildDeliveryPayload(result, topicCode, chartSnapshot);
+      if (!deliveryPayload) {
+        skipped += 1;
+        writeAudit("notification_skipped", auditTarget(user.userId, topicCode, periodKey), now, { topicCode, periodKey, reason:"unsafe_horoscope_content" });
+        continue;
+      }
 
       const channel = user.primaryChannel;
       if (!isChannelPreferenceEnabled(user, topicCode, channel) || isChannelUnsubscribed(user, channel)) {
@@ -118,8 +134,10 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
         channel,
         fallbackChannel:user.fallbackChannel,
         allowFallback:isFallbackAllowed(user, topicCode),
-        title:result.content_json.title,
-        body:result.content_json.summary,
+        title:deliveryPayload.title,
+        body:deliveryPayload.previewText,
+        horoscopeContent:deliveryPayload.content,
+        deliveryMetadata:deliveryPayload.metadata,
         status:"queued",
         createdAt:now.toISOString(),
       };
@@ -264,10 +282,16 @@ async function dispatchToChannel(message:ScheduledNotificationMessage, channel:N
 
 function toEmailMessage(message:ScheduledNotificationMessage):EmailMessage {
   const idempotencyKey = makeEmailIdempotencyKey(message);
+  if (message.horoscopeContent) {
+    return horoscopeContentToEmailMessage({ topicCode:message.topicCode, content:message.horoscopeContent, idempotencyKey, metadata:{ ...(message.deliveryMetadata ?? {}), periodKey:message.periodKey } });
+  }
   return { topicCode:message.topicCode, subject:message.title, text:message.body, html:`<p>${escapeHtml(message.body)}</p>`, transactional:false, idempotencyKey, metadata:{ periodKey:message.periodKey, idempotencyKey } };
 }
 
 function toLineMessage(message:ScheduledNotificationMessage):LineMessage {
+  if (message.horoscopeContent) {
+    return horoscopeContentToLineMessage({ topicCode:message.topicCode, content:message.horoscopeContent, metadata:{ ...(message.deliveryMetadata ?? {}), periodKey:message.periodKey } });
+  }
   return { topicCode:message.topicCode, title:message.title, body:message.body, periodKey:message.periodKey, ctaUrl:"https://example.test/horoscope" };
 }
 
@@ -300,6 +324,14 @@ function findApprovedHoroscope(mockState:ReturnType<typeof getMockMvpState>, use
   const activeBirthProfileIds = new Set(mockState.birthProfiles.filter((profile)=>profile.userId===userId).map((profile)=>profile.id));
   const activeChartIds = new Set(mockState.chartSnapshots.filter((snapshot)=>snapshot.userId===userId&&activeBirthProfileIds.has(snapshot.birthProfileId)).map((snapshot)=>snapshot.id));
   return mockState.horoscopeResults.find((result)=>result.userId===userId&&result.periodType===periodType&&result.periodKey===periodKey&&result.status==="approved"&&activeBirthProfileIds.has(result.birthProfileId)&&activeChartIds.has(result.chartSnapshotId));
+}
+
+function buildDeliveryPayload(result:HoroscopeResult, topicCode:NotificationTopic, chartSnapshot:ReturnType<typeof getMockMvpState>["chartSnapshots"][number]):HoroscopeDeliveryPayload|undefined {
+  try {
+    return generateHoroscopeDeliveryPayload({ topicCode, periodType:result.periodType, periodKey:result.periodKey, chartSnapshot });
+  } catch {
+    return undefined;
+  }
 }
 
 function findActiveQueuedSourceArtifact(mockState:ReturnType<typeof getMockMvpState>, message:ScheduledNotificationMessage):HoroscopeResult|undefined {

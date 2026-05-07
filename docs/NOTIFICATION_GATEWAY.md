@@ -229,7 +229,7 @@ Scheduling uses the user's timezone and preferred notification time. The MVP dis
 Queue idempotency is:
 
 ```text
-user_id + topic_code + period_key + channel
+user_id + topic_code + period_key
 ```
 
 Dispatch idempotency is:
@@ -239,6 +239,41 @@ outbound_message_id + channel
 ```
 
 The scheduler checks active/deactivated account state, deleted birth-profile-derived horoscope artifacts, topic/channel preferences, subscription entitlement, channel unsubscribe/bounce/block state, and fallback channel policy before sending. Tests use sandbox Email and LINE gateways only.
+
+## PR26 horoscope delivery integration
+
+PR26 connects the deterministic horoscope content engine to scheduled delivery.
+When a horoscope topic is due, the scheduler:
+
+1. Verifies user/account activity, entitlement, preferences, unsubscribe state,
+   and preferred-time/quiet-hours policy.
+2. Loads the approved horoscope result for the topic period.
+3. Loads the matching active chart snapshot and birth-profile-derived source
+   artifact.
+4. Generates delivery-ready Thai content through the content rules engine.
+5. Applies the final content safety pass before queueing provider payloads.
+6. Stores only sanitized delivery metadata on the queued message.
+
+Email delivery receives escaped HTML and plain text. LINE delivery receives a
+safe preview body rendered by the existing Flex preview helper. Both channels
+share the same content output and metadata.
+
+Internal delivery metadata may include period, topic, content profile, content
+hash, calculation hash, chart snapshot ID, safety flags, warning codes, and
+rule-hit IDs. Provider-facing Email and LINE metadata must omit stable
+birth-data-derived identifiers such as calculation hash, chart snapshot ID, and
+content hash. It must not include raw email addresses, LINE user IDs, birth
+date/time, birth place/location, payment IDs, provider raw payloads, API keys,
+webhook secrets, or tokens.
+
+If the birth time is unknown or houses are unreliable, delivered content keeps
+the softened warning from the content engine and avoids house/ascendant-specific
+claims.
+
+Tests cover Email and LINE payload conversion, entitlement gating, deleted and
+deactivated account suppression, unsubscribe suppression, duplicate dispatch
+prevention, no raw private data in delivery content/metadata, unsafe content
+blocking, and no real provider or network calls.
 
 ## Observability
 

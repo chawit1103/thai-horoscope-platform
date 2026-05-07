@@ -109,6 +109,23 @@ describe("observability", () => {
     assert.equal(provider.networkSendCount, 0);
   });
 
+  it("mock alert provider does not suppress repeated critical alerts", async () => {
+    const provider = new MockAlertProvider({ suppressWindowMs:60_000, now:()=>new Date("2026-05-07T09:00:00.000Z") });
+    const event = paymentWebhookFailureEvent({
+      provider:"sandbox",
+      reason:"processing_failed",
+      rawPayload:{ authorization:"Basic dTpw", email:"reader@example.test" },
+    });
+
+    await provider.notify(event);
+    await provider.notify(event);
+
+    assert.equal(provider.alerts.length, 2);
+    assert.equal(provider.networkSendCount, 0);
+    assert.equal(JSON.stringify(provider.alerts).includes("reader@example.test"), false);
+    assert.equal(JSON.stringify(provider.alerts).includes("dTpw"), false);
+  });
+
   it("alert provider does not send real network requests in tests", async () => {
     const provider = new MockAlertProvider();
     const event = createMonitoringEvent({ type:"admin_auth_denied", severity:"warning", source:"admin_auth", metadata:{ email:"admin@example.test", reason:"invalid_token" } });

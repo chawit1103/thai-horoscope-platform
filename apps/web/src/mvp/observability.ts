@@ -118,7 +118,7 @@ export class MockAlertProvider implements AlertProvider {
   async notify(event:MonitoringEvent):Promise<void> {
     const sanitized = sanitizeMonitoringEvent(event);
     const nowMs = (this.config.now?.() ?? new Date()).getTime();
-    if (sanitized.dedupeKey) {
+    if (sanitized.dedupeKey && sanitized.severity !== "critical") {
       const previous = this.lastSentByDedupeKey.get(sanitized.dedupeKey);
       const suppressWindowMs = this.config.suppressWindowMs ?? 5 * 60 * 1000;
       if (previous !== undefined && nowMs - previous < suppressWindowMs) return;

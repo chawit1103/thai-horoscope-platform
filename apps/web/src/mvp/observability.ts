@@ -333,7 +333,7 @@ function safeReasonCode(value:string, fallback:string):string {
 
 function safeErrorCode(value:string, fallback:string):string {
   const trimmed = value.trim();
-  if (/^[A-Z][A-Z0-9_]{2,80}$/.test(trimmed)) return redactString(trimmed);
+  if (/^[A-Z][A-Z0-9_]{2,80}$/.test(trimmed)) return trimmed;
   return fallback;
 }
 
@@ -360,7 +360,7 @@ function safeAllowlistedString(key:string, value:string):string {
   if (key === "provider") return KNOWN_PROVIDER_CODES.has(trimmed) ? redactString(trimmed) : fallbackByKey.provider;
   if (key === "topicCode") return KNOWN_TOPIC_CODES.has(trimmed) ? redactString(trimmed) : fallbackByKey.topicCode;
   if (key === "periodType") return KNOWN_PERIOD_TYPES.has(trimmed) ? redactString(trimmed) : fallbackByKey.periodType;
-  if (key === "errorCode") return /^[A-Z][A-Z0-9_]{2,80}$/.test(trimmed) ? redactString(trimmed) : fallbackByKey.errorCode;
+  if (key === "errorCode") return /^[A-Z][A-Z0-9_]{2,80}$/.test(trimmed) ? trimmed : fallbackByKey.errorCode;
   if (key === "eventType") return /^[a-z][a-z0-9_]{2,80}$/.test(trimmed) ? redactString(trimmed) : fallbackByKey.eventType;
   if (key === "periodKey") return /^\d{4}(?:-\d{2}){0,2}$/.test(trimmed) ? redactString(trimmed) : fallbackByKey.periodKey;
   return fallbackByKey[key] ?? "redacted_value";

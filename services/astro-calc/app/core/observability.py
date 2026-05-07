@@ -89,7 +89,7 @@ def sanitize_astro_error(error: BaseException | str) -> str:
     code = raw.split(":", 1)[0].strip()
     if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,80}", code):
         return "ASTRO_ERROR"
-    return redact_string(code).replace(" ", "_").upper()
+    return code.upper()
 
 
 def redact_for_observability(value: Any) -> Any:
@@ -179,5 +179,5 @@ def sanitize_allowlisted_string(key: str, value: str) -> str:
     if key == "profile" and trimmed in KNOWN_PROFILE_CODES:
         return redact_string(trimmed)
     if key == "error_code" and re.fullmatch(r"[A-Z][A-Z0-9_]{2,80}", trimmed):
-        return redact_string(trimmed)
+        return trimmed
     return fallback_by_key.get(key, "redacted_value")

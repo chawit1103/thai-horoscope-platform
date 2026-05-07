@@ -90,6 +90,13 @@ def test_sanitize_astro_error_returns_code_only() -> None:
     assert "secret-token" not in error_code
 
 
+def test_sanitize_astro_error_preserves_u_prefixed_codes() -> None:
+    error_code = sanitize_astro_error("UNAUTHORIZED: Bangkok")
+
+    assert error_code == "UNAUTHORIZED"
+    assert "[REDACTED_LINE_USER]" not in error_code
+
+
 def test_sanitize_astro_error_rejects_path_like_exception_text() -> None:
     error_code = sanitize_astro_error("FileNotFoundError /private/ephemeris/path")
 

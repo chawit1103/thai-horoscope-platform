@@ -109,6 +109,15 @@ describe("observability", () => {
     for (const unsafe of ["1971-03-11", "08:17", "Bangkok"]) assert.equal(serialized.includes(unsafe), false);
   });
 
+  it("astro-calc error event preserves U-prefixed diagnostic codes", () => {
+    const event = astroCalcFailureEvent({ reason:"calculation_failed", errorCode:"UNAUTHORIZED", birthPlace:"Bangkok" });
+    const serialized = JSON.stringify(event);
+
+    assert.equal(event.metadata.errorCode, "UNAUTHORIZED");
+    assert.equal(serialized.includes("[REDACTED_LINE_USER]"), false);
+    assert.equal(serialized.includes("Bangkok"), false);
+  });
+
   it("mock alert provider records sanitized alerts only", async () => {
     const provider = new MockAlertProvider({ suppressWindowMs:60_000, now:()=>new Date("2026-05-07T09:00:00.000Z") });
     const event = emailDeliveryFailureEvent({ reason:"provider_failed", email:"reader@example.test", topicCode:"daily_horoscope" });

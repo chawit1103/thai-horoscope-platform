@@ -190,13 +190,13 @@ class AstroCoreTests(unittest.TestCase):
         self.assertIsNotNone(snapshot.angles.ascendant_deg)
         self.assertIsNotNone(snapshot.angles.lagna_deg)
         self.assertNotEqual(snapshot.angles.ascendant_deg, snapshot.angles.lagna_deg)
-        self.assertEqual(snapshot.houses.ascendant_deg, snapshot.angles.lagna_deg)
+        self.assertEqual(snapshot.houses.ascendant_deg, snapshot.angles.ascendant_deg)
         self.assertEqual(snapshot.houses.cusps_deg[0], float(sign_index(snapshot.angles.lagna_deg or 0) * 30))
         self.assertEqual(snapshot.derived_points["lagna"].house_number, 1)
         for planet in snapshot.planets.values():
             self.assertEqual(
                 planet.house_number,
-                ((planet.sign_index - sign_index(snapshot.houses.ascendant_deg or 0)) % 12) + 1,
+                ((planet.sign_index - sign_index(snapshot.angles.lagna_deg or 0)) % 12) + 1,
             )
 
     def test_invalid_timezone_error_sanitizes_secret_like_values(self) -> None:
@@ -409,7 +409,7 @@ class AstroCoreTests(unittest.TestCase):
             astronomical_ascendant_deg=houses.ascendant_deg,
         )
 
-        self.assertEqual(rebased_houses.ascendant_deg, 350)
+        self.assertEqual(rebased_houses.ascendant_deg, 10)
         self.assertEqual(rebased_houses.cusps_deg[0], 330)
         self.assertEqual(points["lagna"].house_number, 1)
         self.assertEqual(points["astronomical_ascendant"].house_number, 2)

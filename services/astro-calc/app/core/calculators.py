@@ -468,7 +468,7 @@ class AstroCoreService:
         lagna_deg = thai_lagna_result.lagna_deg if thai_lagna_result else None
         angles = build_angles(houses, lagna_deg=lagna_deg)
         house_snapshot = rebase_whole_sign_houses(houses, lagna_deg)
-        planets = assign_planet_houses(planets, house_snapshot)
+        planets = assign_planet_houses(planets, house_snapshot, house_reference_deg=lagna_deg)
         derived_points = build_derived_points(
             house_snapshot,
             ayanamsha_value,
@@ -846,7 +846,7 @@ def rebase_whole_sign_houses(houses: Houses, house_reference_deg: float | None) 
     reference_sign = sign_index(reference)
     return Houses(
         system=houses.system,
-        ascendant_deg=reference,
+        ascendant_deg=houses.ascendant_deg,
         mc_deg=houses.mc_deg,
         cusps_deg=[float((reference_sign + house) % 12 * 30) for house in range(12)],
         reliable=houses.reliable,
@@ -917,14 +917,14 @@ def build_derived_points(
         return {}
     asc = houses.ascendant_deg
     lagna = lagna_deg if lagna_deg is not None else asc
-    house_reference = houses.ascendant_deg
+    house_reference = lagna_deg if lagna_deg is not None else houses.ascendant_deg
     points = {
         "lagna": _derived_point(lagna, ayanamsha_deg, houses, house_reference),
-        "descendant": _derived_point((asc + 180) % 360, ayanamsha_deg, houses, houses.ascendant_deg),
+        "descendant": _derived_point((asc + 180) % 360, ayanamsha_deg, houses, house_reference),
     }
     if lagna_deg is not None and astronomical_ascendant_deg is not None:
         points["astronomical_ascendant"] = _derived_point(
-            astronomical_ascendant_deg, ayanamsha_deg, houses, houses.ascendant_deg
+            astronomical_ascendant_deg, ayanamsha_deg, houses, house_reference
         )
     return points
 

@@ -174,6 +174,8 @@ class GoldenTests(unittest.TestCase):
         self.assertGreater(angular_delta(snapshot.angles.ascendant_deg or 0, expected_thai_lagna.longitude_deg), 1)
         self.assertLessEqual(angular_delta(snapshot.angles.lagna_deg or 0, expected_thai_lagna.longitude_deg), 0.1)
         self.assertLessEqual(angular_delta(snapshot.angles.mc_deg or 0, expected["mc_deg"]), 0.1)
+        self.assertEqual(snapshot.houses.ascendant_deg, snapshot.angles.ascendant_deg)
+        self.assertEqual(snapshot.houses.cusps_deg[0], float(expected_thai_lagna.sign_index * 30))
         self.assertEqual(snapshot.metadata["astronomical_ascendant"], str(round(snapshot.angles.ascendant_deg or 0, 8)))
         self.assertIn("astronomical_ascendant", snapshot.derived_points)
         self.assertIn("lagna", snapshot.derived_points)

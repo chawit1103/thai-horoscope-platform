@@ -20,22 +20,31 @@ Astro/license owner:
 Support owner:
 Rollback owner:
 Decision: go / no-go
+Launch tag candidate:
 ```
 
 ## Go only if
 
 ```text
 [ ] All local tests pass
+[ ] pnpm install, lint, typecheck, and test evidence is recorded
+[ ] Astro pytest, ruff, and mypy evidence is recorded
+[ ] Codex review reports no major issues or only explicitly accepted non-blocking findings
 [ ] No open P0/P1 security, privacy, payment, notification, content safety, or release-blocking findings remain
 [ ] Provider modes are mock/sandbox/dry-run unless a human explicitly approves staging/test provider mode
 [ ] No production secrets are committed
 [ ] No `.env` file is committed
+[ ] No ephemeris binaries are committed
+[ ] Runtime ephemeris downloads are not required
 [ ] Release readiness checklist is complete
 [ ] Rollback checklist is complete
+[ ] Launch disable switches are documented
 [ ] Operator console is available and admin-protected
 [ ] Monitoring redaction is verified
+[ ] Post-launch monitoring owner and watch window are recorded
 [ ] Beta invite/enrollment plan is ready; if PR31 is not merged, the beta invite decision is pending/no-go
 [ ] Real provider activation guardrails are ready or marked pending if PR29 is not merged
+[ ] Provider activation flags are documented and default to disabled
 [ ] Swiss Ephemeris production license decision is documented or production Swiss Ephemeris is disabled
 [ ] No real payment is enabled unless explicitly approved
 [ ] Payment webhook signature validation and idempotency are validated in mock/staging-safe mode
@@ -43,6 +52,7 @@ Decision: go / no-go
 [ ] Privacy export/delete/deactivation flows are working
 [ ] Content safety checks and unknown birth time warnings are visible
 [ ] Support and feedback plan is ready
+[ ] Beta release notes are prepared without PII, secrets, or overclaimed readiness
 ```
 
 ## No-go if
@@ -55,6 +65,7 @@ Decision: go / no-go
 [ ] Content safety checks are missing
 [ ] Unknown birth time warnings are not surfaced
 [ ] Any real provider call happens in tests
+[ ] Codex review reports unresolved P0/P1 or critical P2 findings
 [ ] Production secrets are required but unavailable
 [ ] Rollback owner or process is unclear
 [ ] Raw PII, birth data, payment payloads, ephemeris paths, or secrets appear in health/logs/alerts/audit/PR notes
@@ -62,6 +73,8 @@ Decision: go / no-go
 [ ] Swiss Ephemeris production use is enabled without license and file-manifest approval
 [ ] PR29 dependency is pending but real provider activation is marked ready
 [ ] PR31 dependency is pending but invite/enrollment readiness is overclaimed or beta invite is marked go
+[ ] Rollback or disable-switch owner/process is unclear
+[ ] Swiss Ephemeris license, ephemeris path, manifest, or active profile approval is unclear while production swisseph is enabled
 ```
 
 ## Pending dependency record
@@ -88,6 +101,10 @@ Decision: go / no-go
 | Operator console | pending |  |  |  |
 | Rollback | pending |  |  |  |
 | Support/feedback | pending |  |  |  |
+| Release notes | pending |  |  |  |
+| Disable switches | pending |  |  |  |
+| Post-launch monitoring | pending |  |  |  |
+| Launch tag readiness | pending |  |  |  |
 | Final decision | pending |  |  |  |
 
 ## Human sign-off

@@ -1,7 +1,15 @@
 import { saveOnboardingAction } from "../actions";
+import { redirect } from "next/navigation";
+import { canAccessBetaOnlyFlow } from "../../src/mvp/beta-launch";
 import { ENTERTAINMENT_DISCLAIMER, UNKNOWN_BIRTH_TIME_WARNING } from "../../src/mvp/beta-user-ux";
+import { getMockMvpState } from "../../src/mvp/mock-flow";
+import { getOptionalMockSession } from "../user-session";
 
-export default function OnboardingPage() {
+export default async function OnboardingPage() {
+  const session = await getOptionalMockSession();
+  const state = getMockMvpState(session?.sessionId);
+  if (!session || !canAccessBetaOnlyFlow({ state, sessionId:session.sessionId, userId:session.userId })) redirect("/beta");
+
   return (
     <section className="page">
       <p className="eyebrow">Beta onboarding</p>

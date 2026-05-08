@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
+import { canAccessBetaOnlyFlow } from "./beta-launch";
 import { buildSafeHoroscopeView, buildSubscriptionSummary, getLatestUserSubscription } from "./beta-user-ux";
 import { getMockMvpState, type PeriodType } from "./mock-flow";
 
@@ -20,6 +21,19 @@ export async function HoroscopePage({ periodType }: { periodType: PeriodType }) 
     );
   }
   const state = getMockMvpState(sessionId);
+  if (!canAccessBetaOnlyFlow({ state, sessionId, userId })) {
+    return (
+      <section className="page">
+        <p className="eyebrow">Beta access</p>
+        <h1>ต้องเข้าร่วม beta ก่อนอ่านดวง</h1>
+        <p className="lead">หน้านี้เปิดให้เฉพาะผู้ที่ยังมีสถานะ beta ที่ใช้งานได้ หาก invite ถูก revoke หรือบัญชีถูกปิด ระบบจะไม่แสดงผลอ่านเดิม</p>
+        <div className="actions">
+          <Link className="button-link" href="/beta">ไปหน้า beta</Link>
+          <Link className="button-link secondary" href="/settings/privacy">Privacy controls</Link>
+        </div>
+      </section>
+    );
+  }
   const subscription = getLatestUserSubscription(userId);
   const now = new Date();
   const currentPlan = buildSubscriptionSummary({ state, userId, subscription, now }).planCode;

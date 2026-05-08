@@ -17,6 +17,7 @@ export default async function AdminPage() {
       <div className="actions">
         <a className="button-link secondary" href="/admin/operator">Open beta operator console</a>
         <a className="button-link secondary" href="/admin/content-preview">Open content preview approval</a>
+        <a className="button-link secondary" href="/admin/beta">Open beta invites</a>
       </div>
       <section className="grid">
         {drafts.map((draft) => (

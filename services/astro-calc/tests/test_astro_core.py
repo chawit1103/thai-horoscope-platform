@@ -1877,6 +1877,27 @@ class AstroCoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_INVALID"):
                 fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
 
+    def test_ephemeris_manifest_accepts_operator_runbook_file_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"fixture")
+            manifest = build_ephemeris_file_manifest(temp_dir)
+            files = manifest["files"]
+            assert isinstance(files, list)
+            runbook_manifest = {
+                "fingerprint": manifest["fingerprint"],
+                "file_manifest": [
+                    {"relative_path": entry["name"], "size_bytes": entry["size"], "sha256": entry["sha256"]}
+                    for entry in files
+                ],
+            }
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text(json.dumps(runbook_manifest, sort_keys=True), encoding="utf-8")
+            self.assertEqual(
+                fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True),
+                manifest["fingerprint"],
+            )
+
     def test_ephemeris_manifest_must_be_json_object(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

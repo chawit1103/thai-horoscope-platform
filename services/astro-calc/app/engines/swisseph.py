@@ -188,11 +188,11 @@ def _normalize_manifest_files(value: object) -> list[dict[str, object]]:
     for item in value:
         if not isinstance(item, dict):
             raise ValueError("EPHEMERIS_MANIFEST_INVALID: file manifest entries must be objects.")
-        name = item.get("name")
-        size = item.get("size")
+        name = item.get("name") or item.get("relative_path")
+        size = item.get("size") if "size" in item else item.get("size_bytes")
         sha256 = item.get("sha256")
         if not isinstance(name, str) or not isinstance(size, int) or not isinstance(sha256, str):
-            raise ValueError("EPHEMERIS_MANIFEST_INVALID: file manifest entries require name, size, and sha256.")
+            raise ValueError("EPHEMERIS_MANIFEST_INVALID: file manifest entries require name/relative_path, size/size_bytes, and sha256.")
         normalized.append({"name": name, "size": size, "sha256": sha256})
     return sorted(normalized, key=lambda item: str(item["name"]))
 

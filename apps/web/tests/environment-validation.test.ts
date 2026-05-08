@@ -163,6 +163,23 @@ describe("environment validation", () => {
     assert.equal(component(report, "astro_calc").status, "ok");
   });
 
+  it("astro swisseph staging pinned mode requires ephemeris path even when Moshier is allowed", () => {
+    const report = validateDeploymentEnvironment({
+      ...localEnv,
+      APP_ENV:"staging",
+      ADMIN_SESSION_SECRET:"admin-secret",
+      ASTRO_ENGINE:"swisseph",
+      SWISSEPH_LICENSE_MODE:"free",
+      ASTRO_ALLOW_MOSHIER_EPHEMERIS:"true",
+      ASTRO_REQUIRE_PINNED_EPHEMERIS:"true",
+      ASTRO_EPHEMERIS_MANIFEST_PATH:"/mounted/ephemeris/ephemeris-manifest.json",
+    });
+    const astro = component(report, "astro_calc");
+
+    assert.equal(report.status, "error");
+    assertIssueVariables(astro.errors, "SWISSEPH_EPHEMERIS_PATH_REQUIRED", ["ASTRO_EPHEMERIS_PATH"]);
+  });
+
   it("staging config fails closed for missing admin session secret", () => {
     const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"staging", EMAIL_AUDIT_HASH_SECRET:"email-audit", LINE_AUDIT_HASH_SECRET:"line-audit" });
     const admin = component(report, "admin_auth");

@@ -29,7 +29,7 @@ Approved beta audience:
 ```text
 [ ] `docs/BETA_LAUNCH_EXECUTION_LOG.md` is complete enough for the launch window
 [ ] `docs/STAGING_DRY_RUN_RESULTS.md` records required checks
-[ ] `docs/BETA_SMOKE_TESTS.md` and `docs/SMOKE_TEST_CHECKLIST.md` have evidence or accepted pending notes
+[ ] `docs/BETA_SMOKE_TESTS.md` and `docs/SMOKE_TEST_CHECKLIST.md` have completed evidence for required beta scope
 [ ] pnpm install, lint, typecheck, and test passed
 [ ] Astro pytest, ruff, and mypy passed
 [ ] git diff --check passed
@@ -57,6 +57,7 @@ Approved beta audience:
 [ ] Payment webhook signature verification or idempotency is uncertain
 [ ] Client-side payment success can activate entitlement
 [ ] Duplicate notification risk is unresolved
+[ ] Any required smoke path is pending, untested, or missing evidence without an explicit human waiver that scopes the path out of the beta launch
 [ ] Privacy delete/export/deactivation flow is broken
 [ ] Unknown birth time warning is not surfaced
 [ ] Content safety tests or admin approval gate are missing for beta scope
@@ -99,6 +100,7 @@ Real provider activation requires a separate human approval gate and complete co
 Blockers:
 Risks accepted:
 Accepted warnings:
+Scoped-out smoke-test waivers, if any:
 Follow-up issues:
 Rollback target:
 Support channel:

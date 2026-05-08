@@ -30,6 +30,16 @@ from app.schemas import (
 )
 
 
+def approved_ephemeris_manifest(manifest: dict[str, object]) -> dict[str, object]:
+    return {
+        **manifest,
+        "license_mode": "professional",
+        "approved_by": "astro-ops",
+        "approval_date": "2026-05-08",
+        "calculation_profiles": ["TH_NIRAYANA_V1"],
+    }
+
+
 def bangkok_request(profile: str = "TH_NIRAYANA_V1", birth_time_unknown: bool = False) -> ChartRequest:
     return ChartRequest(
         calculation_profile_code=profile,
@@ -1709,7 +1719,7 @@ class AstroCoreTests(unittest.TestCase):
             (root / "sepl_18.se1").write_bytes(b"fixture")
             manifest = build_ephemeris_file_manifest(temp_dir)
             manifest_path = root / "ephemeris-manifest.json"
-            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            manifest_path.write_text(json.dumps(approved_ephemeris_manifest(manifest), sort_keys=True), encoding="utf-8")
             os.environ["APP_ENV"] = "production"
             os.environ["ASTRO_ENGINE"] = "swisseph"
             os.environ["SWISSEPH_LICENSE_MODE"] = "professional"
@@ -1746,7 +1756,7 @@ class AstroCoreTests(unittest.TestCase):
             (root / "sepl_18.se1").write_bytes(b"fixture")
             manifest = build_ephemeris_file_manifest(temp_dir)
             manifest_path = root / "ephemeris-manifest.json"
-            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            manifest_path.write_text(json.dumps(approved_ephemeris_manifest(manifest), sort_keys=True), encoding="utf-8")
             os.environ["APP_ENV"] = "production"
             os.environ["ASTRO_ENGINE"] = "swisseph"
             os.environ["SWISSEPH_LICENSE_MODE"] = "professional"
@@ -1783,7 +1793,7 @@ class AstroCoreTests(unittest.TestCase):
             (root / "sepl_18.se1").write_bytes(b"fixture")
             manifest = build_ephemeris_file_manifest(temp_dir)
             manifest_path = root / "ephemeris-manifest.json"
-            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            manifest_path.write_text(json.dumps(approved_ephemeris_manifest(manifest), sort_keys=True), encoding="utf-8")
             os.environ["APP_ENV"] = "staging"
             os.environ["ASTRO_ENGINE"] = "swisseph"
             os.environ["SWISSEPH_LICENSE_MODE"] = "professional"
@@ -1934,7 +1944,7 @@ class AstroCoreTests(unittest.TestCase):
             (root / "sepl_18.se1").write_bytes(b"fixture")
             manifest = build_ephemeris_file_manifest(temp_dir)
             manifest_path = root / "ephemeris-manifest.json"
-            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            manifest_path.write_text(json.dumps(approved_ephemeris_manifest(manifest), sort_keys=True), encoding="utf-8")
             config = AstroRuntimeConfig(
                 engine="swisseph",
                 runtime_env="production",
@@ -1952,7 +1962,7 @@ class AstroCoreTests(unittest.TestCase):
             (root / "sepl_18.se1").write_bytes(b"fixture")
             manifest = build_ephemeris_file_manifest(temp_dir)
             manifest_path = root / "ephemeris-manifest.json"
-            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            manifest_path.write_text(json.dumps(approved_ephemeris_manifest(manifest), sort_keys=True), encoding="utf-8")
             config = AstroRuntimeConfig(
                 engine="swisseph",
                 runtime_env="production",
@@ -1972,7 +1982,7 @@ class AstroCoreTests(unittest.TestCase):
             manifest = build_ephemeris_file_manifest(temp_dir)
             supported.write_bytes(b"fixture-v2")
             manifest_path = root / "ephemeris-manifest.json"
-            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            manifest_path.write_text(json.dumps(approved_ephemeris_manifest(manifest), sort_keys=True), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_MISMATCH"):
                 fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
 
@@ -1986,6 +1996,16 @@ class AstroCoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_INVALID"):
                 fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
 
+    def test_pinned_ephemeris_manifest_requires_approval_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"fixture")
+            manifest = build_ephemeris_file_manifest(temp_dir)
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_INVALID"):
+                fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
+
     def test_ephemeris_manifest_accepts_operator_runbook_file_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1995,6 +2015,10 @@ class AstroCoreTests(unittest.TestCase):
             assert isinstance(files, list)
             runbook_manifest = {
                 "fingerprint": manifest["fingerprint"],
+                "license_mode": "professional",
+                "approved_by": "astro-ops",
+                "approval_date": "2026-05-08",
+                "calculation_profile_code": "TH_NIRAYANA_V1",
                 "file_manifest": [
                     {"relative_path": entry["name"], "size_bytes": entry["size"], "sha256": entry["sha256"]}
                     for entry in files

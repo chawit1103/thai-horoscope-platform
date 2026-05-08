@@ -177,8 +177,28 @@ def validate_ephemeris_manifest(actual_manifest: dict[str, object], manifest_pat
     expected_files = expected.get("files") or expected.get("file_manifest")
     if require_file_manifest and expected_files is None:
         raise ValueError("EPHEMERIS_MANIFEST_INVALID: pinned ephemeris manifest requires file entries.")
+    if require_file_manifest:
+        _validate_manifest_approval_metadata(expected)
     if expected_files is not None and _normalize_manifest_files(expected_files) != _normalize_manifest_files(actual_manifest["files"]):
         raise ValueError("EPHEMERIS_MANIFEST_MISMATCH: ephemeris file manifest does not match.")
+
+
+def _validate_manifest_approval_metadata(value: dict[str, object]) -> None:
+    license_mode = value.get("license_mode")
+    approved_by = value.get("approved_by")
+    approval_date = value.get("approval_date")
+    profiles = value.get("calculation_profiles") or value.get("calculation_profile_code")
+    has_profile_string = isinstance(profiles, str) and bool(profiles.strip())
+    has_profile_list = isinstance(profiles, list) and any(isinstance(profile, str) and profile.strip() for profile in profiles)
+    if (
+        license_mode != "professional"
+        or not isinstance(approved_by, str)
+        or not approved_by.strip()
+        or not isinstance(approval_date, str)
+        or not approval_date.strip()
+        or not (has_profile_string or has_profile_list)
+    ):
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: pinned ephemeris manifest requires approval metadata.")
 
 
 def _normalize_manifest_files(value: object) -> list[dict[str, object]]:

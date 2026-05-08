@@ -8,6 +8,23 @@ const testNow = new Date("2026-05-04T09:00:00.000Z");
 const testChannelSecret = "test-line-channel-secret";
 const testAuditSecret = "test-line-audit-secret";
 const testLineUserId = "U1234567890abcdef";
+const lineActivationEnv = {
+  APP_ENV:"staging",
+  ADMIN_SESSION_SECRET:"admin-session-secret",
+  EMAIL_PROVIDER_MODE:"sandbox",
+  EMAIL_AUDIT_HASH_SECRET:"email-audit-secret",
+  LINE_PROVIDER_MODE:"http",
+  LINE_CHANNEL_SECRET:testChannelSecret,
+  LINE_CHANNEL_ACCESS_TOKEN:"test-line-access-token",
+  LINE_AUDIT_HASH_SECRET:testAuditSecret,
+  PAYMENT_PROVIDER_MODE:"mock",
+  NOTIFICATION_SCHEDULER_MODE:"dry_run",
+  ASTRO_ENGINE:"mock",
+  SWISSEPH_LICENSE_MODE:"none",
+  ENABLE_REAL_LINE_SENDS:"true",
+  ENABLE_PROVIDER_DRY_RUN:"false",
+  REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+};
 
 const signLineBody = (body:string, secret = testChannelSecret) => createHmac("sha256", secret).update(body).digest("base64");
 const signedLineHeaders = (body:string, secret = testChannelSecret) => new Headers({ "x-line-signature": signLineBody(body, secret) });
@@ -144,7 +161,7 @@ describe("line gateway", () => {
   it("sends through HttpLineProvider only when sandbox is disabled and fetcher is injected", async () => {
     let fetchCalls = 0;
     let retryHeader = "";
-    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", channelSecret:testChannelSecret, fetcher:async (_url, init) => {
+    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", channelSecret:testChannelSecret, activationEnv:lineActivationEnv, fetcher:async (_url, init) => {
       fetchCalls += 1;
       retryHeader = new Headers(init?.headers).get("x-line-retry-key") ?? "";
       return new Response(null, { status:200, headers:{ "x-line-request-id":"line_request_1" } });
@@ -163,7 +180,7 @@ describe("line gateway", () => {
 
   it("uses stable UUID LINE retry keys for the same logical message and different UUIDs for different ids", async () => {
     const seenHeaders:string[] = [];
-    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async (_url, init) => {
+    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", activationEnv:lineActivationEnv, fetcher:async (_url, init) => {
       seenHeaders.push(new Headers(init?.headers).get("x-line-retry-key") ?? "");
       return new Response(null, { status:200 });
     } });
@@ -180,23 +197,23 @@ describe("line gateway", () => {
   });
 
   it("treats LINE 409 with retry key as accepted idempotent success and still fails unsafe cases", async () => {
-    const okProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:200, headers:{ "x-line-request-id":"ok_1" } }) });
+    const okProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", activationEnv:lineActivationEnv, fetcher:async () => new Response(null, { status:200, headers:{ "x-line-request-id":"ok_1" } }) });
     const okResult = await okProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"ok" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" });
     assert.equal(okResult.providerMessageId, "ok_1");
 
-    const retryConflictProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:409, headers:{ "x-line-request-id":"conflict_1", "x-line-accepted-request-id":"accepted_1" } }) });
+    const retryConflictProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", activationEnv:lineActivationEnv, fetcher:async () => new Response(null, { status:409, headers:{ "x-line-request-id":"conflict_1", "x-line-accepted-request-id":"accepted_1" } }) });
     const retryConflictResult = await retryConflictProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" });
     assert.equal(retryConflictResult.providerMessageId, "accepted_1");
     assert.deepEqual(retryConflictResult.raw, { accepted:true, idempotentConflict:true, status:409 });
 
-    const retryConflictFallbackProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:409, headers:{ "x-line-request-id":"conflict_fallback_1" } }) });
+    const retryConflictFallbackProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", activationEnv:lineActivationEnv, fetcher:async () => new Response(null, { status:409, headers:{ "x-line-request-id":"conflict_fallback_1" } }) });
     const retryConflictFallbackResult = await retryConflictFallbackProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" });
     assert.equal(retryConflictFallbackResult.providerMessageId, "conflict_fallback_1");
 
     await assert.rejects(retryConflictProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }] }), /without retry key/);
     await assert.rejects(retryConflictProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"retry" }], retryKey:"not-a-uuid" }), /valid UUID/);
 
-    const failProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => new Response(null, { status:500 }) });
+    const failProvider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", activationEnv:lineActivationEnv, fetcher:async () => new Response(null, { status:500 }) });
     await assert.rejects(failProvider.push({ to:testLineUserId, messages:[{ type:"text", text:"fail" }], retryKey:"3cf0c8ef-2f24-4eb8-9461-d7f97ef9ed90" }), /status 500/);
   });
 
@@ -204,7 +221,7 @@ describe("line gateway", () => {
 
   it("rejects empty, whitespace, and invalid retry keys before calling fetcher", async () => {
     let fetchCalls = 0;
-    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async () => {
+    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", activationEnv:lineActivationEnv, fetcher:async () => {
       fetchCalls += 1;
       return new Response(null, { status:200 });
     } });
@@ -218,7 +235,7 @@ describe("line gateway", () => {
 
   it("forwards valid retry keys and keeps behavior unchanged when retry key is missing", async () => {
     let forwardedRetryHeader:string|null = null;
-    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", fetcher:async (_url, init) => {
+    const provider = new HttpLineProvider({ channelAccessToken:"test-line-access-token", activationEnv:lineActivationEnv, fetcher:async (_url, init) => {
       forwardedRetryHeader = new Headers(init?.headers).get("x-line-retry-key");
       return new Response(null, { status:200, headers:{ "x-line-request-id":"ok_no_retry" } });
     } });

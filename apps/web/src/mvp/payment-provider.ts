@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { EmailGateway, renderTransactionalEmailTemplate, type EmailChannelAccount, type EmailDeliveryResult } from "./email-gateway";
+import { assertProviderNetworkAllowed, validateProviderActivationReadiness } from "./provider-activation-guardrails";
 import { processMockSubscriptionWebhook, type MockSubscriptionWebhookEvent, type PlanCode, type SubscriptionWebhookResult } from "./subscription-lifecycle";
+import type { EnvironmentInput } from "./environment-validation";
 
 export type PaymentProviderCode = "mock"|"http";
 export type PaymentWebhookEventType = "checkout.session.created"|"checkout.session.completed"|"payment.succeeded"|"payment.failed"|"subscription.created"|"subscription.renewed"|"subscription.renewal_failed"|"subscription.canceled"|"subscription.expired"|"refund.created"|"refund.succeeded";
@@ -73,12 +75,14 @@ export class MockPaymentProvider implements PaymentProvider {
 export class HttpPaymentProvider implements PaymentProvider {
   readonly provider = "http" as const;
 
-  constructor(private readonly config:{ checkoutEndpoint?:string; apiKey?:string; webhookSecret?:string; fetcher?:typeof fetch } = {}) {}
+  constructor(private readonly config:{ checkoutEndpoint?:string; apiKey?:string; webhookSecret?:string; fetcher?:typeof fetch; activationEnv?:EnvironmentInput } = {}) {}
 
   async createCheckoutSession(input:CreateCheckoutInput):Promise<CheckoutSession> {
     const checkoutEndpoint = this.config.checkoutEndpoint ?? process.env.PAYMENT_PROVIDER_CHECKOUT_ENDPOINT;
     const apiKey = this.config.apiKey ?? process.env.PAYMENT_PROVIDER_API_KEY;
     if (!checkoutEndpoint?.trim() || !apiKey?.trim()) throw new Error("PAYMENT_PROVIDER_CHECKOUT_ENDPOINT and PAYMENT_PROVIDER_API_KEY are required.");
+    assertProviderNetworkAllowed(validateProviderActivationReadiness(this.config.activationEnv ?? process.env), "payment");
+    assertHttpsProviderEndpoint(checkoutEndpoint, "PAYMENT_PROVIDER_ENDPOINT_HTTPS_REQUIRED");
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(checkoutEndpoint, {
       method:"POST",
@@ -346,3 +350,11 @@ function isPlanCode(value:unknown):value is PlanCode { return value === "free" |
 function parsePaymentEventDate(value:string):Date|undefined { const ms=Date.parse(value); return Number.isFinite(ms) ? new Date(ms) : undefined; }
 function hmac(value:string, secret:string):string { return createHmac("sha256", secret).update(value).digest("base64url"); }
 function constantTimeEqual(a:string,b:string):boolean { const left=Buffer.from(a); const right=Buffer.from(b); return left.length===right.length && timingSafeEqual(left,right); }
+function assertHttpsProviderEndpoint(value:string, errorCode:string):void {
+  try {
+    if (new URL(value).protocol === "https:") return;
+  } catch {
+    // Fall through to a sanitized, code-only error.
+  }
+  throw new Error(errorCode);
+}

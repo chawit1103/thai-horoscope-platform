@@ -1,4 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { assertProviderNetworkAllowed, validateProviderActivationReadiness } from "./provider-activation-guardrails";
+import type { EnvironmentInput } from "./environment-validation";
 
 export type EmailTopicCode = "email_verification"|"account_security"|"data_export"|"account_deletion"|"payment_receipt"|"system"|"daily_horoscope"|"weekly_horoscope"|"monthly_horoscope"|"yearly_horoscope"|"marketing"|"engagement";
 export type EmailDeliveryStatus = "sent"|"failed"|"blocked"|"bounced"|"complained"|"unsubscribed";
@@ -40,9 +42,13 @@ export class SandboxEmailProvider implements EmailProvider {
 }
 
 export class HttpEmailProvider implements EmailProvider {
-  constructor(private readonly config:{ endpoint:string; apiKey:string; webhookSecret?:string; fetcher?:typeof fetch }) {}
+  constructor(private readonly config:{ endpoint:string; apiKey:string; webhookSecret?:string; fetcher?:typeof fetch; activationEnv?:EnvironmentInput }) {}
 
   async send(request: EmailProviderRequest): Promise<EmailProviderResult> {
+    const activationEnv = this.config.activationEnv ?? process.env;
+    assertProviderNetworkAllowed(validateProviderActivationReadiness(activationEnv), "email");
+    assertVerifiedEmailSender(request.from, activationEnv);
+    assertHttpsProviderEndpoint(this.config.endpoint, "EMAIL_PROVIDER_ENDPOINT_HTTPS_REQUIRED");
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(this.config.endpoint, {
       method: "POST",
@@ -225,4 +231,20 @@ function verifySignedEmailWebhook(headers:Headers, body:string, secret:string|un
 function hmac(value:string, secret:string):string { return createHmac("sha256", secret).update(value).digest("base64url"); }
 function constantTimeEqual(a:string,b:string):boolean { const left=Buffer.from(a); const right=Buffer.from(b); return left.length===right.length && timingSafeEqual(left,right); }
 function normalizeEmail(email:string):string { return email.trim().toLowerCase(); }
+function assertVerifiedEmailSender(from:string, env:EnvironmentInput):void {
+  const normalizedFrom = normalizeEmail(from);
+  const configuredFrom = normalizeEmail(env.EMAIL_FROM_ADDRESS ?? "");
+  const verifiedDomain = normalizeEmail(env.EMAIL_VERIFIED_SENDER_DOMAIN ?? "");
+  const fromDomain = normalizedFrom.includes("@") ? normalizedFrom.split("@").at(-1) ?? "" : "";
+  if (!configuredFrom || normalizedFrom !== configuredFrom) throw new Error("EMAIL_VERIFIED_SENDER_MISMATCH");
+  if (!verifiedDomain || fromDomain !== verifiedDomain) throw new Error("EMAIL_VERIFIED_SENDER_MISMATCH");
+}
+function assertHttpsProviderEndpoint(value:string, errorCode:string):void {
+  try {
+    if (new URL(value).protocol === "https:") return;
+  } catch {
+    // Fall through to a sanitized, code-only error.
+  }
+  throw new Error(errorCode);
+}
 function escapeHtml(value:string):string { return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }

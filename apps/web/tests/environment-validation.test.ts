@@ -27,7 +27,7 @@ describe("environment validation", () => {
 
     assert.equal(report.status, "error");
     assert.equal(email.status, "error");
-    assertIssueVariables(email.errors, "EMAIL_REAL_PROVIDER_CONFIG_MISSING", ["EMAIL_AUDIT_HASH_SECRET", "EMAIL_FROM_ADDRESS", "EMAIL_PROVIDER_API_KEY", "EMAIL_PROVIDER_ENDPOINT", "EMAIL_WEBHOOK_SECRET"]);
+    assertIssueVariables(email.errors, "EMAIL_REAL_PROVIDER_CONFIG_MISSING", ["EMAIL_AUDIT_HASH_SECRET", "EMAIL_FROM_ADDRESS", "EMAIL_PROVIDER_API_KEY", "EMAIL_PROVIDER_ENDPOINT", "EMAIL_VERIFIED_SENDER_DOMAIN", "EMAIL_WEBHOOK_SECRET"]);
   });
 
   it("LINE real mode requires channel secret and access token", () => {
@@ -44,6 +44,38 @@ describe("environment validation", () => {
 
     assert.equal(report.status, "error");
     assertIssueVariables(payment.errors, "PAYMENT_REAL_PROVIDER_CONFIG_MISSING", ["PAYMENT_PROVIDER_API_KEY", "PAYMENT_PROVIDER_CHECKOUT_ENDPOINT", "PAYMENT_WEBHOOK_SECRET"]);
+  });
+
+  it("real email mode rejects plaintext endpoint and sender domain mismatch", () => {
+    const report = validateDeploymentEnvironment({
+      ...localEnv,
+      EMAIL_PROVIDER_MODE:"http",
+      EMAIL_FROM_ADDRESS:"noreply@other.test",
+      EMAIL_PROVIDER_ENDPOINT:"http://email-provider.example.test/send",
+      EMAIL_PROVIDER_API_KEY:"email-api-secret",
+      EMAIL_WEBHOOK_SECRET:"email-webhook-secret",
+      EMAIL_AUDIT_HASH_SECRET:"email-audit-secret",
+      EMAIL_VERIFIED_SENDER_DOMAIN:"example.test",
+    });
+    const email = component(report, "email_gateway");
+
+    assert.equal(report.status, "error");
+    assertIssueVariables(email.errors, "EMAIL_PROVIDER_ENDPOINT_HTTPS_REQUIRED", ["EMAIL_PROVIDER_ENDPOINT"]);
+    assertIssueVariables(email.errors, "EMAIL_VERIFIED_SENDER_DOMAIN_MISMATCH", ["EMAIL_FROM_ADDRESS", "EMAIL_VERIFIED_SENDER_DOMAIN"]);
+  });
+
+  it("real payment mode rejects plaintext checkout endpoint", () => {
+    const report = validateDeploymentEnvironment({
+      ...localEnv,
+      PAYMENT_PROVIDER_MODE:"http",
+      PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"http://payments.example.test/checkout",
+      PAYMENT_PROVIDER_API_KEY:"payment-api-secret",
+      PAYMENT_WEBHOOK_SECRET:"payment-webhook-secret",
+    });
+    const payment = component(report, "payment_provider");
+
+    assert.equal(report.status, "error");
+    assertIssueVariables(payment.errors, "PAYMENT_PROVIDER_ENDPOINT_HTTPS_REQUIRED", ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT"]);
   });
 
   it("astro swisseph production mode requires professional license and ephemeris path", () => {
@@ -128,6 +160,7 @@ describe("environment validation", () => {
       EMAIL_PROVIDER_API_KEY:"email-api-secret-value",
       EMAIL_WEBHOOK_SECRET:"email-webhook-secret-value",
       EMAIL_AUDIT_HASH_SECRET:"email-audit-secret-value",
+      EMAIL_VERIFIED_SENDER_DOMAIN:"example.test",
       LINE_PROVIDER_MODE:"http",
       LINE_CHANNEL_SECRET:"line-channel-secret-value",
       LINE_CHANNEL_ACCESS_TOKEN:"line-access-token-value",
@@ -136,6 +169,11 @@ describe("environment validation", () => {
       PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"https://payments.example.test/checkout",
       PAYMENT_PROVIDER_API_KEY:"payment-api-secret-value",
       PAYMENT_WEBHOOK_SECRET:"payment-webhook-secret-value",
+      ENABLE_REAL_EMAIL_SENDS:"true",
+      ENABLE_REAL_LINE_SENDS:"true",
+      ENABLE_REAL_PAYMENT_PROVIDER:"true",
+      ENABLE_PROVIDER_DRY_RUN:"false",
+      REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
       NOTIFICATION_SCHEDULER_MODE:"dry_run",
       NOTIFICATION_SCHEDULER_TOKEN:"scheduler-token-value",
       ASTRO_ENGINE:"swisseph",

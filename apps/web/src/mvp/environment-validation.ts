@@ -142,7 +142,10 @@ function validateEmailGateway(env:EnvironmentInput, environment:DeploymentEnviro
   const warnings:ConfigIssue[] = [];
   if (mode === "invalid") errors.push(issue("EMAIL_PROVIDER_MODE_INVALID", "EMAIL_PROVIDER_MODE must be sandbox or http.", ["EMAIL_PROVIDER_MODE"]));
   if (mode === "http") {
-    requireVars(env, ["EMAIL_FROM_ADDRESS", "EMAIL_PROVIDER_ENDPOINT", "EMAIL_PROVIDER_API_KEY", "EMAIL_WEBHOOK_SECRET", "EMAIL_AUDIT_HASH_SECRET"], errors, "EMAIL_REAL_PROVIDER_CONFIG_MISSING", "Real email provider mode requires provider endpoint, API key, webhook secret, sender, and audit hash secret.");
+    requireVars(env, ["EMAIL_FROM_ADDRESS", "EMAIL_PROVIDER_ENDPOINT", "EMAIL_PROVIDER_API_KEY", "EMAIL_WEBHOOK_SECRET", "EMAIL_AUDIT_HASH_SECRET", "EMAIL_VERIFIED_SENDER_DOMAIN"], errors, "EMAIL_REAL_PROVIDER_CONFIG_MISSING", "Real email provider mode requires provider endpoint, API key, webhook secret, sender, verified sender/domain, and audit hash secret.");
+    if (hasValue(env.EMAIL_PROVIDER_ENDPOINT) && !isHttpsUrl(env.EMAIL_PROVIDER_ENDPOINT)) errors.push(issue("EMAIL_PROVIDER_ENDPOINT_HTTPS_REQUIRED", "Real email provider endpoint must use HTTPS before activation.", ["EMAIL_PROVIDER_ENDPOINT"]));
+    if (hasValue(env.EMAIL_FROM_ADDRESS) && hasValue(env.EMAIL_VERIFIED_SENDER_DOMAIN) && emailDomain(env.EMAIL_FROM_ADDRESS) !== normalize(env.EMAIL_VERIFIED_SENDER_DOMAIN ?? "")) errors.push(issue("EMAIL_VERIFIED_SENDER_DOMAIN_MISMATCH", "EMAIL_FROM_ADDRESS must belong to EMAIL_VERIFIED_SENDER_DOMAIN before activation.", ["EMAIL_FROM_ADDRESS", "EMAIL_VERIFIED_SENDER_DOMAIN"]));
+    validateProviderActivationFlags(env, environment, errors, warnings, "EMAIL", "ENABLE_REAL_EMAIL_SENDS");
   }
   if (environment === "production" && mode === "sandbox") errors.push(issue("EMAIL_SANDBOX_MODE_PRODUCTION_FORBIDDEN", "Email sandbox mode is not production-ready.", ["EMAIL_PROVIDER_MODE"]));
   else if (environment === "staging" && mode === "sandbox") warnings.push(issue("EMAIL_SANDBOX_MODE", "Email gateway is in sandbox mode.", ["EMAIL_PROVIDER_MODE"]));
@@ -157,6 +160,7 @@ function validateLineGateway(env:EnvironmentInput, environment:DeploymentEnviron
   if (mode === "invalid") errors.push(issue("LINE_PROVIDER_MODE_INVALID", "LINE_PROVIDER_MODE must be sandbox, http, or disabled.", ["LINE_PROVIDER_MODE"]));
   if (mode === "http") {
     requireVars(env, ["LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN", "LINE_AUDIT_HASH_SECRET"], errors, "LINE_REAL_PROVIDER_CONFIG_MISSING", "Real LINE provider mode requires channel secret, access token, and audit hash secret.");
+    validateProviderActivationFlags(env, environment, errors, warnings, "LINE", "ENABLE_REAL_LINE_SENDS");
   }
   if (environment === "production" && mode === "sandbox") errors.push(issue("LINE_SANDBOX_MODE_PRODUCTION_FORBIDDEN", "LINE sandbox mode is not production-ready.", ["LINE_PROVIDER_MODE"]));
   else if (environment === "staging" && mode === "sandbox") warnings.push(issue("LINE_SANDBOX_MODE", "LINE gateway is in sandbox mode.", ["LINE_PROVIDER_MODE"]));
@@ -172,6 +176,8 @@ function validatePaymentProvider(env:EnvironmentInput, environment:DeploymentEnv
   if (mode === "invalid") errors.push(issue("PAYMENT_PROVIDER_MODE_INVALID", "PAYMENT_PROVIDER_MODE must be mock or http.", ["PAYMENT_PROVIDER_MODE"]));
   if (mode === "http") {
     requireVars(env, ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT", "PAYMENT_PROVIDER_API_KEY", "PAYMENT_WEBHOOK_SECRET"], errors, "PAYMENT_REAL_PROVIDER_CONFIG_MISSING", "Real payment provider mode requires checkout endpoint, API key, and webhook secret.");
+    if (hasValue(env.PAYMENT_PROVIDER_CHECKOUT_ENDPOINT) && !isHttpsUrl(env.PAYMENT_PROVIDER_CHECKOUT_ENDPOINT)) errors.push(issue("PAYMENT_PROVIDER_ENDPOINT_HTTPS_REQUIRED", "Real payment provider checkout endpoint must use HTTPS before activation.", ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT"]));
+    validateProviderActivationFlags(env, environment, errors, warnings, "PAYMENT", "ENABLE_REAL_PAYMENT_PROVIDER");
   }
   if (environment === "production" && mode === "mock") errors.push(issue("PAYMENT_MOCK_MODE_PRODUCTION_FORBIDDEN", "Mock payment provider is not production-ready.", ["PAYMENT_PROVIDER_MODE"]));
   if (environment === "staging" && mode === "mock") warnings.push(issue("PAYMENT_MOCK_MODE_STAGING", "Staging payment provider is still mock.", ["PAYMENT_PROVIDER_MODE"]));
@@ -212,6 +218,17 @@ function requireVars(env:EnvironmentInput, names:string[], errors:ConfigIssue[],
   if (missing.length > 0) errors.push(issue(code, message, missing));
 }
 
+function validateProviderActivationFlags(env:EnvironmentInput, environment:DeploymentEnvironment, errors:ConfigIssue[], warnings:ConfigIssue[], prefix:"EMAIL"|"LINE"|"PAYMENT", realEnableFlag:"ENABLE_REAL_EMAIL_SENDS"|"ENABLE_REAL_LINE_SENDS"|"ENABLE_REAL_PAYMENT_PROVIDER"):void {
+  if (isTrue(env.ENABLE_PROVIDER_DRY_RUN)) {
+    warnings.push(issue(`${prefix}_PROVIDER_DRY_RUN`, "Provider dry-run validates real provider readiness without allowing network calls.", ["ENABLE_PROVIDER_DRY_RUN"]));
+    if (environment === "production") errors.push(issue(`${prefix}_PROVIDER_DRY_RUN_PRODUCTION_FORBIDDEN`, "Production real provider mode cannot run with provider dry-run enabled.", ["ENABLE_PROVIDER_DRY_RUN"]));
+    return;
+  }
+  if (!isExplicitFalse(env.ENABLE_PROVIDER_DRY_RUN)) errors.push(issue(`${prefix}_PROVIDER_DRY_RUN_FLAG_REQUIRED`, "Real provider activation requires ENABLE_PROVIDER_DRY_RUN=false to be explicit.", ["ENABLE_PROVIDER_DRY_RUN"]));
+  if (!isTrue(env[realEnableFlag])) errors.push(issue(`${prefix}_REAL_PROVIDER_FLAG_REQUIRED`, "Real provider mode requires an explicit real-provider enable flag.", [realEnableFlag]));
+  if (!isTrue(env.REQUIRE_PROVIDER_ACTIVATION_APPROVAL)) errors.push(issue(`${prefix}_PROVIDER_APPROVAL_REQUIRED`, "Real provider activation requires an explicit human approval gate flag.", ["REQUIRE_PROVIDER_ACTIVATION_APPROVAL"]));
+}
+
 function component(componentName:ComponentHealth["component"], mode:string, errors:ConfigIssue[], warnings:ConfigIssue[]):ComponentHealth {
   return { component:componentName, status:errors.length > 0 ? "error" : warnings.length > 0 ? "warning" : "ok", mode, errors, warnings };
 }
@@ -235,4 +252,25 @@ function normalize(value:string):string {
 
 function hasValue(value:string|undefined):boolean {
   return Boolean(value?.trim());
+}
+
+function isTrue(value:string|undefined):boolean {
+  return normalize(value ?? "false") === "true";
+}
+
+function isExplicitFalse(value:string|undefined):boolean {
+  return normalize(value ?? "") === "false";
+}
+
+function isHttpsUrl(value:string|undefined):boolean {
+  try {
+    return new URL(value ?? "").protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function emailDomain(value:string|undefined):string {
+  const normalized = normalize(value ?? "");
+  return normalized.includes("@") ? normalized.split("@").at(-1) ?? "" : "";
 }

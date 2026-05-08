@@ -50,6 +50,8 @@ ENABLE_PROVIDER_DRY_RUN=false
 
 Email logs must not include raw email addresses, tokens, webhook secrets, provider API keys, subject/body content, or raw provider payloads.
 
+Email HTTP gateway construction must go through provider activation readiness and fail closed unless `networkCallsAllowed=true`.
+
 ## LINE
 
 Production LINE requires:
@@ -65,6 +67,8 @@ ENABLE_PROVIDER_DRY_RUN=false
 ```
 
 LINE logs must not include raw LINE user IDs, access tokens, webhook secrets, message bodies, or raw payloads.
+
+LINE HTTP gateway construction must go through provider activation readiness and fail closed unless `networkCallsAllowed=true`.
 
 ## Payment
 
@@ -98,6 +102,8 @@ NOTIFICATION_SCHEDULER_TOKEN
 ```
 
 The scheduler must record delivery attempts and avoid duplicate sends for the same user/topic/period.
+
+When dispatching in real Email or LINE provider environments, the scheduler must receive provider activation environment and block dry-run or misconfigured provider modes before calling a gateway.
 
 ## Astro calculation
 

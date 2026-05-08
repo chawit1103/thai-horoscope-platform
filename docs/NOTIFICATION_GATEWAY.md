@@ -149,6 +149,16 @@ LINE_AUDIT_HASH_SECRET=            # runtime HMAC secret for non-PII LINE audit 
 
 Tests must use sandbox mode or injected providers and must never send real LINE messages. LINE delivery logs must avoid raw LINE user IDs, webhook bodies, channel secrets, access tokens, authorization headers, and provider credentials.
 
+PR30 activation wiring:
+
+```text
+LINE_PROVIDER_MODE=sandbox   # creates a sandbox gateway
+LINE_PROVIDER_MODE=http      # creates an HTTP gateway only when provider activation readiness allows network calls
+LINE_PROVIDER_MODE=disabled  # no LINE gateway should be constructed
+```
+
+When `ENABLE_PROVIDER_DRY_RUN=true` or required LINE config/flags are missing, the environment gateway factory fails closed before constructing a live HTTP gateway.
+
 ## Email gateway requirements
 
 - Support sandbox mode for development.
@@ -170,6 +180,15 @@ EMAIL_VERIFICATION_TOKEN_TTL_MS=86400000
 ```
 
 Tests must use sandbox mode or injected providers and must never send real email. Email delivery logs must avoid raw email addresses, message bodies, provider API keys, authorization headers, and verification tokens.
+
+PR30 activation wiring:
+
+```text
+EMAIL_PROVIDER_MODE=sandbox  # creates a sandbox gateway
+EMAIL_PROVIDER_MODE=http     # creates an HTTP gateway only when provider activation readiness allows network calls
+```
+
+When `ENABLE_PROVIDER_DRY_RUN=true` or required Email config/flags are missing, the environment gateway factory fails closed before constructing a live HTTP gateway.
 
 ## Telegram gateway future requirements
 
@@ -212,6 +231,8 @@ user_id + topic_code + period_type + period_key
 ```
 
 Do not send duplicate daily horoscope messages unless explicitly requested.
+
+Scheduler dispatch in real-provider environments must pass provider activation environment into dispatch. If Email or LINE readiness is dry-run or blocked, dispatch records an activation-blocked attempt and does not call the gateway.
 
 ## PR17 scheduling foundation
 

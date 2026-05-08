@@ -15,6 +15,7 @@ export interface LineProvider { push(request:LineProviderPushRequest):Promise<Li
 export interface LineDeliveryResult { status:LineDeliveryStatus; providerMessageId?:string; errorCode?:string; raw?:unknown; }
 export interface LineInboundEvent { id:string; type:LineInboundEventType; lineUserIdHash:string; providerEventId?:string; messageType?:string; postbackData?:string; replyToken?:string; createdAt:string; }
 export interface LineAuditLogEntry { action:string; targetId:string; metadata:Record<string,string>; createdAt:string; }
+export interface LineGatewayEnvironmentOptions { env?:EnvironmentInput; fetcher?:typeof fetch; auditLogs?:LineAuditLogEntry[]; pushEndpoint?:string; }
 
 export class SandboxLineProvider implements LineProvider {
   readonly sent: LineProviderPushRequest[] = [];
@@ -129,6 +130,42 @@ export class LineGateway {
   }
 }
 
+export function createLineGatewayFromEnvironment(options:LineGatewayEnvironmentOptions = {}):LineGateway {
+  const env = options.env ?? process.env;
+  const mode = normalizeProviderMode(env.LINE_PROVIDER_MODE ?? "sandbox");
+  if (mode !== "sandbox" && mode !== "http" && mode !== "disabled") throw new Error("LINE_PROVIDER_MODE_INVALID");
+  if (mode === "disabled") throw new Error("LINE_PROVIDER_DISABLED");
+  const auditHashSecret = env.LINE_AUDIT_HASH_SECRET?.trim() || "local-line-audit-hash-secret";
+  const report = validateProviderActivationReadiness(env);
+  if (mode === "sandbox") {
+    if (report.status === "blocked") throw new Error("LINE_PROVIDER_ACTIVATION_BLOCKED:ENVIRONMENT_CONFIGURATION_INVALID");
+    return new LineGateway({
+      provider:new SandboxLineProvider({ channelSecret:env.LINE_CHANNEL_SECRET, userIdHashSecret:auditHashSecret }),
+      sandboxMode:true,
+      auditHashSecret,
+      auditLogs:options.auditLogs,
+    });
+  }
+
+  const line = report.components.find((component)=>component.component === "line");
+  if (!line?.networkCallsAllowed) {
+    throw new Error(`LINE_PROVIDER_ACTIVATION_BLOCKED:${line?.errors.map((error)=>error.code).sort().join(",") || "UNKNOWN"}`);
+  }
+  return new LineGateway({
+    provider:new HttpLineProvider({
+      channelAccessToken:env.LINE_CHANNEL_ACCESS_TOKEN,
+      channelSecret:env.LINE_CHANNEL_SECRET,
+      userIdHashSecret:auditHashSecret,
+      pushEndpoint:options.pushEndpoint,
+      activationEnv:env,
+      fetcher:options.fetcher,
+    }),
+    sandboxMode:false,
+    auditHashSecret,
+    auditLogs:options.auditLogs,
+  });
+}
+
 export function createLineChannelAccount(input:{ userId:string; lineUserId:string; now?:Date }):LineChannelAccount {
   return { userId:input.userId, lineUserId:input.lineUserId.trim(), active:true, blocked:false, followed:true, updatedAt:(input.now??new Date()).toISOString() };
 }
@@ -212,6 +249,7 @@ function stableLineRetryUuid(input:string):string {
 function isUuid(value:string):boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
 }
+function normalizeProviderMode(value:string):string { return value.trim().toLowerCase(); }
 function stableLineTarget(value:string, secret:string):string { return `line_${createHmac("sha256", secret).update(value.trim()).digest("base64url").slice(0,16)}`; }
 function isSensitiveLineLogKey(key:string):boolean { const normalized=key.toLowerCase(); return ["lineuserid","userids","userid","channelaccesstoken","secret","token","authorization","body","raw","payload"].some((blocked)=>normalized.includes(blocked)); }
 function isSensitiveLineLogValue(value:string):boolean { const normalized=value.toLowerCase(); return /\bU[A-Za-z0-9]{8,}\b/.test(value) || normalized.includes("bearer ") || normalized.includes("secret") || normalized.includes("token"); }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
-import { EmailGateway, HttpEmailProvider, SandboxEmailProvider, applyEmailWebhookEvent, createEmailChannelAccount, createEmailVerificationToken, markEmailUnsubscribed, normalizeEmailProviderWebhook, renderTransactionalEmailTemplate, sanitizeEmailLogMetadata, verifyEmailToken, type EmailAuditLogEntry, type EmailProvider } from "../src/mvp/email-gateway";
+import { EmailGateway, HttpEmailProvider, SandboxEmailProvider, applyEmailWebhookEvent, createEmailChannelAccount, createEmailGatewayFromEnvironment, createEmailVerificationToken, markEmailUnsubscribed, normalizeEmailProviderWebhook, renderTransactionalEmailTemplate, sanitizeEmailLogMetadata, verifyEmailToken, type EmailAuditLogEntry, type EmailProvider } from "../src/mvp/email-gateway";
 
 const makeGateway = (provider: EmailProvider = new SandboxEmailProvider(), auditLogs: EmailAuditLogEntry[] = []) =>
   new EmailGateway({ provider, fromEmail: "noreply@example.test", sandboxMode: true, auditHashSecret: "test-audit-secret", auditLogs });
@@ -194,6 +194,90 @@ describe("email gateway", () => {
     assert.equal(sendCalls, 0);
     assert.equal(result.status, "sent");
     assert.ok(result.providerMessageId?.startsWith("sandbox_"));
+  });
+
+  it("builds a sandbox email gateway from environment without provider calls", async () => {
+    const gateway = createEmailGatewayFromEnvironment({
+      env:{ APP_ENV:"local", EMAIL_PROVIDER_MODE:"sandbox", EMAIL_AUDIT_HASH_SECRET:"test-audit-secret" },
+    });
+    const account = { ...createTestEmailAccount({ userId:"user_a", email:"user@example.test" }), verified:true };
+
+    const result = await gateway.send(account, renderTransactionalEmailTemplate("account_security"));
+
+    assert.equal(result.status, "sent");
+    assert.ok(result.raw && typeof result.raw === "object" && "sandbox" in result.raw);
+  });
+
+  it("fails closed for production email sandbox mode", () => {
+    assert.throws(
+      () => createEmailGatewayFromEnvironment({
+        env:{
+          APP_ENV:"production",
+          ADMIN_SESSION_SECRET:"admin-session-secret",
+          EMAIL_PROVIDER_MODE:"sandbox",
+          EMAIL_AUDIT_HASH_SECRET:"test-audit-secret",
+          LINE_PROVIDER_MODE:"http",
+          LINE_CHANNEL_SECRET:"test-line-channel-secret",
+          LINE_CHANNEL_ACCESS_TOKEN:"test-line-access-token",
+          LINE_AUDIT_HASH_SECRET:"test-line-audit-secret",
+          PAYMENT_PROVIDER_MODE:"http",
+          PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"https://payments.example.test/checkout",
+          PAYMENT_PROVIDER_API_KEY:"test-payment-api-key",
+          PAYMENT_WEBHOOK_SECRET:"test-payment-webhook-secret",
+          NOTIFICATION_SCHEDULER_MODE:"enabled",
+          NOTIFICATION_SCHEDULER_TOKEN:"test-scheduler-token",
+          ASTRO_ENGINE:"swisseph",
+          SWISSEPH_LICENSE_MODE:"professional",
+          ASTRO_EPHEMERIS_PATH:"/mounted/ephemeris",
+          ENABLE_PROVIDER_DRY_RUN:"false",
+          ENABLE_REAL_LINE_SENDS:"true",
+          ENABLE_REAL_PAYMENT_PROVIDER:"true",
+          REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+        },
+      }),
+      /EMAIL_PROVIDER_ACTIVATION_BLOCKED/,
+    );
+  });
+
+  it("fails closed when environment requests real email without activation approval", () => {
+    assert.throws(
+      () => createEmailGatewayFromEnvironment({ env:{ ...emailActivationEnv, ENABLE_REAL_EMAIL_SENDS:"false" } }),
+      /EMAIL_PROVIDER_ACTIVATION_BLOCKED/,
+    );
+  });
+
+  it("does not build a real email gateway or call fetch in provider dry-run", () => {
+    let fetchCalls = 0;
+
+    assert.throws(
+      () => createEmailGatewayFromEnvironment({
+        env:{ ...emailActivationEnv, ENABLE_PROVIDER_DRY_RUN:"true", ENABLE_REAL_EMAIL_SENDS:"false", REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"false" },
+        fetcher:async () => {
+          fetchCalls += 1;
+          return new Response(null, { status:200 });
+        },
+      }),
+      /EMAIL_PROVIDER_ACTIVATION_BLOCKED/,
+    );
+    assert.equal(fetchCalls, 0);
+  });
+
+  it("builds a real email gateway only when activation guardrails allow network calls", async () => {
+    let fetchCalls = 0;
+    const gateway = createEmailGatewayFromEnvironment({
+      env:emailActivationEnv,
+      fetcher:async () => {
+        fetchCalls += 1;
+        return new Response(null, { status:200, headers:{ "x-provider-message-id":"provider_msg_1" } });
+      },
+    });
+    const account = { ...createTestEmailAccount({ userId:"user_a", email:"user@example.test" }), verified:true };
+
+    const result = await gateway.send(account, renderTransactionalEmailTemplate("account_security"));
+
+    assert.equal(result.status, "sent");
+    assert.equal(result.providerMessageId, "provider_msg_1");
+    assert.equal(fetchCalls, 1);
   });
 
   it("never performs network/provider calls in sandbox mode even with HttpEmailProvider", async () => {

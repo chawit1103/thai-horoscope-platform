@@ -6,6 +6,8 @@ import { type HoroscopeContentOutput } from "./horoscope-content-engine";
 import { LineGateway, type LineChannelAccount, type LineDeliveryResult, type LineMessage } from "./line-gateway";
 import { canAccessPeriod, type PeriodType as SubscriptionPeriodType, type PlanCode, type SubscriptionRecord } from "./subscription-lifecycle";
 import { getMockMvpState, type HoroscopeResult, type PeriodType } from "./mock-flow";
+import { validateProviderActivationReadiness, type ProviderActivationComponentName } from "./provider-activation-guardrails";
+import type { EnvironmentInput } from "./environment-validation";
 
 export type NotificationTopic = "daily_horoscope"|"weekly_horoscope"|"monthly_horoscope"|"yearly_horoscope";
 export type NotificationChannel = "line"|"email";
@@ -194,7 +196,7 @@ export function runNotificationSchedulerJob(input:{ sessionId?:string; users:Not
   return { queued, skipped, deferred, duplicates };
 }
 
-export async function dispatchQueuedNotifications(input:{ sessionId?:string; users:NotificationSchedulerUser[]; emailGateway?:EmailGateway; lineGateway?:LineGateway; now?:Date; betaApprovalMode?:boolean }):Promise<DispatchResult> {
+export async function dispatchQueuedNotifications(input:{ sessionId?:string; users:NotificationSchedulerUser[]; emailGateway?:EmailGateway; lineGateway?:LineGateway; now?:Date; betaApprovalMode?:boolean; providerActivationEnv?:EnvironmentInput }):Promise<DispatchResult> {
   const sessionId = input.sessionId ?? "dev-default";
   const now = input.now ?? new Date();
   const attempts:NotificationDeliveryAttempt[] = [];
@@ -245,7 +247,7 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
       continue;
     }
 
-    const primary = await dispatchToChannel(message, message.channel, user, input.emailGateway, input.lineGateway, false, now);
+    const primary = await dispatchToChannel(message, message.channel, user, input.emailGateway, input.lineGateway, false, now, input.providerActivationEnv);
     attempts.push(primary);
     if (primary.status === "duplicate") {
       duplicates += 1;
@@ -260,7 +262,7 @@ export async function dispatchQueuedNotifications(input:{ sessionId?:string; use
     const currentFallbackChannel = getCurrentFallbackChannel(user, message);
     let retryableFallbackFailure = false;
     if (currentFallbackChannel && isFallbackTrigger(primary)) {
-      const fallback = await dispatchToChannel(message, currentFallbackChannel, user, input.emailGateway, input.lineGateway, true, now);
+      const fallback = await dispatchToChannel(message, currentFallbackChannel, user, input.emailGateway, input.lineGateway, true, now, input.providerActivationEnv);
       attempts.push(fallback);
       if (fallback.status === "duplicate") {
         duplicates += 1;
@@ -311,9 +313,11 @@ function getDispatchGuard(message:ScheduledNotificationMessage, user:Notificatio
   return { status:"allowed" };
 }
 
-async function dispatchToChannel(message:ScheduledNotificationMessage, channel:NotificationChannel, user:NotificationSchedulerUser, emailGateway:EmailGateway|undefined, lineGateway:LineGateway|undefined, fallback:boolean, now:Date):Promise<NotificationDeliveryAttempt> {
+async function dispatchToChannel(message:ScheduledNotificationMessage, channel:NotificationChannel, user:NotificationSchedulerUser, emailGateway:EmailGateway|undefined, lineGateway:LineGateway|undefined, fallback:boolean, now:Date, providerActivationEnv?:EnvironmentInput):Promise<NotificationDeliveryAttempt> {
   const claim = claimDeliveryAttempt(message, channel, now, fallback);
   if (claim.status === "duplicate") return claim.attempt;
+  const activationBlockReason = getProviderActivationBlockReason(channel, providerActivationEnv);
+  if (activationBlockReason) return updateAttempt(claim.attempt, "failed", now, activationBlockReason);
   if (channel === "email") {
     if (!emailGateway) return updateAttempt(claim.attempt, "failed", now, "email_gateway_unavailable");
     if (!user.emailAccount) return updateAttempt(claim.attempt, "failed", now, "email_account_unavailable");
@@ -332,6 +336,15 @@ async function dispatchToChannel(message:ScheduledNotificationMessage, channel:N
   } catch {
     return updateAttempt(claim.attempt, "failed", now, "provider_exception");
   }
+}
+
+function getProviderActivationBlockReason(channel:NotificationChannel, env:EnvironmentInput = process.env):string|undefined {
+  const report = validateProviderActivationReadiness(env);
+  const componentName:ProviderActivationComponentName = channel;
+  const component = report.components.find((item)=>item.component === componentName);
+  if (component?.mode !== "http") return undefined;
+  if (component.networkCallsAllowed && report.status === "ok") return undefined;
+  return `${channel}_provider_activation_blocked`;
 }
 
 function toEmailMessage(message:ScheduledNotificationMessage):EmailMessage {

@@ -207,6 +207,12 @@ For beta launch operations, record execution evidence in:
 - [Beta go/no-go execution record](BETA_GO_NO_GO_EXECUTION_RECORD.md)
 - [Release tagging guide](RELEASE_TAGGING_GUIDE.md)
 
+For the `beta-rc-1` launch candidate, also fill:
+
+- [Beta RC1 execution results](BETA_RC1_EXECUTION_RESULTS.md)
+- [Beta RC1 smoke test results](BETA_RC1_SMOKE_TEST_RESULTS.md)
+- [Beta RC1 go/no-go decision](BETA_RC1_GO_NO_GO_DECISION.md)
+
 ## Production prerequisites
 
 Before production alerting:

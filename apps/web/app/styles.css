@@ -114,6 +114,41 @@ h2 {
   margin-top: 24px;
 }
 
+.mode-selector {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 12px 0;
+}
+
+.mode-option {
+  border: 1px solid #cbbfa9;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  text-decoration: none;
+}
+
+.mode-option.selected {
+  border-color: #0f766e;
+  box-shadow: inset 0 0 0 2px #0f766e;
+}
+
+.mode-option.unavailable {
+  background: #f7f3ea;
+  color: #6b7280;
+}
+
+.mode-option span {
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.mode-status {
+  margin-top: 12px;
+}
+
 .form-panel {
   display: grid;
   gap: 14px;

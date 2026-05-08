@@ -1,21 +1,118 @@
 import Link from "next/link";
-import { buildChartPreviewModel, assertChartPreviewSafe, type ChartPreviewModel } from "../../src/mvp/chart-preview";
+import {
+  LIVE_SWISSEPH_UNAVAILABLE_REASON,
+  assertChartPreviewSafe,
+  buildChartPreviewModeStatuses,
+  buildChartPreviewModel,
+  normalizeChartPreviewMode,
+  type ChartPreviewMode,
+  type ChartPreviewModel,
+} from "../../src/mvp/chart-preview";
 import { getMockMvpState } from "../../src/mvp/mock-flow";
+import { degreeWithinSign, thaiSignNameFromLongitude } from "../../src/mvp/zodiac";
 import { getOptionalMockSession } from "../user-session";
 
-export default async function ChartPreviewPage() {
-  const session = await getOptionalMockSession();
-  if (!session) return <EmptyChartPreview />;
-  const model = buildChartPreviewModel({ state:getMockMvpState(session.sessionId), userId:session.userId });
-  if (!model) return <EmptyChartPreview />;
-  assertChartPreviewSafe(model);
-  const unknownBirthTime = model.metadata.warnings.includes("UNKNOWN_BIRTH_TIME") || !model.housesReliable;
+interface ChartPreviewPageProps {
+  searchParams?:Promise<{ mode?:string|string[] }>;
+}
+
+export default async function ChartPreviewPage({ searchParams }:ChartPreviewPageProps) {
+  const params = await searchParams;
+  const mode = normalizeChartPreviewMode(params?.mode);
+  const mockModel = await loadMockChartPreviewModel();
+  const model = selectChartPreviewModel(mode, mockModel);
+  if (model) assertChartPreviewSafe(model);
+  const modeStatuses = buildChartPreviewModeStatuses(mode, Boolean(mockModel));
+  const unavailableReason = unavailableReasonForMode(mode, model);
 
   return (
     <section className="page">
       <p className="eyebrow">Local chart validation</p>
       <h1>ตรวจสอบค่าคำนวณดวงไทย</h1>
       <p className="lead">หน้านี้แสดงข้อมูลคำนวณเท่านั้น ไม่มีคำทำนายหรือข้อความตีความดวง</p>
+
+      <section className="panel">
+        <h2>Chart preview mode</h2>
+        <div className="mode-selector" role="list" aria-label="Chart preview mode selector">
+          {modeStatuses.map((item)=>(
+            <Link
+              key={item.mode}
+              href={item.href}
+              className={`mode-option ${item.selected ? "selected" : ""} ${item.available ? "available" : "unavailable"}`}
+              aria-current={item.selected ? "page" : undefined}
+              role="listitem"
+            >
+              <strong>{item.label}</strong>
+              <span>{item.available ? "Available" : "Unavailable"}</span>
+            </Link>
+          ))}
+        </div>
+        <dl className="status-meta mode-status">
+          {modeStatuses.map((item)=>(
+            <div key={item.mode}>
+              <dt>{item.label}</dt>
+              <dd>{item.status}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      {!model ? (
+        <UnavailablePreview mode={mode} reason={unavailableReason} />
+      ) : (
+        <ChartPreviewContent model={model} />
+      )}
+    </section>
+  );
+}
+
+async function loadMockChartPreviewModel():Promise<ChartPreviewModel|undefined> {
+  const session = await getOptionalMockSession();
+  if (!session) return undefined;
+  return buildChartPreviewModel({ state:getMockMvpState(session.sessionId), userId:session.userId });
+}
+
+function selectChartPreviewModel(mode:ChartPreviewMode, mockModel:ChartPreviewModel|undefined):ChartPreviewModel|undefined {
+  if (mode === "golden") return buildChartPreviewModel();
+  if (mode === "mock") return mockModel;
+  return undefined;
+}
+
+function unavailableReasonForMode(mode:ChartPreviewMode, model:ChartPreviewModel|undefined):string {
+  if (model) return "";
+  if (mode === "live") return LIVE_SWISSEPH_UNAVAILABLE_REASON;
+  if (mode === "mock") return "Mock MVP mode is unavailable because this browser session does not have a mock MVP chart snapshot. This mode is diagnostic only and is never treated as Thai calculation validation.";
+  return "Chart preview mode is unavailable.";
+}
+
+function UnavailablePreview({ mode, reason }:{ mode:ChartPreviewMode; reason:string }) {
+  return (
+    <section className="guard">
+      <strong>{mode === "live" ? "Live Swisseph Calculation unavailable" : "Chart preview unavailable"}</strong>
+      <p>{reason}</p>
+      <div className="actions">
+        <Link href="/chart-preview?mode=golden">Open Golden Fixture Reference</Link>
+        <Link href="/onboarding">Create mock MVP data</Link>
+      </div>
+    </section>
+  );
+}
+
+function ChartPreviewContent({ model }:{ model:ChartPreviewModel }) {
+  const unknownBirthTime = model.metadata.warnings.includes("UNKNOWN_BIRTH_TIME") || !model.housesReliable;
+  return (
+    <>
+      {model.warningBanner ? (
+        <section className="guard">
+          <strong>{model.warningBanner}</strong>
+        </section>
+      ) : null}
+      {model.referenceNotice ? (
+        <section className="guard">
+          <strong>Golden reference mode</strong>
+          <p>{model.referenceNotice}</p>
+        </section>
+      ) : null}
 
       {unknownBirthTime ? (
         <section className="guard">
@@ -61,6 +158,7 @@ export default async function ChartPreviewPage() {
                 <th>ถอยหลัง</th>
                 <th>speed_longitude_deg_per_day</th>
                 <th>เรือน</th>
+                <th>หมายเหตุ</th>
               </tr>
             </thead>
             <tbody>
@@ -76,6 +174,7 @@ export default async function ChartPreviewPage() {
                   <td>{planet.retrograde ? "R" : "-"}</td>
                   <td>{planet.speed_longitude_deg_per_day === null ? "-" : formatDeg(planet.speed_longitude_deg_per_day)}</td>
                   <td>{planet.house_number ?? (model.housesReliable ? "-" : "ไม่ reliable")}</td>
+                  <td>{planet.source_note ?? "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -106,11 +205,11 @@ export default async function ChartPreviewPage() {
         <article className="panel">
           <h2>ลัคนา</h2>
           <ul className="plain-list">
-            <li><strong>Astronomical Ascendant:</strong> {displayAngle(model.angles.ascendant_deg, model.housesReliable)}</li>
+            <li><strong>Astronomical Ascendant:</strong> {displayZodiacAngle(model.angles.ascendant_deg, model.housesReliable)}</li>
             <li><strong>Thai Lagna / ลัคนาไทย:</strong> {displayLagna(model)}</li>
-            <li><strong>MC:</strong> {displayAngle(model.angles.mc_deg, model.housesReliable)}</li>
-            <li><strong>Descendant:</strong> {displayAngle(model.angles.descendant_deg, model.housesReliable)}</li>
-            <li><strong>IC:</strong> {displayAngle(model.angles.ic_deg, model.housesReliable)}</li>
+            <li><strong>MC:</strong> {displayZodiacAngle(model.angles.mc_deg, model.housesReliable)}</li>
+            <li><strong>Descendant:</strong> {displayZodiacAngle(model.angles.descendant_deg, model.housesReliable)}</li>
+            <li><strong>IC:</strong> {displayZodiacAngle(model.angles.ic_deg, model.housesReliable)}</li>
             <li><strong>Local time correction:</strong> {displayNullableDegless(model.metadata.local_time_correction_minutes, "minutes")}</li>
             <li><strong>Sunrise local time:</strong> {model.metadata.sunrise_local_time ?? "not enabled"}</li>
           </ul>
@@ -150,21 +249,7 @@ export default async function ChartPreviewPage() {
         <Link href="/today">ไปหน้าดวงวันนี้</Link>
         <Link href="/account">บัญชี</Link>
       </div>
-    </section>
-  );
-}
-
-function EmptyChartPreview() {
-  return (
-    <section className="page">
-      <p className="eyebrow">Local chart validation</p>
-      <h1>ยังไม่มีข้อมูลคำนวณ</h1>
-      <p className="lead">เข้าร่วม beta และบันทึกโปรไฟล์เกิดก่อนเพื่อดูตำแหน่งดาว ลัคนา เรือนชะตา และ metadata</p>
-      <div className="actions">
-        <Link href="/beta">เข้าร่วม beta</Link>
-        <Link href="/onboarding">ไปหน้า onboarding</Link>
-      </div>
-    </section>
+    </>
   );
 }
 
@@ -176,13 +261,14 @@ function formatDeg(value:number):string {
   return `${value.toFixed(6)}°`;
 }
 
-function displayAngle(value:number|null, reliable:boolean):string {
-  return reliable && value !== null ? formatDeg(value) : "ไม่ reliable";
-}
-
 function displayLagna(model:ChartPreviewModel):string {
   if (model.metadata.lagna_method !== "thai_antonathi_saman_local_time_sunrise") return "not enabled; using astronomical ascendant only";
-  return displayAngle(model.angles.lagna_deg, model.housesReliable);
+  return displayZodiacAngle(model.angles.lagna_deg, model.housesReliable);
+}
+
+function displayZodiacAngle(value:number|null, reliable:boolean):string {
+  if (!reliable || value === null) return "ไม่ reliable";
+  return `${thaiSignNameFromLongitude(value)} ${formatDeg(degreeWithinSign(value))} (${formatDeg(value)})`;
 }
 
 function displayNullableDegless(value:number|null, unit:string):string {

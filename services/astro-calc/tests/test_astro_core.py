@@ -15,7 +15,7 @@ from app.core.calculators import AstroCoreService
 from app.core.math import normalize_deg, sign_index
 from app.core.time import local_to_utc, utc_to_iso
 from app.engines.mock import MockAstroEngine
-from app.engines.swisseph import SwissEphemerisEngine, fingerprint_ephemeris_path
+from app.engines.swisseph import SwissEphemerisEngine, build_ephemeris_file_manifest, fingerprint_ephemeris_path
 from app.main import create_service, health
 from app.schemas import (
     ChartRequest,
@@ -1724,6 +1724,98 @@ class AstroCoreTests(unittest.TestCase):
             supported.write_bytes(b"supported-v2")
             self.assertNotEqual(first, fingerprint_ephemeris_path(temp_dir))
             self.assertEqual(engine.ephemeris_fingerprint, first)
+
+    def test_swisseph_production_fails_without_professional_license_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "sepl_18.se1").write_bytes(b"fixture")
+            config = AstroRuntimeConfig(
+                engine="swisseph",
+                runtime_env="production",
+                swisseph_license_mode="free",
+                ephemeris_path=temp_dir,
+                require_pinned_ephemeris=True,
+            )
+            with self.assertRaisesRegex(PermissionError, "LICENSE_MODE_NOT_PRODUCTION_READY"):
+                SwissEphemerisEngine(config, swe_module=FakeSwe())
+
+    def test_swisseph_production_fails_without_ephemeris_path(self) -> None:
+        config = AstroRuntimeConfig(
+            engine="swisseph",
+            runtime_env="production",
+            swisseph_license_mode="professional",
+            ephemeris_path=None,
+            require_pinned_ephemeris=True,
+        )
+        with self.assertRaisesRegex(PermissionError, "EPHEMERIS_FILE_MISSING"):
+            SwissEphemerisEngine(config, swe_module=FakeSwe())
+
+    def test_swisseph_production_fails_for_missing_ephemeris_path(self) -> None:
+        config = AstroRuntimeConfig(
+            engine="swisseph",
+            runtime_env="production",
+            swisseph_license_mode="professional",
+            ephemeris_path="/tmp/thai-horoscope-missing-production-ephemeris",
+            require_pinned_ephemeris=True,
+        )
+        with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILE_MISSING"):
+            SwissEphemerisEngine(config, swe_module=FakeSwe())
+
+    def test_swisseph_production_fails_for_empty_or_unrelated_ephemeris_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as empty_dir, tempfile.TemporaryDirectory() as unrelated_dir:
+            unrelated = Path(unrelated_dir)
+            (unrelated / "runtime.log").write_bytes(b"not ephemeris")
+            for ephemeris_path, error_code in [(empty_dir, "EPHEMERIS_FILES_EMPTY"), (unrelated_dir, "EPHEMERIS_FILES_EMPTY")]:
+                config = AstroRuntimeConfig(
+                    engine="swisseph",
+                    runtime_env="production",
+                    swisseph_license_mode="professional",
+                    ephemeris_path=ephemeris_path,
+                    require_pinned_ephemeris=True,
+                )
+                with self.assertRaisesRegex(FileNotFoundError, error_code):
+                    SwissEphemerisEngine(config, swe_module=FakeSwe())
+
+    def test_swisseph_production_requires_pinned_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "sepl_18.se1").write_bytes(b"fixture")
+            config = AstroRuntimeConfig(
+                engine="swisseph",
+                runtime_env="production",
+                swisseph_license_mode="professional",
+                ephemeris_path=temp_dir,
+            )
+            with self.assertRaisesRegex(PermissionError, "EPHEMERIS_MANIFEST_REQUIRED"):
+                SwissEphemerisEngine(config, swe_module=FakeSwe())
+
+    def test_swisseph_production_passes_with_supported_fixture_and_matching_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"fixture")
+            manifest = build_ephemeris_file_manifest(temp_dir)
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            config = AstroRuntimeConfig(
+                engine="swisseph",
+                runtime_env="production",
+                swisseph_license_mode="professional",
+                ephemeris_path=temp_dir,
+                ephemeris_manifest_path=str(manifest_path),
+                require_pinned_ephemeris=True,
+            )
+            engine = SwissEphemerisEngine(config, swe_module=FakeSwe())
+            self.assertEqual(engine.ephemeris_fingerprint, manifest["fingerprint"])
+
+    def test_ephemeris_manifest_mismatch_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            supported = root / "sepl_18.se1"
+            supported.write_bytes(b"fixture-v1")
+            manifest = build_ephemeris_file_manifest(temp_dir)
+            supported.write_bytes(b"fixture-v2")
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_MISMATCH"):
+                fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
 
     def test_mock_engine_works_without_license_or_ephemeris_path(self) -> None:
         config = AstroRuntimeConfig(engine="mock", swisseph_license_mode="none", ephemeris_path=None)

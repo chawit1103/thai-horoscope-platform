@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import importlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,11 @@ class SwissEphemerisEngine(AstroEngine):
     def __init__(self, config: AstroRuntimeConfig, swe_module: Any | None = None) -> None:
         config.validate()
         self._config = config
-        self.ephemeris_fingerprint = fingerprint_ephemeris_path(config.ephemeris_path)
+        self.ephemeris_fingerprint = fingerprint_ephemeris_path(
+            config.ephemeris_path,
+            manifest_path=config.ephemeris_manifest_path,
+            require_pinned=config.require_pinned_ephemeris or config.runtime_env == "production",
+        )
         self._swe = swe_module or importlib.import_module("swisseph")
         self._swe.set_ephe_path(config.ephemeris_path)
         self._set_ayanamsha(config.default_ayanamsha)
@@ -129,18 +134,61 @@ class SwissEphemerisEngine(AstroEngine):
         self._swe.set_sid_mode(self._swe.SIDM_LAHIRI, 0, 0)
 
 
-def fingerprint_ephemeris_path(path: str | None) -> str:
+def fingerprint_ephemeris_path(path: str | None, *, manifest_path: str | None = None, require_pinned: bool = False) -> str:
     if not path:
         return "swisseph-unset"
+    manifest = build_ephemeris_file_manifest(path)
+    if require_pinned and not manifest_path:
+        raise PermissionError("EPHEMERIS_MANIFEST_REQUIRED: Pinned ephemeris validation requires ASTRO_EPHEMERIS_MANIFEST_PATH.")
+    if manifest_path:
+        validate_ephemeris_manifest(manifest, manifest_path)
+    return str(manifest["fingerprint"])
+
+
+def build_ephemeris_file_manifest(path: str) -> dict[str, object]:
     root = Path(path)
     files = _supported_ephemeris_files(root)
     aggregate_digest = hashlib.sha256()
+    entries: list[dict[str, object]] = []
     for file_path in files:
         relative_name = file_path.name if root.is_file() else file_path.relative_to(root).as_posix()
         size = file_path.stat().st_size
         content_digest = _sha256_file(file_path)
+        entries.append({"name": relative_name, "size": size, "sha256": content_digest})
         aggregate_digest.update(f"{relative_name}|{size}|{content_digest}\n".encode("utf-8"))
-    return f"swisseph-path-{aggregate_digest.hexdigest()[:16]}"
+    return {"fingerprint": f"swisseph-path-{aggregate_digest.hexdigest()[:16]}", "files": entries}
+
+
+def validate_ephemeris_manifest(actual_manifest: dict[str, object], manifest_path: str) -> None:
+    path = Path(manifest_path)
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError("EPHEMERIS_MANIFEST_MISSING: ASTRO_EPHEMERIS_MANIFEST_PATH does not exist.")
+    try:
+        expected = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: manifest must be valid JSON.") from error
+    expected_fingerprint = expected.get("fingerprint") or expected.get("combined_fingerprint") or expected.get("ephemeris_fingerprint")
+    if expected_fingerprint != actual_manifest["fingerprint"]:
+        raise ValueError("EPHEMERIS_MANIFEST_MISMATCH: ephemeris fingerprint does not match manifest.")
+    expected_files = expected.get("files") or expected.get("file_manifest")
+    if expected_files is not None and _normalize_manifest_files(expected_files) != _normalize_manifest_files(actual_manifest["files"]):
+        raise ValueError("EPHEMERIS_MANIFEST_MISMATCH: ephemeris file manifest does not match.")
+
+
+def _normalize_manifest_files(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: file manifest must be a list.")
+    normalized: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("EPHEMERIS_MANIFEST_INVALID: file manifest entries must be objects.")
+        name = item.get("name")
+        size = item.get("size")
+        sha256 = item.get("sha256")
+        if not isinstance(name, str) or not isinstance(size, int) or not isinstance(sha256, str):
+            raise ValueError("EPHEMERIS_MANIFEST_INVALID: file manifest entries require name, size, and sha256.")
+        normalized.append({"name": name, "size": size, "sha256": sha256})
+    return sorted(normalized, key=lambda item: str(item["name"]))
 
 
 def _supported_ephemeris_files(root: Path) -> list[Path]:

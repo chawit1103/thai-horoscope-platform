@@ -38,7 +38,7 @@ Before enabling `ASTRO_ENGINE=swisseph` in production:
 | --- | --- | --- |
 | License mode | `SWISSEPH_LICENSE_MODE=professional` and documented approval owner/date | Pending human/legal approval |
 | Ephemeris path | `ASTRO_EPHEMERIS_PATH` points to mounted or packaged read-only files | Pending deployment plan |
-| File pinning | Manifest lists supported `*.se1`/`*.se2` files, sizes, and SHA-256 hashes | Pending approved file set |
+| File pinning | `ASTRO_REQUIRE_PINNED_EPHEMERIS=true` and manifest lists supported `*.se1`/`*.se2` files, sizes, and SHA-256 hashes | Pending approved file set |
 | Fingerprint | Combined fingerprint is recorded and appears in chart snapshots | Implemented in adapter; production manifest pending |
 | No runtime downloads | Startup and request handling do not fetch ephemeris files | Required and covered by tests |
 | No committed binaries | Repo contains no `.se1`, `.se2`, `.sef`, `.bsp`, `.ephe`, or `.eph` files in astro/docs/contracts/web astro paths | Required and covered by tests |
@@ -92,7 +92,10 @@ Do not launch production astrology calculations when any of these are true:
 - `ASTRO_ENGINE=mock` is still used for paid horoscope claims
 - `ASTRO_ENGINE=swisseph` is configured without `SWISSEPH_LICENSE_MODE=professional`
 - `ASTRO_ENGINE=swisseph` is configured without `ASTRO_EPHEMERIS_PATH`
+- production `ASTRO_ENGINE=swisseph` is configured without `ASTRO_EPHEMERIS_MANIFEST_PATH`
+- production `ASTRO_ENGINE=swisseph` is configured without `ASTRO_REQUIRE_PINNED_EPHEMERIS=true`
 - ephemeris files are not pinned and fingerprinted
+- ephemeris manifest fingerprint or file list does not match mounted files
 - ephemeris files are downloaded at runtime
 - ephemeris binaries are committed to the repository
 - real-engine golden fixtures are updated without documented owner approval

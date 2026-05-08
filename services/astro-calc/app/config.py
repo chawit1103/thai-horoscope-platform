@@ -17,6 +17,8 @@ RUNTIME_ENVIRONMENT_SOURCES = ("NODE_ENV", "ENVIRONMENT")
 class AstroRuntimeConfig:
     engine: str = "mock"
     ephemeris_path: str | None = None
+    ephemeris_manifest_path: str | None = None
+    require_pinned_ephemeris: bool = False
     calculation_profile: str = "TH_NIRAYANA_V1"
     default_ayanamsha: str = "lahiri"
     swisseph_license_mode: str = "none"
@@ -29,6 +31,8 @@ class AstroRuntimeConfig:
         return cls(
             engine=os.getenv("ASTRO_ENGINE", "mock").strip() or "mock",
             ephemeris_path=(os.getenv("ASTRO_EPHEMERIS_PATH") or "").strip() or None,
+            ephemeris_manifest_path=(os.getenv("ASTRO_EPHEMERIS_MANIFEST_PATH") or "").strip() or None,
+            require_pinned_ephemeris=os.getenv("ASTRO_REQUIRE_PINNED_EPHEMERIS", "false").lower() == "true",
             calculation_profile=os.getenv("ASTRO_CALCULATION_PROFILE", "TH_NIRAYANA_V1").strip()
             or "TH_NIRAYANA_V1",
             default_ayanamsha=os.getenv("ASTRO_DEFAULT_AYANAMSA", "lahiri").strip() or "lahiri",

@@ -59,6 +59,8 @@ ASTRO_ENGINE=swisseph
 NODE_ENV=production
 SWISSEPH_LICENSE_MODE=professional
 ASTRO_EPHEMERIS_PATH=/mounted/ephemeris/path
+ASTRO_EPHEMERIS_MANIFEST_PATH=/mounted/ephemeris/ephemeris-manifest.json
+ASTRO_REQUIRE_PINNED_EPHEMERIS=true
 ```
 
 The mounted path must be an approved deployment artifact or controlled storage mount. The service must not fetch files from the network on startup or during request handling.
@@ -90,6 +92,24 @@ sha256
 ```
 
 Do not record production secrets or raw private birth data in the manifest.
+
+## Production activation smoke check
+
+Run the smoke check in staging before asking for production approval:
+
+```bash
+ASTRO_ENGINE=swisseph \
+SWISSEPH_LICENSE_MODE=professional \
+ASTRO_EPHEMERIS_PATH=/mounted/ephemeris/path \
+ASTRO_EPHEMERIS_MANIFEST_PATH=/mounted/ephemeris/ephemeris-manifest.json \
+ASTRO_REQUIRE_PINNED_EPHEMERIS=true \
+python3 - <<'PY'
+from app.main import health
+print(health())
+PY
+```
+
+Expected result: `status` is `ok`, `ephemeris_path_configured` is `true`, and no raw local filesystem path appears in output. If the manifest, fingerprint, license mode, or mounted path is wrong, the service must fail closed with a sanitized error code.
 
 ## Golden fixture update procedure
 
@@ -139,6 +159,15 @@ Response:
 3. Confirm file manifest fingerprint matches the approved release candidate.
 4. Fix deployment configuration or roll back.
 5. Do not bypass the guard by changing license mode without approval.
+
+## Rotate or update ephemeris files
+
+1. Stage the new supported `*.se1`/`*.se2` files outside the repository.
+2. Generate a new manifest with names, sizes, SHA-256 hashes, and combined fingerprint.
+3. Run the smoke check with `ASTRO_REQUIRE_PINNED_EPHEMERIS=true`.
+4. Compare affected golden cases and calculation hashes.
+5. Record approval owner/date and rollback target.
+6. Roll back by restoring the previous mounted file set and manifest, or set `ASTRO_ENGINE=mock` only for an approved non-production fallback.
 
 ## Incident: ephemeris binary committed
 

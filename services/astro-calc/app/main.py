@@ -24,7 +24,11 @@ def health() -> dict[str, str]:
     try:
         config.validate()
         if config.engine == "swisseph":
-            fingerprint_ephemeris_path(config.ephemeris_path)
+            fingerprint_ephemeris_path(
+                config.ephemeris_path,
+                manifest_path=config.ephemeris_manifest_path,
+                require_pinned=config.require_pinned_ephemeris or config.runtime_env == "production",
+            )
     except (PermissionError, ValueError, FileNotFoundError) as error:
         return {**base, "status": "error", "error_code": str(error).split(":", 1)[0]}
     return {**base, "status": "ok"}

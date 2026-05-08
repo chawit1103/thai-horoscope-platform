@@ -76,15 +76,19 @@ Verify:
 
 ```text
 Primary switch:
-NOTIFICATION_SCHEDULER_MODE=disabled
+[ ] Disable the deployment scheduler trigger, cron job, queue worker, or manual runner that invokes notification scheduling/dispatch.
+[ ] Revoke or rotate the scheduler trigger token if an external trigger may still call it.
 
-Safer validation mode:
-NOTIFICATION_SCHEDULER_MODE=dry_run
+Supporting status mode:
+NOTIFICATION_SCHEDULER_MODE=disabled or dry_run
 ```
+
+Important limitation: `NOTIFICATION_SCHEDULER_MODE` is a configuration validation and health/status signal in this release candidate. It is not by itself an execution kill switch for already-invoked scheduler code paths. Operators must stop the actual trigger or worker before treating notifications as contained.
 
 Verify:
 
 ```text
+[ ] Scheduler trigger, cron job, queue worker, and manual runner are stopped or access-controlled
 [ ] No queued message dispatch calls real Email or LINE gateways
 [ ] Duplicate-send prevention evidence is preserved
 [ ] Deleted, deactivated, unsubscribed, blocked, and bounced users remain suppressed

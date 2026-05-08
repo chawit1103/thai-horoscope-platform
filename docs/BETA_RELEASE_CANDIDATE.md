@@ -28,7 +28,8 @@ Launch tag candidate:
 [ ] EMAIL_PROVIDER_MODE=sandbox unless a human approves provider-specific staging/test mode
 [ ] LINE_PROVIDER_MODE=sandbox unless a human approves provider-specific staging/test mode
 [ ] PAYMENT_PROVIDER_MODE=mock unless a human approves provider-specific staging/test mode
-[ ] NOTIFICATION_SCHEDULER_MODE=dry_run or disabled unless a human approves enabled staging/test mode
+[ ] NOTIFICATION_SCHEDULER_MODE=dry_run or disabled for validation/status unless a human approves enabled staging/test mode
+[ ] Scheduler trigger, cron job, queue worker, or manual runner disabled unless a human approves scheduler execution
 [ ] ASTRO_ENGINE=mock unless a human approves non-production real-engine validation
 [ ] SWISSEPH_LICENSE_MODE=none unless an approved non-production validation requires otherwise
 [ ] ASTRO_EPHEMERIS_PATH unset for mock mode
@@ -152,6 +153,7 @@ Production Swiss Ephemeris remains no-go unless all of the following are recorde
 [ ] Provider dry-run blocks network calls until a human approves test sends
 [ ] Webhook and audit metadata stay sanitized
 [ ] Tests never send real Email or LINE messages
+[ ] Scheduler containment uses trigger/worker disablement; `NOTIFICATION_SCHEDULER_MODE` alone is not treated as an execution kill switch
 ```
 
 ## Admin/operator readiness
@@ -260,12 +262,13 @@ Record evidence in [E2E beta smoke test matrix](E2E_BETA_SMOKE_TEST_MATRIX.md) a
 
 1. Keep or return Email and LINE to sandbox/disabled mode.
 2. Keep or return payment to mock/disabled mode.
-3. Keep or return scheduler to disabled or `dry_run`.
-4. Stop unsafe generation jobs and keep `ASTRO_ENGINE=mock` for non-production validation.
-5. Human operator restores the last known good deployment.
-6. Re-run `/api/health`, critical smoke tests, and monitoring checks.
-7. Notify beta users with approved support wording and no incident-sensitive details.
-8. Preserve audit logs, monitoring event IDs, and payment/deletion evidence.
+3. Stop the scheduler trigger, cron job, queue worker, or manual runner before relying on scheduler containment.
+4. Keep or return `NOTIFICATION_SCHEDULER_MODE` to disabled or `dry_run` for validation/status evidence.
+5. Stop unsafe generation jobs and keep `ASTRO_ENGINE=mock` for non-production validation.
+6. Human operator restores the last known good deployment.
+7. Re-run `/api/health`, critical smoke tests, and monitoring checks.
+8. Notify beta users with approved support wording and no incident-sensitive details.
+9. Preserve audit logs, monitoring event IDs, and payment/deletion evidence.
 
 Use [Launch disable switches](LAUNCH_DISABLE_SWITCHES.md) for fast containment before a full rollback.
 
@@ -275,7 +278,7 @@ Use [Launch disable switches](LAUNCH_DISABLE_SWITCHES.md) for fast containment b
 [ ] Disable real Email sends: `ENABLE_REAL_EMAIL_SENDS=false` and `EMAIL_PROVIDER_MODE=sandbox`
 [ ] Disable real LINE sends: `ENABLE_REAL_LINE_SENDS=false` and `LINE_PROVIDER_MODE=sandbox` or `disabled`
 [ ] Disable real payment provider: `ENABLE_REAL_PAYMENT_PROVIDER=false` and `PAYMENT_PROVIDER_MODE=mock`
-[ ] Disable scheduler: `NOTIFICATION_SCHEDULER_MODE=disabled` or `dry_run`
+[ ] Disable scheduler trigger/cron/worker/manual runner; set `NOTIFICATION_SCHEDULER_MODE=disabled` or `dry_run` only as supporting validation/status evidence
 [ ] Switch astro engine to mock/prototype: `ASTRO_ENGINE=mock`, clear ephemeris path/manifest, and set `SWISSEPH_LICENSE_MODE=none`
 [ ] Disable beta enrollment by revoking unredeemed invite codes and allowlist entries; if any active shared invite code has prior redemptions or cannot be proven unredeemed, mark beta no-go until a real global pause or per-user migration exists
 ```

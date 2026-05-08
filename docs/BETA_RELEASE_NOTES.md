@@ -31,7 +31,7 @@ Horoscope content is for entertainment, lifestyle guidance, and self-reflection.
 [ ] Email and LINE gateway abstractions with mock/sandbox-safe defaults
 [ ] Real Email and LINE activation paths guarded by explicit flags and human approval
 [ ] Payment provider activation path guarded by explicit flags and verified webhook flow
-[ ] Notification scheduler dry_run/disabled/approved-enabled modes
+[ ] Notification scheduler validation/status modes plus documented trigger/worker disablement for containment
 [ ] Privacy export, birth profile deletion, unsubscribe, deactivation, and account deletion request paths
 [ ] Operator console, environment health, structured observability, and sanitized alerts
 [ ] Astro core service and Swiss Ephemeris production guardrails
@@ -62,6 +62,7 @@ EMAIL_PROVIDER_MODE=sandbox
 LINE_PROVIDER_MODE=sandbox
 PAYMENT_PROVIDER_MODE=mock
 NOTIFICATION_SCHEDULER_MODE=dry_run
+Scheduler trigger/cron/worker/manual runner stopped unless explicitly approved
 ASTRO_ENGINE=mock
 SWISSEPH_LICENSE_MODE=none
 ENABLE_REAL_EMAIL_SENDS=false
@@ -78,7 +79,7 @@ Provider-specific staging/test mode may be used only after the relevant human ow
 Email: guarded, disabled by default, sandbox-safe for beta
 LINE: guarded, disabled by default, sandbox-safe for beta
 Payment: guarded, disabled by default, mock-safe for beta
-Notification scheduler: dry_run or disabled unless human-approved staging test
+Notification scheduler: trigger/worker stopped unless human-approved staging test; dry_run or disabled status mode for validation
 Alert provider: mock-only unless human-approved staging test
 ```
 

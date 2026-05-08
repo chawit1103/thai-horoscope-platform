@@ -27,7 +27,8 @@ Astro engine/profile:
 [ ] Operator console is admin-protected and available
 [ ] No logs, alerts, health output, audit metadata, PR comments, or support tickets expose secrets or raw PII
 [ ] No real Email, LINE, payment, alert, or webhook provider call occurs unless explicitly approved for staging/test
-[ ] Notification scheduler remains disabled or dry_run unless explicitly approved
+[ ] Notification scheduler trigger/worker remains stopped unless explicitly approved
+[ ] NOTIFICATION_SCHEDULER_MODE remains disabled or dry_run as validation/status evidence unless explicitly approved
 [ ] Payment checkout remains mock or staging/test only; client return never activates entitlement
 [ ] Content approval gate holds unapproved beta content
 [ ] Privacy export/delete/unsubscribe/deactivation paths remain available

@@ -175,7 +175,7 @@ Minimum beta rollback actions:
 
 1. Disable real sends or keep providers in sandbox.
 2. Disable payment checkout or return payment provider to mock mode.
-3. Disable or dry-run the scheduler.
+3. Disable the scheduler trigger/cron/worker/manual runner; keep scheduler status mode disabled or dry-run for evidence.
 4. Switch astro engine to mock/prototype for non-production validation only.
 5. Restore last known good deployment.
 6. Notify beta users with approved support wording.

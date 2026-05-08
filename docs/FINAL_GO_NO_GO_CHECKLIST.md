@@ -49,6 +49,7 @@ Launch tag candidate:
 [ ] No real payment is enabled unless explicitly approved
 [ ] Payment webhook signature validation and idempotency are validated in mock/staging-safe mode
 [ ] Notification duplicate-send prevention and suppression are validated
+[ ] Scheduler trigger/cron/worker disablement is documented; `NOTIFICATION_SCHEDULER_MODE` alone is not treated as a kill switch
 [ ] Privacy export/delete/deactivation flows are working
 [ ] Content safety checks and unknown birth time warnings are visible
 [ ] Support and feedback plan is ready
@@ -62,6 +63,7 @@ Launch tag candidate:
 [ ] Real provider activation guardrails are missing and real provider mode is requested
 [ ] Payment webhook signature validation is incomplete
 [ ] Notification duplicate-send risk is unresolved
+[ ] Scheduler rollback relies only on `NOTIFICATION_SCHEDULER_MODE` without stopping the actual trigger, cron job, worker, or manual runner
 [ ] Privacy delete/export flow is broken
 [ ] Content safety checks are missing
 [ ] Unknown birth time warnings are not surfaced

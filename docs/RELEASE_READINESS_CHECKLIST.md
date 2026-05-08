@@ -92,7 +92,8 @@ Runtime ephemeris downloads: prohibited
 [ ] Email gateway supports sandbox mode and configured HTTP mode
 [ ] LINE gateway supports sandbox mode, configured HTTP mode, and disabled mode where allowed
 [ ] Real Email and LINE sends require explicit ENABLE_REAL_* flags and human approval gate configuration
-[ ] Notification scheduler supports disabled, dry_run, and enabled modes
+[ ] Notification scheduler environment validation reports disabled, dry_run, and enabled modes
+[ ] Scheduler containment procedure disables the actual trigger, cron job, worker, or manual runner; `NOTIFICATION_SCHEDULER_MODE` alone is not treated as an execution kill switch
 [ ] Enabled scheduler requires an internal scheduler token outside local development
 [ ] Duplicate-send prevention is keyed by user/topic/period
 [ ] Quiet hours and timezone behavior are documented and tested for the intended beta scope

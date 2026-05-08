@@ -51,11 +51,15 @@ Decision:
 ## Disable scheduler
 
 ```text
-[ ] Set NOTIFICATION_SCHEDULER_MODE=disabled or dry_run
+[ ] Disable the deployment scheduler trigger, cron job, queue worker, or manual runner that invokes scheduling/dispatch
+[ ] Revoke or rotate the scheduler trigger token if an external trigger may still invoke it
+[ ] Set NOTIFICATION_SCHEDULER_MODE=disabled or dry_run for validation/status evidence
 [ ] Confirm no real LINE/email sends occur from scheduled jobs
 [ ] Preserve queue and delivery attempt evidence
 [ ] Verify deleted/deactivated/unsubscribed users remain suppressed
 ```
+
+`NOTIFICATION_SCHEDULER_MODE` is not treated as a standalone execution kill switch in this release candidate. Rollback containment requires stopping the actual scheduler trigger or worker.
 
 ## Astro rollback
 
@@ -105,7 +109,8 @@ Decision:
 [ ] Health status is ok or known warnings are accepted
 [ ] Real sends remain disabled or approved
 [ ] Payment checkout remains disabled/mock or approved
-[ ] Scheduler remains disabled/dry_run or approved
+[ ] Scheduler trigger/worker remains stopped or explicitly approved
+[ ] Scheduler status mode remains disabled/dry_run or approved
 [ ] Astro engine mode matches the accepted beta scope
 [ ] Support owner confirms user communication is complete
 [ ] Follow-up issue or PR is opened for the root cause
@@ -117,7 +122,8 @@ Decision:
 [ ] Rollback owner is recorded in docs/BETA_RELEASE_CANDIDATE.md
 [ ] Rollback target commit or deployment artifact is recorded
 [ ] Provider modes after rollback are recorded
-[ ] Scheduler mode after rollback is disabled or dry_run unless approved
+[ ] Scheduler trigger/worker after rollback is stopped unless approved
+[ ] Scheduler status mode after rollback is disabled or dry_run unless approved
 [ ] Payment mode after rollback is mock or disabled unless approved
 [ ] PR29/PR31 dependency status is revisited before resuming beta invite or real provider activation
 [ ] Final go/no-go checklist is reset to pending after rollback

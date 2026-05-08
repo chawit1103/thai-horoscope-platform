@@ -143,7 +143,8 @@ Real staging/test mode, only after approval:
 ## Notification schedule
 
 ```text
-[ ] NOTIFICATION_SCHEDULER_MODE=disabled or dry_run unless human approved
+[ ] Scheduler trigger/cron/worker/manual runner is stopped unless human approved
+[ ] NOTIFICATION_SCHEDULER_MODE=disabled or dry_run for validation/status unless human approved
 [ ] Scheduler does not send real LINE/email in smoke tests
 [ ] Queue output is idempotent by user/topic/period
 [ ] Quiet hours are respected for the selected user timezone

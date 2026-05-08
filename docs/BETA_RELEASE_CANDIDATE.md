@@ -321,6 +321,13 @@ Do not tag as production-ready unless production deploy and provider activation 
 - [Launch risk register](LAUNCH_RISK_REGISTER.md)
 - [Rollback checklist](ROLLBACK_CHECKLIST.md)
 
+## PR41 launch operations records
+
+- [Beta launch execution log](BETA_LAUNCH_EXECUTION_LOG.md)
+- [Staging dry-run results](STAGING_DRY_RUN_RESULTS.md)
+- [Beta go/no-go execution record](BETA_GO_NO_GO_EXECUTION_RECORD.md)
+- [Release tagging guide](RELEASE_TAGGING_GUIDE.md)
+
 ## Go/no-go decision table
 
 | Area | Evidence | Status | Owner | Notes |

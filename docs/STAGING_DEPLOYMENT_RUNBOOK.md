@@ -111,3 +111,10 @@ Rollback target:
 Known accepted warnings:
 Monitoring events checked:
 ```
+
+For beta launch operations, also fill:
+
+- [Staging dry-run results](STAGING_DRY_RUN_RESULTS.md)
+- [Beta launch execution log](BETA_LAUNCH_EXECUTION_LOG.md)
+- [Beta go/no-go execution record](BETA_GO_NO_GO_EXECUTION_RECORD.md)
+- [Release tagging guide](RELEASE_TAGGING_GUIDE.md)

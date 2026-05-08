@@ -2,7 +2,7 @@
 
 ## Status
 
-PR30 status: Email and LINE environment wiring is guarded by PR29 activation readiness. Real provider calls still require explicit human approval, complete config, matching enable flags, and `ENABLE_PROVIDER_DRY_RUN=false`.
+PR33 status: Email, LINE, and Payment environment wiring is guarded by PR29 activation readiness. Real provider calls still require explicit human approval, complete config, matching enable flags, and `ENABLE_PROVIDER_DRY_RUN=false`.
 
 ## Shared checklist
 
@@ -62,9 +62,14 @@ Never log raw LINE user IDs, channel secrets, access tokens, message bodies, or 
 [ ] ENABLE_REAL_PAYMENT_PROVIDER=true only after approval
 [ ] REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true
 [ ] ENABLE_PROVIDER_DRY_RUN=false only after dry-run passes
+[ ] Environment payment provider factory constructs HTTP provider only after readiness reports `networkCallsAllowed=true`
+[ ] Checkout creation returns a provider session reference only and does not activate subscription
+[ ] Verified webhook processing is the only entitlement activation path
 [ ] Webhook signature verification tested
 [ ] Webhook idempotency tested
 [ ] Client return confirmed not to activate subscription
+[ ] Duplicate payment succeeded events do not duplicate receipt hooks
+[ ] Unknown checkout session, provider mismatch, user mismatch, and plan mismatch reject without granting entitlement
 ```
 
 Never log card data, payment API keys, webhook secrets, raw payment payloads, or raw customer identifiers.

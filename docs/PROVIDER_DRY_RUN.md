@@ -28,6 +28,7 @@ ENABLE_REAL_PAYMENT_PROVIDER=false
 - Missing or partial config fails closed.
 - Network calls remain blocked.
 - Email and LINE environment gateway factories throw sanitized activation-blocked errors instead of constructing live HTTP gateways.
+- Payment environment provider factory throws a sanitized activation-blocked error instead of constructing a live HTTP checkout provider.
 - Scheduler dispatch with provider activation env records activation-blocked attempts before any Email or LINE gateway call.
 - Status output contains component names, modes, status, error codes, warning codes, and variable names only.
 - Status output must not contain API keys, access tokens, webhook secrets, email credentials, raw emails, raw LINE user IDs, raw payment payloads, card data, private birth data, ephemeris paths, or license strings.
@@ -50,6 +51,7 @@ Dry-run passes when:
 [ ] Full config reports dry_run, not activated
 [ ] networkCallsAllowed=false for Email, LINE, and Payment
 [ ] Email/LINE environment factories fail closed and do not call fetch/provider adapters
+[ ] Payment environment factory fails closed and does not call fetch/provider adapters
 [ ] Scheduler dispatch cannot bypass Email/LINE activation guardrails
 [ ] networkCallsAttempted=false in the safety harness when provider/fetch telemetry counters are supplied
 [ ] Output is safe for admin/operator console display

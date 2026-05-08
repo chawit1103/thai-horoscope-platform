@@ -91,6 +91,7 @@ PR16 adds the first provider adapter foundation:
 
 - `MockPaymentProvider` is for tests and local development only.
 - `HttpPaymentProvider` is a configurable real-provider adapter skeleton.
+- `createPaymentProviderFromEnvironment` is the staging/production construction path and must fail closed unless PR29 payment readiness reports `networkCallsAllowed=true`.
 - checkout session creation returns a provider session reference and checkout URL, but never activates entitlement.
 - subscription activation and renewal can only happen after a verified webhook is processed.
 - provider customer, checkout, payment, and subscription identifiers are stored only as provider references.
@@ -226,6 +227,9 @@ PAYMENT_PROVIDER_MODE=mock
 PAYMENT_PROVIDER_CHECKOUT_ENDPOINT=
 PAYMENT_PROVIDER_API_KEY=
 PAYMENT_WEBHOOK_SECRET=
+ENABLE_REAL_PAYMENT_PROVIDER=false
+ENABLE_PROVIDER_DRY_RUN=true
+REQUIRE_PROVIDER_ACTIVATION_APPROVAL=false
 ```
 
 Then implement real provider only after:

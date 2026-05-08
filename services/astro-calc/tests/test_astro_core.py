@@ -2015,6 +2015,44 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(report["status"], "error")
         self.assertEqual(report["error_code"], "SWISSEPH_ADAPTER_UNAVAILABLE")
 
+    def test_health_runs_moshier_staging_swisseph_adapter_probe(self) -> None:
+        names = [
+            "APP_ENV",
+            "DEPLOYMENT_ENV",
+            "VERCEL_ENV",
+            "NODE_ENV",
+            "ENVIRONMENT",
+            "ASTRO_ENGINE",
+            "ASTRO_ALLOW_MOSHIER_EPHEMERIS",
+            "ASTRO_EPHEMERIS_PATH",
+            "ASTRO_REQUIRE_PINNED_EPHEMERIS",
+            "SWISSEPH_LICENSE_MODE",
+        ]
+        previous = {name: os.environ.get(name) for name in names}
+        os.environ["APP_ENV"] = "staging"
+        os.environ["ASTRO_ENGINE"] = "swisseph"
+        os.environ["ASTRO_ALLOW_MOSHIER_EPHEMERIS"] = "true"
+        os.environ["SWISSEPH_LICENSE_MODE"] = "free"
+        os.environ.pop("ASTRO_EPHEMERIS_PATH", None)
+        os.environ.pop("ASTRO_REQUIRE_PINNED_EPHEMERIS", None)
+        os.environ.pop("DEPLOYMENT_ENV", None)
+        os.environ.pop("VERCEL_ENV", None)
+        os.environ.pop("NODE_ENV", None)
+        os.environ.pop("ENVIRONMENT", None)
+        try:
+            with patch("app.engines.swisseph.importlib.import_module", side_effect=ModuleNotFoundError("swisseph")):
+                report = health()
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "SWISSEPH_ADAPTER_UNAVAILABLE")
+        self.assertEqual(report["ephemeris_path_configured"], "false")
+
     def test_health_rejects_pinned_manifest_without_active_profile_approval(self) -> None:
         names = [
             "APP_ENV",

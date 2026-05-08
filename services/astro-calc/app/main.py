@@ -37,8 +37,6 @@ def validate_swisseph_health(config: AstroRuntimeConfig) -> None:
         require_pinned=config.require_pinned_ephemeris,
         active_profile=config.calculation_profile,
     )
-    if config.runtime_env != "production" and not config.require_pinned_ephemeris:
-        return
     try:
         engine = create_engine(config)
         engine.ayanamsha_deg(2451545.0, config.default_ayanamsha)

@@ -473,6 +473,25 @@ function validateLiveChartMetadata(metadata:ChartPreviewMetadata):void {
   if (metadata.ayanamsa_code.toUpperCase() !== "LAHIRI") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_AYANAMSA");
   if (metadata.node_type !== "mean_node") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_NODE_TYPE");
   if (!metadata.ephemeris_fingerprint.trim()) throw new Error("LIVE_CHART_PREVIEW_MISSING_EPHEMERIS_FINGERPRINT");
+  validateLiveChartRequestEcho(metadata);
+}
+
+function validateLiveChartRequestEcho(metadata:ChartPreviewMetadata):void {
+  if (metadata.birth_datetime_local !== LIVE_CHART_PREVIEW_REQUEST.datetime_local) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_LOCAL_DATETIME");
+  }
+  if (metadata.timezone !== LIVE_CHART_PREVIEW_REQUEST.timezone) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_TIMEZONE");
+  }
+  if (utcMillis(metadata.birth_datetime_utc) !== utcMillis("1971-03-11T01:17:00Z")) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_UTC_DATETIME");
+  }
+  if (!numbersNearlyEqual(metadata.latitude, LIVE_CHART_PREVIEW_REQUEST.latitude, 0.000001)) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_LATITUDE");
+  }
+  if (!numbersNearlyEqual(metadata.longitude, LIVE_CHART_PREVIEW_REQUEST.longitude, 0.000001)) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_LONGITUDE");
+  }
 }
 
 function planetsFromLiveSnapshot(root:Record<string, unknown>, metadata:ChartPreviewMetadata):ChartPreviewPlanet[] {
@@ -606,6 +625,14 @@ function normalizeServiceUrl(value:string|undefined):URL|null {
 
 function liveChartPreviewEndpoint(serviceUrl:URL):string {
   return `${serviceUrl.toString().replace(/\/+$/, "")}/v1/charts/natal`;
+}
+
+function numbersNearlyEqual(left:number, right:number, tolerance:number):boolean {
+  return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) <= tolerance;
+}
+
+function utcMillis(value:string):number {
+  return Date.parse(value);
 }
 
 function liveUnavailable(reason:string):LiveChartPreviewLoadResult {

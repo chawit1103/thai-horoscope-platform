@@ -152,6 +152,35 @@ describe("chart preview", () => {
     assert.throws(() => buildLiveSwissephChartPreviewModel(snapshot), /LIVE_CHART_PREVIEW_MISSING_EPHEMERIS_FINGERPRINT/);
   });
 
+  it("rejects live service responses that do not match the golden validation input", () => {
+    assert.throws(() => buildLiveSwissephChartPreviewModel(liveServiceSnapshot({
+      override:{ datetime_local:"1971-03-11T09:17:00" },
+    })), /LIVE_CHART_PREVIEW_UNEXPECTED_LOCAL_DATETIME/);
+
+    assert.throws(() => buildLiveSwissephChartPreviewModel(liveServiceSnapshot({
+      override:{ datetime_utc:"1971-03-11T08:17:00Z" },
+    })), /LIVE_CHART_PREVIEW_UNEXPECTED_UTC_DATETIME/);
+
+    assert.throws(() => buildLiveSwissephChartPreviewModel(liveServiceSnapshot({
+      override:{
+        datetime:{
+          local:"1971-03-11T08:17:00",
+          utc:"1971-03-11T01:17:00Z",
+          timezone:"UTC",
+          julian_day_ut:2441021.5534722223,
+        },
+      },
+    })), /LIVE_CHART_PREVIEW_UNEXPECTED_TIMEZONE/);
+
+    assert.throws(() => buildLiveSwissephChartPreviewModel(liveServiceSnapshot({
+      override:{ location:{ latitude:13.8, longitude:100.535, elevation_m:0 } },
+    })), /LIVE_CHART_PREVIEW_UNEXPECTED_LATITUDE/);
+
+    assert.throws(() => buildLiveSwissephChartPreviewModel(liveServiceSnapshot({
+      override:{ location:{ latitude:13.759, longitude:100.6, elevation_m:0 } },
+    })), /LIVE_CHART_PREVIEW_UNEXPECTED_LONGITUDE/);
+  });
+
   it("marks live mode available only after a successful service-backed model exists", () => {
     const model = buildLiveSwissephChartPreviewModel(liveServiceSnapshot());
     const statuses = buildChartPreviewModeStatuses("live", false, {

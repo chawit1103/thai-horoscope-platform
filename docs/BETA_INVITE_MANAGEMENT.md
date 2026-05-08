@@ -103,6 +103,14 @@ enrollment with the current implementation, an operator must:
 6. Keep already enrolled users governed by normal entitlement, deletion,
    deactivation, unsubscribe, and privacy controls.
 
+Shared invite-code caveat: an active shared invite code that has already been
+redeemed cannot be used as a safe pause switch in this release. Revoking the
+shared code can remove existing linked users' beta access, while leaving it
+active can allow new enrollments from anyone with the code. If any active shared
+invite code has prior redemptions, or if operators cannot prove that it has no
+prior redemptions, beta launch is no-go until a separate PR adds a real global
+enrollment pause or a per-user migration path.
+
 If operators require a one-step global pause switch, the beta launch is no-go
 until that switch is implemented and tested in a separate PR.
 

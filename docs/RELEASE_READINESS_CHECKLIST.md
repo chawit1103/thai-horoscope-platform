@@ -176,7 +176,7 @@ Runtime ephemeris downloads: prohibited
 [ ] Known limitations are accepted and visible to operators/support
 [ ] Rollback target and owner are recorded
 [ ] Disable switches for Email, LINE, payment, scheduler, and astro are documented
-[ ] Beta enrollment pause procedure is documented as invite/allowlist revocation, or the launch is no-go if a one-step global flag is required
+[ ] Beta enrollment pause procedure is documented as unredeemed invite/allowlist revocation, with no-go status for active shared invite codes that have prior redemptions or unknown redemption history
 [ ] Post-launch monitoring owner and watch window are recorded
 [ ] Beta communication and support process are ready
 [ ] PR29 real provider activation guardrails are merged or marked as a pending dependency
@@ -200,6 +200,7 @@ Runtime ephemeris downloads: prohibited
 [ ] Launch tag is prepared before required checks, review, or human approval are complete
 [ ] Disable switches or rollback owner are missing
 [ ] Beta enrollment is marked quickly pausable while active invite codes or allowlist entries remain unrevoked
+[ ] Active shared invite codes with prior redemptions are treated as safely pausable without a global pause or per-user migration path
 ```
 
 ## Proof commands

@@ -123,6 +123,8 @@ There is no global beta-enrollment environment kill switch in this release candi
 [ ] Confirm PR31 beta invite management is merged before treating this procedure as available
 ```
 
+Important limitation: this is safe only for unredeemed shared invite codes and unredeemed allowlist entries. If any active shared invite code has already been redeemed, or if operators cannot prove that it has no prior redemptions, the launch is no-go until a separate PR adds a real global enrollment pause or a per-user migration path. Revoking an already redeemed shared invite can remove existing linked beta users' access, while leaving it active can allow new enrollments.
+
 If the launch requires a one-step global enrollment pause flag, the beta decision is no-go until that flag is implemented and tested in a separate PR.
 
 Verify:
@@ -130,6 +132,7 @@ Verify:
 ```text
 [ ] New beta invite redemption is paused because no active invite or allowlist entry remains
 [ ] A previously valid but revoked invite code is rejected with a sanitized error
+[ ] No active shared invite code with prior redemptions is being treated as safely pausable
 [ ] Waitlisted and revoked users cannot enter beta-only flows
 [ ] Existing users retain only the intended beta access
 [ ] Support and feedback forms remain available

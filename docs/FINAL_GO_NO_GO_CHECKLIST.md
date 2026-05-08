@@ -53,7 +53,7 @@ Launch tag candidate:
 [ ] Content safety checks and unknown birth time warnings are visible
 [ ] Support and feedback plan is ready
 [ ] Beta release notes are prepared without PII, secrets, or overclaimed readiness
-[ ] Beta enrollment pause evidence is recorded: active invite codes and allowlist entries can be revoked, or one-step global pause is marked missing/no-go
+[ ] Beta enrollment pause evidence is recorded: unredeemed invite codes and allowlist entries can be revoked, and any active shared invite code with prior redemptions or unknown redemption history is marked no-go until a global pause or per-user migration exists
 ```
 
 ## No-go if
@@ -77,6 +77,7 @@ Launch tag candidate:
 [ ] Rollback or disable-switch owner/process is unclear
 [ ] Swiss Ephemeris license, ephemeris path, manifest, or active profile approval is unclear while production swisseph is enabled
 [ ] Beta enrollment pause is described as a switch but only unrevoked active invite codes or allowlist entries exist
+[ ] Any active shared invite code with prior redemptions or unknown redemption history is treated as safely pausable
 ```
 
 ## Pending dependency record

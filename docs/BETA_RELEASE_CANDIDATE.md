@@ -277,7 +277,7 @@ Use [Launch disable switches](LAUNCH_DISABLE_SWITCHES.md) for fast containment b
 [ ] Disable real payment provider: `ENABLE_REAL_PAYMENT_PROVIDER=false` and `PAYMENT_PROVIDER_MODE=mock`
 [ ] Disable scheduler: `NOTIFICATION_SCHEDULER_MODE=disabled` or `dry_run`
 [ ] Switch astro engine to mock/prototype: `ASTRO_ENGINE=mock`, clear ephemeris path/manifest, and set `SWISSEPH_LICENSE_MODE=none`
-[ ] Disable beta enrollment by revoking active invite codes and allowlist entries; if a one-step global pause flag is required, mark beta no-go until implemented
+[ ] Disable beta enrollment by revoking unredeemed invite codes and allowlist entries; if any active shared invite code has prior redemptions or cannot be proven unredeemed, mark beta no-go until a real global pause or per-user migration exists
 ```
 
 ## Post-launch watchpoints

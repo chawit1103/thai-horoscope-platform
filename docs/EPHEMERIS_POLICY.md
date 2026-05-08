@@ -203,6 +203,19 @@ ASTRO_REQUIRE_PINNED_EPHEMERIS=true
 
 If any production requirement is missing, the adapter fails closed before calculation. Free/license-unclear modes are local/test only and require either an explicit ephemeris path or Moshier validation mode. Ephemeris files must be pinned, fingerprinted, manifest-verified, and provided by deployment artifact or mounted storage; the service must not download ephemeris files at runtime.
 
+## Web chart-preview live integration
+
+The web app may connect to astro-calc for local/staging validation through `ASTRO_CALC_SERVICE_URL`. This URL is a service location only; it is not a secret and must not embed credentials.
+
+`/chart-preview?mode=live` is allowed only when the service returns a chart snapshot with explicit Swiss Ephemeris metadata for `TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1`. The page must display sanitized metadata and the ephemeris fingerprint, but it must not display raw local filesystem paths, license material, secrets, provider payloads, or raw internal errors.
+
+Live preview does not relax ephemeris policy:
+
+- no runtime ephemeris downloads
+- no committed ephemeris binaries
+- no production Swiss Ephemeris activation without professional license mode and pinned ephemeris path/manifest
+- no fallback from failed live mode to Mock MVP
+
 ## Calculation profile versioning
 
 A change in any of these must create a new calculation profile version:

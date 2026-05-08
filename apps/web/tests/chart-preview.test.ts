@@ -5,7 +5,11 @@ import {
   assertChartPreviewSafe,
   buildChartPreviewModeStatuses,
   buildChartPreviewModel,
+  buildLiveSwissephChartPreviewModel,
   buildThaiAlmanacGoldenChartPreviewModel,
+  fetchLiveChartPreviewModel,
+  LIVE_CHART_PREVIEW_PROFILE,
+  LIVE_CHART_PREVIEW_REQUEST,
   normalizeChartPreviewMode,
 } from "../src/mvp/chart-preview";
 import { callMockAstroCalc, getMockMvpState, resetMockMvpState, saveBirthProfile, storeChartSnapshot } from "../src/mvp/mock-flow";
@@ -50,6 +54,95 @@ describe("chart preview", () => {
     assert.equal(statuses.find((status)=>status.mode === "live")?.selected, true);
     assert.equal(statuses.find((status)=>status.mode === "live")?.status, LIVE_SWISSEPH_UNAVAILABLE_REASON);
     assert.match(statuses.find((status)=>status.mode === "mock")?.status ?? "", /not valid for Thai astrology calculation verification|diagnostic/);
+  });
+
+  it("keeps live mode unavailable without ASTRO_CALC_SERVICE_URL and never returns mock data", async () => {
+    let fetchCalled = false;
+    const result = await fetchLiveChartPreviewModel({
+      env:{},
+      fetcher:async () => {
+        fetchCalled = true;
+        return new Response("{}");
+      },
+    });
+
+    assert.equal(fetchCalled, false);
+    assert.equal(result.model, undefined);
+    assert.match(result.unavailableReason ?? "", /ASTRO_CALC_SERVICE_URL/);
+    assert.match(result.unavailableReason ?? "", /never falls back to Mock MVP/);
+  });
+
+  it("sanitizes live astro-calc service errors", async () => {
+    const result = await fetchLiveChartPreviewModel({
+      env:{ ASTRO_CALC_SERVICE_URL:"http://localhost:8000" },
+      fetcher:async () => {
+        throw new Error("boom /Users/chawit/ephemeris ASTRO_EPHEMERIS_PATH=/secret api_key=secret-token");
+      },
+    });
+
+    assert.equal(result.model, undefined);
+    assert.match(result.unavailableReason ?? "", /sanitized Thai almanac chart snapshot/);
+    assert.doesNotMatch(result.unavailableReason ?? "", /Users|ASTRO_EPHEMERIS_PATH|api_key|secret-token/);
+  });
+
+  it("renders live mode from a mocked astro-calc service response", async () => {
+    let requestedUrl = "";
+    let requestedBody:unknown;
+    const result = await fetchLiveChartPreviewModel({
+      env:{ ASTRO_CALC_SERVICE_URL:"http://localhost:8000" },
+      fetcher:async (url, init) => {
+        requestedUrl = String(url);
+        requestedBody = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify(liveServiceSnapshot()), { status:200 });
+      },
+    });
+
+    assert.equal(requestedUrl, "http://localhost:8000/v1/charts/natal");
+    assert.deepEqual(requestedBody, LIVE_CHART_PREVIEW_REQUEST);
+    assert.ok(result.model);
+    assert.equal(result.model.dataSource, "live_swisseph_service");
+    assert.equal(result.model.warningBanner, null);
+    assert.equal(result.model.metadata.engine, "swisseph");
+    assert.equal(result.model.metadata.calculation_profile_code, LIVE_CHART_PREVIEW_PROFILE);
+    assert.equal(result.model.metadata.birth_datetime_utc, "1971-03-11T01:17:00Z");
+    assert.equal(result.model.metadata.ayanamsa_code, "LAHIRI");
+    assert.equal(result.model.metadata.node_type, "mean_node");
+    assert.equal(result.model.planets.find((planet)=>planet.planet_key === "sun")?.thai_zodiac_sign, "กุมภ์");
+    assert.ok(Math.abs((result.model.planets.find((planet)=>planet.planet_key === "sun")?.sidereal_longitude_deg ?? 0) - 326.36536075) < 0.0000001);
+    assert.equal(result.model.planets.find((planet)=>planet.planet_key === "astronomical_ascendant")?.thai_zodiac_sign, "มีน");
+    assert.equal(result.model.planets.find((planet)=>planet.planet_key === "thai_lagna")?.thai_zodiac_sign, "มีน");
+    assert.equal(result.model.planets.find((planet)=>planet.planet_key === "mc")?.thai_zodiac_sign, "ธนู");
+    assert.doesNotThrow(() => assertChartPreviewSafe(result.model!));
+  });
+
+  it("redacts sensitive values from live raw JSON output", () => {
+    const snapshot = liveServiceSnapshot({
+      extra:{
+        ephemeris_path:"/Users/chawit/private/ephemeris",
+        provider_secret:"api_key=secret-token",
+        line_user:"UrawLineUserId123456",
+        contact:"beta@example.test",
+      },
+    });
+    const model = buildLiveSwissephChartPreviewModel(snapshot);
+    const serialized = JSON.stringify({ chart:model.chartSnapshotJson, metadata:model.calculationMetadataJson });
+
+    assert.doesNotThrow(() => assertChartPreviewSafe(model));
+    for (const blocked of ["/Users/chawit", "api_key", "secret-token", "UrawLineUserId123456", "beta@example.test"]) {
+      assert.equal(serialized.includes(blocked), false);
+    }
+  });
+
+  it("marks live mode available only after a successful service-backed model exists", () => {
+    const model = buildLiveSwissephChartPreviewModel(liveServiceSnapshot());
+    const statuses = buildChartPreviewModeStatuses("live", false, {
+      available:true,
+      status:"Live Swisseph service returned a sanitized Thai almanac chart snapshot.",
+    });
+
+    assert.equal(model.dataSource, "live_swisseph_service");
+    assert.equal(statuses.find((status)=>status.mode === "live")?.available, true);
+    assert.match(statuses.find((status)=>status.mode === "live")?.status ?? "", /sanitized Thai almanac/);
   });
 
   it("labels mock MVP chart snapshots as invalid for Thai astrology verification", () => {
@@ -251,4 +344,113 @@ function createStoredChart(input:{ birthTimeUnknown:boolean }) {
     consentBirthData:true,
   }, { sessionId, userId });
   return storeChartSnapshot(callMockAstroCalc(profile), sessionId);
+}
+
+function liveServiceSnapshot(input?:{ extra?:Record<string, unknown> }) {
+  return {
+    chart_type:"natal",
+    engine_name:"swisseph",
+    engine:{
+      name:"swisseph",
+      version:"adapter-0.1.0",
+      license_mode:"free",
+      ephemeris_path_configured:false,
+      ephemeris_fingerprint:"swisseph-moshier-built-in",
+    },
+    engine_version:"adapter-0.1.0",
+    ephemeris_source:"swisseph-moshier-local-validation",
+    ephemeris_fingerprint:"swisseph-moshier-built-in",
+    calculation_profile_code:LIVE_CHART_PREVIEW_PROFILE,
+    calculation_profile:{
+      code:LIVE_CHART_PREVIEW_PROFILE,
+      zodiac_type:"sidereal",
+      ayanamsha:"LAHIRI",
+      house_system:"whole_sign",
+      node_type:"mean_node",
+      planets:["sun","moon","mercury","venus","mars","jupiter","saturn","rahu","uranus","neptune","pluto"],
+      aspect_orbs_deg:{},
+    },
+    datetime:{
+      local:"1971-03-11T08:17:00",
+      utc:"1971-03-11T01:17:00Z",
+      timezone:"Asia/Bangkok",
+      julian_day_ut:2441021.5534722223,
+    },
+    datetime_local:"1971-03-11T08:17:00",
+    datetime_utc:"1971-03-11T01:17:00Z",
+    julian_day_ut:2441021.5534722223,
+    location:{ latitude:13.759, longitude:100.535, elevation_m:0 },
+    calculation_hash:"live-fixture-calculation-hash",
+    zodiac:{ type:"sidereal", ayanamsa_code:"LAHIRI", ayanamsa_deg:23.4546517 },
+    ayanamsa_deg:23.4546517,
+    ayanamsha:{ name:"LAHIRI", value_deg:23.4546517 },
+    planets:{
+      sun:livePlanet(349.82001245, 326.36536075, false, 0.99840182, 12),
+      moon:livePlanet(158.43228947, 134.97763777, false, 11.81559666, 6),
+      mercury:livePlanet(353.80850502, 330.35385332, false, 1.95975361, 1),
+      venus:livePlanet(308.10903925, 284.65438755, false, 1.17097417, 11),
+      mars:livePlanet(269.1678759, 245.7132242, false, 0.60748118, 10),
+      jupiter:livePlanet(246.21578453, 222.76113283, false, 0.03849892, 9),
+      saturn:livePlanet(48.1438711, 24.6892194, false, 0.08730855, 2),
+      rahu:livePlanet(322.3039147, 298.849263, true, -0.05298888, 11),
+      ketu:livePlanet(142.3039147, 118.849263, true, -0.05298888, 5),
+      uranus:livePlanet(192.44476534, 168.99011364, true, -0.03866419, 7),
+      neptune:livePlanet(243.06535933, 219.61070763, true, -0.00299675, 9),
+      pluto:livePlanet(178.60395694, 155.14930524, true, -0.02690374, 7),
+    },
+    houses:{
+      system:"whole_sign",
+      ascendant_deg:358.08990736,
+      mc_deg:262.99334732,
+      cusps_deg:[330,0,30,60,90,120,150,180,210,240,270,300],
+      reliable:true,
+    },
+    angles:{
+      ascendant_deg:358.08990736,
+      lagna_deg:349.59979108,
+      mc_deg:262.99334732,
+      ic_deg:82.99334732,
+      descendant_deg:178.08990736,
+      reliable:true,
+    },
+    derived_points:{
+      thai_lagna:livePlanet(13.05444278, 349.59979108, false, 0, 1),
+      mc:livePlanet(286.44799902, 262.99334732, false, 0, 10),
+    },
+    aspects:[],
+    warnings:[{ code:"LIVE_SERVICE_TEST_FIXTURE", message:"mocked service response" }],
+    metadata:{
+      node_type:"mean_node",
+      ketu_method:"south_node",
+      thai_ketu_9_method:"not_enabled",
+      lagna_method:"thai_antonathi_saman_local_time_sunrise",
+      lagna_source:"local_mean_time_plus_sunrise_sun",
+      local_time_correction_minutes:"-17.86",
+      sunrise_local_time:"06:29",
+      ...input?.extra,
+    },
+  };
+}
+
+function livePlanet(
+  tropical_longitude_deg:number,
+  sidereal_longitude_deg:number,
+  retrograde:boolean,
+  speed_longitude_deg_per_day:number,
+  house_number:number,
+) {
+  return {
+    tropical_longitude_deg,
+    ayanamsa_deg:23.4546517,
+    sidereal_longitude_deg,
+    ecliptic_latitude_deg:0,
+    longitude_deg:sidereal_longitude_deg,
+    latitude_deg:0,
+    speed_longitude_deg_per_day,
+    sign_index:zodiacSignIndex(sidereal_longitude_deg),
+    sign_name_th:thaiSignNameFromLongitude(sidereal_longitude_deg),
+    degree_in_sign:degreeWithinSign(sidereal_longitude_deg),
+    retrograde,
+    house_number,
+  };
 }

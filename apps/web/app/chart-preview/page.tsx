@@ -4,7 +4,9 @@ import {
   assertChartPreviewSafe,
   buildChartPreviewModeStatuses,
   buildChartPreviewModel,
+  fetchLiveChartPreviewModel,
   normalizeChartPreviewMode,
+  type LiveChartPreviewLoadResult,
   type ChartPreviewMode,
   type ChartPreviewModel,
 } from "../../src/mvp/chart-preview";
@@ -20,10 +22,11 @@ export default async function ChartPreviewPage({ searchParams }:ChartPreviewPage
   const params = await searchParams;
   const mode = normalizeChartPreviewMode(params?.mode);
   const mockModel = await loadMockChartPreviewModel();
-  const model = selectChartPreviewModel(mode, mockModel);
+  const liveResult = mode === "live" ? await fetchLiveChartPreviewModel() : undefined;
+  const model = selectChartPreviewModel(mode, mockModel, liveResult?.model);
   if (model) assertChartPreviewSafe(model);
-  const modeStatuses = buildChartPreviewModeStatuses(mode, Boolean(mockModel));
-  const unavailableReason = unavailableReasonForMode(mode, model);
+  const modeStatuses = buildChartPreviewModeStatuses(mode, Boolean(mockModel), liveStatusFromResult(liveResult));
+  const unavailableReason = unavailableReasonForMode(mode, model, liveResult);
 
   return (
     <section className="page">
@@ -72,17 +75,35 @@ async function loadMockChartPreviewModel():Promise<ChartPreviewModel|undefined> 
   return buildChartPreviewModel({ state:getMockMvpState(session.sessionId), userId:session.userId });
 }
 
-function selectChartPreviewModel(mode:ChartPreviewMode, mockModel:ChartPreviewModel|undefined):ChartPreviewModel|undefined {
+function selectChartPreviewModel(
+  mode:ChartPreviewMode,
+  mockModel:ChartPreviewModel|undefined,
+  liveModel:ChartPreviewModel|undefined,
+):ChartPreviewModel|undefined {
   if (mode === "golden") return buildChartPreviewModel();
   if (mode === "mock") return mockModel;
-  return undefined;
+  return liveModel;
 }
 
-function unavailableReasonForMode(mode:ChartPreviewMode, model:ChartPreviewModel|undefined):string {
+function unavailableReasonForMode(
+  mode:ChartPreviewMode,
+  model:ChartPreviewModel|undefined,
+  liveResult:LiveChartPreviewLoadResult|undefined,
+):string {
   if (model) return "";
-  if (mode === "live") return LIVE_SWISSEPH_UNAVAILABLE_REASON;
+  if (mode === "live") return liveResult?.unavailableReason ?? LIVE_SWISSEPH_UNAVAILABLE_REASON;
   if (mode === "mock") return "Mock MVP mode is unavailable because this browser session does not have a mock MVP chart snapshot. This mode is diagnostic only and is never treated as Thai calculation validation.";
   return "Chart preview mode is unavailable.";
+}
+
+function liveStatusFromResult(liveResult:LiveChartPreviewLoadResult|undefined) {
+  if (!liveResult) {
+    return { available:false, status:LIVE_SWISSEPH_UNAVAILABLE_REASON };
+  }
+  if (liveResult.model) {
+    return { available:true, status:"Live Swisseph service returned a sanitized Thai almanac chart snapshot." };
+  }
+  return { available:false, status:liveResult.unavailableReason ?? LIVE_SWISSEPH_UNAVAILABLE_REASON };
 }
 
 function UnavailablePreview({ mode, reason }:{ mode:ChartPreviewMode; reason:string }) {
@@ -109,7 +130,7 @@ function ChartPreviewContent({ model }:{ model:ChartPreviewModel }) {
       ) : null}
       {model.referenceNotice ? (
         <section className="guard">
-          <strong>Golden reference mode</strong>
+          <strong>{referenceNoticeTitle(model)}</strong>
           <p>{model.referenceNotice}</p>
         </section>
       ) : null}
@@ -255,6 +276,12 @@ function ChartPreviewContent({ model }:{ model:ChartPreviewModel }) {
 
 function Meta({ label, value }: { label:string; value:string }) {
   return <div className="panel"><span className="muted">{label}</span><strong>{value}</strong></div>;
+}
+
+function referenceNoticeTitle(model:ChartPreviewModel):string {
+  if (model.dataSource === "live_swisseph_service") return "Live Swisseph service mode";
+  if (model.dataSource === "golden_fixture_reference") return "Golden reference mode";
+  return "Chart preview mode";
 }
 
 function formatDeg(value:number):string {

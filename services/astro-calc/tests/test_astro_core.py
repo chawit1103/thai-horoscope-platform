@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
@@ -2213,18 +2214,15 @@ class AstroCoreTests(unittest.TestCase):
     def test_no_ephemeris_binary_files_are_committed(self) -> None:
         root = Path(__file__).resolve().parents[3]
         forbidden_suffixes = {".se1", ".se2", ".sef", ".bsp", ".ephe", ".eph"}
-        search_roots = [
-            root / "services" / "astro-calc",
-            root / "packages" / "contracts",
-            root / "apps" / "web" / "src" / "astro",
-            root / "docs",
-        ]
+        tracked_files = subprocess.run(
+            ["git", "ls-files"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
         committed_ephemeris_like_files = [
-            str(path.relative_to(root))
-            for search_root in search_roots
-            if search_root.exists()
-            for path in search_root.rglob("*")
-            if path.is_file() and path.suffix.lower() in forbidden_suffixes
+            path for path in tracked_files if Path(path).suffix.lower() in forbidden_suffixes
         ]
         self.assertEqual(committed_ephemeris_like_files, [])
 

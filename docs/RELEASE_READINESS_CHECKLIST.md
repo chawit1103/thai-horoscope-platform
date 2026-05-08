@@ -22,8 +22,12 @@ Runtime ephemeris downloads: prohibited
 
 - [Beta release candidate](BETA_RELEASE_CANDIDATE.md)
 - [E2E beta smoke test matrix](E2E_BETA_SMOKE_TEST_MATRIX.md)
+- [Beta launch execution log](BETA_LAUNCH_EXECUTION_LOG.md)
+- [Staging dry-run results](STAGING_DRY_RUN_RESULTS.md)
+- [Beta go/no-go execution record](BETA_GO_NO_GO_EXECUTION_RECORD.md)
 - [Beta release notes](BETA_RELEASE_NOTES.md)
 - [Beta release notes template](BETA_RELEASE_NOTES_TEMPLATE.md)
+- [Release tagging guide](RELEASE_TAGGING_GUIDE.md)
 - [Final go/no-go checklist](FINAL_GO_NO_GO_CHECKLIST.md)
 - [Post-launch monitoring checklist](POST_LAUNCH_MONITORING_CHECKLIST.md)
 - [Beta support and feedback](BETA_SUPPORT_AND_FEEDBACK.md)

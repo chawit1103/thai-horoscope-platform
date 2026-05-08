@@ -29,6 +29,7 @@ Approved beta audience:
 ```text
 [ ] `docs/BETA_LAUNCH_EXECUTION_LOG.md` is complete enough for the launch window
 [ ] `docs/STAGING_DRY_RUN_RESULTS.md` records required checks
+[ ] `docs/E2E_BETA_SMOKE_TEST_MATRIX.md` has completed evidence for every required beta E2E row
 [ ] `docs/BETA_SMOKE_TESTS.md` and `docs/SMOKE_TEST_CHECKLIST.md` have completed evidence for required beta scope
 [ ] pnpm install, lint, typecheck, and test passed
 [ ] Astro pytest, ruff, and mypy passed

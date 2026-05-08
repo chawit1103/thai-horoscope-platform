@@ -200,6 +200,13 @@ After human staging deploy:
 7. Confirm mock alert hooks record alerts without network calls in tests.
 8. Confirm no real payment, email, LINE, or alert provider calls occur.
 
+For beta launch operations, record execution evidence in:
+
+- [Beta launch execution log](BETA_LAUNCH_EXECUTION_LOG.md)
+- [Staging dry-run results](STAGING_DRY_RUN_RESULTS.md)
+- [Beta go/no-go execution record](BETA_GO_NO_GO_EXECUTION_RECORD.md)
+- [Release tagging guide](RELEASE_TAGGING_GUIDE.md)
+
 ## Production prerequisites
 
 Before production alerting:

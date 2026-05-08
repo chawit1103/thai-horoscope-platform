@@ -82,6 +82,7 @@ export class HttpPaymentProvider implements PaymentProvider {
     const apiKey = this.config.apiKey ?? process.env.PAYMENT_PROVIDER_API_KEY;
     if (!checkoutEndpoint?.trim() || !apiKey?.trim()) throw new Error("PAYMENT_PROVIDER_CHECKOUT_ENDPOINT and PAYMENT_PROVIDER_API_KEY are required.");
     assertProviderNetworkAllowed(validateProviderActivationReadiness(this.config.activationEnv ?? process.env), "payment");
+    assertHttpsProviderEndpoint(checkoutEndpoint, "PAYMENT_PROVIDER_ENDPOINT_HTTPS_REQUIRED");
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(checkoutEndpoint, {
       method:"POST",
@@ -349,3 +350,11 @@ function isPlanCode(value:unknown):value is PlanCode { return value === "free" |
 function parsePaymentEventDate(value:string):Date|undefined { const ms=Date.parse(value); return Number.isFinite(ms) ? new Date(ms) : undefined; }
 function hmac(value:string, secret:string):string { return createHmac("sha256", secret).update(value).digest("base64url"); }
 function constantTimeEqual(a:string,b:string):boolean { const left=Buffer.from(a); const right=Buffer.from(b); return left.length===right.length && timingSafeEqual(left,right); }
+function assertHttpsProviderEndpoint(value:string, errorCode:string):void {
+  try {
+    if (new URL(value).protocol === "https:") return;
+  } catch {
+    // Fall through to a sanitized, code-only error.
+  }
+  throw new Error(errorCode);
+}

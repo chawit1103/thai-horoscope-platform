@@ -48,6 +48,7 @@ export class HttpEmailProvider implements EmailProvider {
     const activationEnv = this.config.activationEnv ?? process.env;
     assertProviderNetworkAllowed(validateProviderActivationReadiness(activationEnv), "email");
     assertVerifiedEmailSender(request.from, activationEnv);
+    assertHttpsProviderEndpoint(this.config.endpoint, "EMAIL_PROVIDER_ENDPOINT_HTTPS_REQUIRED");
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(this.config.endpoint, {
       method: "POST",
@@ -237,5 +238,13 @@ function assertVerifiedEmailSender(from:string, env:EnvironmentInput):void {
   const fromDomain = normalizedFrom.includes("@") ? normalizedFrom.split("@").at(-1) ?? "" : "";
   if (!configuredFrom || normalizedFrom !== configuredFrom) throw new Error("EMAIL_VERIFIED_SENDER_MISMATCH");
   if (!verifiedDomain || fromDomain !== verifiedDomain) throw new Error("EMAIL_VERIFIED_SENDER_MISMATCH");
+}
+function assertHttpsProviderEndpoint(value:string, errorCode:string):void {
+  try {
+    if (new URL(value).protocol === "https:") return;
+  } catch {
+    // Fall through to a sanitized, code-only error.
+  }
+  throw new Error(errorCode);
 }
 function escapeHtml(value:string):string { return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }

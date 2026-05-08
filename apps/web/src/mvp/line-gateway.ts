@@ -46,8 +46,10 @@ export class HttpLineProvider implements LineProvider {
       if (!request.retryKey.trim() || !isUuid(request.retryKey)) throw new Error("LINE retryKey must be a valid UUID.");
     }
     assertProviderNetworkAllowed(validateProviderActivationReadiness(this.config.activationEnv ?? process.env), "line");
+    const pushEndpoint = this.config.pushEndpoint ?? "https://api.line.me/v2/bot/message/push";
+    assertHttpsProviderEndpoint(pushEndpoint, "LINE_PROVIDER_ENDPOINT_HTTPS_REQUIRED");
     const fetcher = this.config.fetcher ?? fetch;
-    const response = await fetcher(this.config.pushEndpoint ?? "https://api.line.me/v2/bot/message/push", {
+    const response = await fetcher(pushEndpoint, {
       method:"POST",
       headers:{ authorization:`Bearer ${token}`, "content-type":"application/json", ...(request.retryKey ? { "x-line-retry-key":request.retryKey } : {}) },
       body:JSON.stringify({to:request.to,messages:request.messages}),
@@ -214,3 +216,11 @@ function stableLineTarget(value:string, secret:string):string { return `line_${c
 function isSensitiveLineLogKey(key:string):boolean { const normalized=key.toLowerCase(); return ["lineuserid","userids","userid","channelaccesstoken","secret","token","authorization","body","raw","payload"].some((blocked)=>normalized.includes(blocked)); }
 function isSensitiveLineLogValue(value:string):boolean { const normalized=value.toLowerCase(); return /\bU[A-Za-z0-9]{8,}\b/.test(value) || normalized.includes("bearer ") || normalized.includes("secret") || normalized.includes("token"); }
 function constantTimeEqual(a:string,b:string):boolean { const left=Buffer.from(a); const right=Buffer.from(b); return left.length===right.length && timingSafeEqual(left,right); }
+function assertHttpsProviderEndpoint(value:string, errorCode:string):void {
+  try {
+    if (new URL(value).protocol === "https:") return;
+  } catch {
+    // Fall through to a sanitized, code-only error.
+  }
+  throw new Error(errorCode);
+}

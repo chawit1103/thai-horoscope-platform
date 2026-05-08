@@ -15,6 +15,7 @@ export interface EmailWebhookEvent { type:EmailWebhookEventType; email?:string; 
 export interface EmailDeliveryResult { status:EmailDeliveryStatus; providerMessageId?:string; errorCode?:string; raw?:unknown; }
 export interface EmailAuditLogEntry { action:string; targetId:string; metadata:Record<string,string>; createdAt:string; }
 export interface EmailWebhookApplyResult { status:"applied"|"ignored"; reason?: "email_missing"|"email_mismatch"; }
+export interface EmailGatewayEnvironmentOptions { env?:EnvironmentInput; fetcher?:typeof fetch; auditLogs?:EmailAuditLogEntry[]; }
 type TransactionalEmailTemplate = "email_verification"|"account_security"|"data_export"|"account_deletion"|"payment_receipt";
 export const EMAIL_VERIFICATION_TOKEN_TTL_MS = readPositiveIntegerEnv("EMAIL_VERIFICATION_TOKEN_TTL_MS", 24 * 60 * 60 * 1000);
 const EMAIL_VERIFICATION_TOKEN_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
@@ -129,6 +130,43 @@ export class EmailGateway {
       metadata: sanitizeEmailLogMetadata({ topicCode: message.topicCode, transactional: String(isGatewayTransactionalTopic(message.topicCode)), providerMessageId: providerMessageId ?? "", errorCode: errorCode ?? "", idempotencyKey: message.idempotencyKey ?? "", email: account.email, subject: message.subject }),
     });
   }
+}
+
+export function createEmailGatewayFromEnvironment(options:EmailGatewayEnvironmentOptions = {}):EmailGateway {
+  const env = options.env ?? process.env;
+  const mode = normalizeEmail(env.EMAIL_PROVIDER_MODE ?? "sandbox");
+  if (mode !== "sandbox" && mode !== "http") throw new Error("EMAIL_PROVIDER_MODE_INVALID");
+  const auditHashSecret = env.EMAIL_AUDIT_HASH_SECRET?.trim() || "local-email-audit-hash-secret";
+  const fromEmail = env.EMAIL_FROM_ADDRESS?.trim() || "noreply@example.test";
+  const report = validateProviderActivationReadiness(env);
+  if (mode === "sandbox") {
+    if (report.status === "blocked") throw new Error("EMAIL_PROVIDER_ACTIVATION_BLOCKED:ENVIRONMENT_CONFIGURATION_INVALID");
+    return new EmailGateway({
+      provider:new SandboxEmailProvider({ webhookSecret:env.EMAIL_WEBHOOK_SECRET }),
+      fromEmail,
+      sandboxMode:true,
+      auditHashSecret,
+      auditLogs:options.auditLogs,
+    });
+  }
+
+  const email = report.components.find((component)=>component.component === "email");
+  if (!email?.networkCallsAllowed) {
+    throw new Error(`EMAIL_PROVIDER_ACTIVATION_BLOCKED:${email?.errors.map((error)=>error.code).sort().join(",") || "UNKNOWN"}`);
+  }
+  return new EmailGateway({
+    provider:new HttpEmailProvider({
+      endpoint:env.EMAIL_PROVIDER_ENDPOINT ?? "",
+      apiKey:env.EMAIL_PROVIDER_API_KEY ?? "",
+      webhookSecret:env.EMAIL_WEBHOOK_SECRET,
+      activationEnv:env,
+      fetcher:options.fetcher,
+    }),
+    fromEmail,
+    sandboxMode:false,
+    auditHashSecret,
+    auditLogs:options.auditLogs,
+  });
 }
 
 export function createEmailChannelAccount(input:{ userId:string; email:string; now?:Date }):EmailChannelAccount {

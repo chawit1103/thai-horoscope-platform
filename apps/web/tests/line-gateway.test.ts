@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 import { POST } from "../app/api/line/webhook/route";
-import { HttpLineProvider, LineGateway, SandboxLineProvider, applyLineInboundEvent, createLineChannelAccount, normalizeLineWebhook, renderLineHoroscopePreviewFlex, sanitizeLineLogMetadata, verifyLineWebhookSignature, type LineAuditLogEntry, type LineProvider } from "../src/mvp/line-gateway";
+import { HttpLineProvider, LineGateway, SandboxLineProvider, applyLineInboundEvent, createLineChannelAccount, createLineGatewayFromEnvironment, normalizeLineWebhook, renderLineHoroscopePreviewFlex, sanitizeLineLogMetadata, verifyLineWebhookSignature, type LineAuditLogEntry, type LineProvider } from "../src/mvp/line-gateway";
 
 const testNow = new Date("2026-05-04T09:00:00.000Z");
 const testChannelSecret = "test-line-channel-secret";
@@ -156,6 +156,93 @@ describe("line gateway", () => {
 
     assert.equal(provider.networkSendCount, 0);
     assert.equal(provider.sent.length, 0);
+  });
+
+  it("builds a sandbox LINE gateway from environment without provider calls", async () => {
+    const gateway = createLineGatewayFromEnvironment({
+      env:{ APP_ENV:"local", LINE_PROVIDER_MODE:"sandbox", LINE_AUDIT_HASH_SECRET:testAuditSecret },
+    });
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+
+    const result = await gateway.send(account, { topicCode:"daily_horoscope", title:"Daily", body:"Preview", periodKey:"2026-05-04" });
+
+    assert.equal(result.status, "sent");
+    assert.ok(result.raw && typeof result.raw === "object" && "sandbox" in result.raw);
+  });
+
+  it("fails closed for production LINE sandbox mode", () => {
+    assert.throws(
+      () => createLineGatewayFromEnvironment({
+        env:{
+          APP_ENV:"production",
+          ADMIN_SESSION_SECRET:"admin-session-secret",
+          EMAIL_PROVIDER_MODE:"http",
+          EMAIL_FROM_ADDRESS:"noreply@example.test",
+          EMAIL_PROVIDER_ENDPOINT:"https://email-provider.example.test/send",
+          EMAIL_PROVIDER_API_KEY:"test-email-api-key",
+          EMAIL_WEBHOOK_SECRET:"test-email-webhook-secret",
+          EMAIL_AUDIT_HASH_SECRET:"test-email-audit-secret",
+          EMAIL_VERIFIED_SENDER_DOMAIN:"example.test",
+          LINE_PROVIDER_MODE:"sandbox",
+          LINE_AUDIT_HASH_SECRET:testAuditSecret,
+          PAYMENT_PROVIDER_MODE:"http",
+          PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"https://payments.example.test/checkout",
+          PAYMENT_PROVIDER_API_KEY:"test-payment-api-key",
+          PAYMENT_WEBHOOK_SECRET:"test-payment-webhook-secret",
+          NOTIFICATION_SCHEDULER_MODE:"enabled",
+          NOTIFICATION_SCHEDULER_TOKEN:"test-scheduler-token",
+          ASTRO_ENGINE:"swisseph",
+          SWISSEPH_LICENSE_MODE:"professional",
+          ASTRO_EPHEMERIS_PATH:"/mounted/ephemeris",
+          ENABLE_PROVIDER_DRY_RUN:"false",
+          ENABLE_REAL_EMAIL_SENDS:"true",
+          ENABLE_REAL_PAYMENT_PROVIDER:"true",
+          REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+        },
+      }),
+      /LINE_PROVIDER_ACTIVATION_BLOCKED/,
+    );
+  });
+
+  it("fails closed when environment requests real LINE without activation approval", () => {
+    assert.throws(
+      () => createLineGatewayFromEnvironment({ env:{ ...lineActivationEnv, ENABLE_REAL_LINE_SENDS:"false" } }),
+      /LINE_PROVIDER_ACTIVATION_BLOCKED/,
+    );
+  });
+
+  it("does not build a real LINE gateway or call fetch in provider dry-run", () => {
+    let fetchCalls = 0;
+
+    assert.throws(
+      () => createLineGatewayFromEnvironment({
+        env:{ ...lineActivationEnv, ENABLE_PROVIDER_DRY_RUN:"true", ENABLE_REAL_LINE_SENDS:"false", REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"false" },
+        fetcher:async () => {
+          fetchCalls += 1;
+          return new Response(null, { status:200 });
+        },
+      }),
+      /LINE_PROVIDER_ACTIVATION_BLOCKED/,
+    );
+    assert.equal(fetchCalls, 0);
+  });
+
+  it("builds a real LINE gateway only when activation guardrails allow network calls", async () => {
+    let fetchCalls = 0;
+    const gateway = createLineGatewayFromEnvironment({
+      env:lineActivationEnv,
+      fetcher:async () => {
+        fetchCalls += 1;
+        return new Response(null, { status:200, headers:{ "x-line-request-id":"line_request_1" } });
+      },
+    });
+    const account = createLineChannelAccount({ userId:"user_a", lineUserId:testLineUserId, now:testNow });
+
+    const result = await gateway.send(account, { topicCode:"daily_horoscope", title:"Daily", body:"Preview", periodKey:"2026-05-04" });
+
+    assert.equal(result.status, "sent");
+    assert.equal(result.providerMessageId, "line_request_1");
+    assert.equal(fetchCalls, 1);
   });
 
   it("sends through HttpLineProvider only when sandbox is disabled and fetcher is injected", async () => {

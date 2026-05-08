@@ -11,6 +11,43 @@ const now = new Date("2026-05-03T00:30:00.000Z");
 const periodStart = "2026-05-01T00:00:00.000Z";
 const periodEnd = "2026-06-01T00:00:00.000Z";
 const topics:NotificationTopic[] = ["daily_horoscope","weekly_horoscope","monthly_horoscope","yearly_horoscope"];
+const dryRunLineActivationEnv = {
+  APP_ENV:"staging",
+  ADMIN_SESSION_SECRET:"admin-session-secret",
+  EMAIL_PROVIDER_MODE:"sandbox",
+  EMAIL_AUDIT_HASH_SECRET:"test-email-audit-secret",
+  LINE_PROVIDER_MODE:"http",
+  LINE_CHANNEL_SECRET:"test-line-channel-secret",
+  LINE_CHANNEL_ACCESS_TOKEN:"test-line-access-token",
+  LINE_AUDIT_HASH_SECRET:"test-line-audit-secret",
+  PAYMENT_PROVIDER_MODE:"mock",
+  NOTIFICATION_SCHEDULER_MODE:"dry_run",
+  ASTRO_ENGINE:"mock",
+  SWISSEPH_LICENSE_MODE:"none",
+  ENABLE_PROVIDER_DRY_RUN:"true",
+  ENABLE_REAL_LINE_SENDS:"false",
+  REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"false",
+};
+const dryRunEmailActivationEnv = {
+  APP_ENV:"staging",
+  ADMIN_SESSION_SECRET:"admin-session-secret",
+  EMAIL_PROVIDER_MODE:"http",
+  EMAIL_FROM_ADDRESS:"noreply@example.test",
+  EMAIL_PROVIDER_ENDPOINT:"https://email-provider.example.test/send",
+  EMAIL_PROVIDER_API_KEY:"test-email-api-key",
+  EMAIL_WEBHOOK_SECRET:"test-email-webhook-secret",
+  EMAIL_AUDIT_HASH_SECRET:"test-email-audit-secret",
+  EMAIL_VERIFIED_SENDER_DOMAIN:"example.test",
+  LINE_PROVIDER_MODE:"sandbox",
+  LINE_AUDIT_HASH_SECRET:"test-line-audit-secret",
+  PAYMENT_PROVIDER_MODE:"mock",
+  NOTIFICATION_SCHEDULER_MODE:"dry_run",
+  ASTRO_ENGINE:"mock",
+  SWISSEPH_LICENSE_MODE:"none",
+  ENABLE_PROVIDER_DRY_RUN:"true",
+  ENABLE_REAL_EMAIL_SENDS:"false",
+  REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"false",
+};
 
 async function activeSubscription(userId:string, planCode:"free"|"basic"|"premium" = "premium"):Promise<SubscriptionRecord> {
   const event:MockSubscriptionWebhookEvent = { id:`evt_sub_${userId}`, type:"subscription.created", subscriptionId:`sub_${userId}`, userId, planCode, status:"active", currentPeriodStart:periodStart, currentPeriodEnd:periodEnd, occurredAt:"2026-05-01T00:00:00.000Z" };
@@ -64,6 +101,22 @@ function gateways() {
     emailGateway:new EmailGateway({ provider:emailProvider, fromEmail:"noreply@example.test", sandboxMode:true, auditHashSecret:"test-email-audit-secret", auditLogs:emailAuditLogs }),
     lineGateway:new LineGateway({ provider:lineProvider, sandboxMode:true, auditHashSecret:"test-line-audit-secret", auditLogs:lineAuditLogs }),
   };
+}
+
+async function withProcessEnv<T>(env:Record<string,string>, callback:()=>Promise<T>):Promise<T> {
+  const previous = new Map<string, string|undefined>();
+  for (const [key, value] of Object.entries(env)) {
+    previous.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 describe("notification scheduler", () => {
@@ -413,6 +466,54 @@ describe("notification scheduler", () => {
     assert.equal(getNotificationSchedulerState().deliveryAttempts.length, 1);
     assert.equal(g.lineProvider.networkSendCount, 0);
     assert.equal(g.lineProvider.sent.length, 0);
+  });
+
+  it("does not let scheduler dispatch bypass provider activation dry-run guardrails", async () => {
+    approveHoroscopes("scheduler_activation_guard_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"scheduler_activation_guard_user", subscription:await activeSubscription("scheduler_activation_guard_user") });
+    let lineSendCalls = 0;
+    const lineGateway = { send:async () => { lineSendCalls += 1; return { status:"sent" as const, providerMessageId:"line_should_not_send" }; } } as unknown as LineGateway;
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway, now, providerActivationEnv:dryRunLineActivationEnv });
+
+    assert.equal(lineSendCalls, 0);
+    assert.equal(dispatch.sent, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "failed");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "line_provider_activation_blocked");
+    assert.equal(getNotificationSchedulerState().outboundMessages[0]?.status, "queued");
+  });
+
+  it("defaults scheduler provider activation guardrails to process env", async () => {
+    approveHoroscopes("scheduler_process_env_guard_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"scheduler_process_env_guard_user", subscription:await activeSubscription("scheduler_process_env_guard_user") });
+    let lineSendCalls = 0;
+    const lineGateway = { send:async () => { lineSendCalls += 1; return { status:"sent" as const, providerMessageId:"line_should_not_send" }; } } as unknown as LineGateway;
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const dispatch = await withProcessEnv(dryRunLineActivationEnv, () =>
+      dispatchQueuedNotifications({ sessionId, users:[dispatchUser], lineGateway, now }),
+    );
+
+    assert.equal(lineSendCalls, 0);
+    assert.equal(dispatch.sent, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "failed");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "line_provider_activation_blocked");
+  });
+
+  it("does not let scheduler email fallback bypass provider activation dry-run guardrails", async () => {
+    approveHoroscopes("scheduler_email_activation_guard_user", ["daily_horoscope"]);
+    const dispatchUser = user({ userId:"scheduler_email_activation_guard_user", primaryChannel:"email", fallbackChannel:undefined, subscription:await activeSubscription("scheduler_email_activation_guard_user") });
+    let emailSendCalls = 0;
+    const emailGateway = { send:async () => { emailSendCalls += 1; return { status:"sent" as const, providerMessageId:"email_should_not_send" }; } } as unknown as EmailGateway;
+    runNotificationSchedulerJob({ sessionId, users:[dispatchUser], topics:["daily_horoscope"], now });
+
+    const dispatch = await dispatchQueuedNotifications({ sessionId, users:[dispatchUser], emailGateway, now, providerActivationEnv:dryRunEmailActivationEnv });
+
+    assert.equal(emailSendCalls, 0);
+    assert.equal(dispatch.sent, 0);
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.status, "failed");
+    assert.equal(getNotificationSchedulerState().deliveryAttempts[0]?.errorCode, "email_provider_activation_blocked");
   });
 
   it("claims an overlapping queued email dispatch before provider delivery", async () => {

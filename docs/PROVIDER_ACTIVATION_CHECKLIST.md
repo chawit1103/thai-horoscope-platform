@@ -2,7 +2,7 @@
 
 ## Status
 
-PR29 status: guardrails and dry-run harness only. Real providers are not activated.
+PR30 status: Email and LINE environment wiring is guarded by PR29 activation readiness. Real provider calls still require explicit human approval, complete config, matching enable flags, and `ENABLE_PROVIDER_DRY_RUN=false`.
 
 ## Shared checklist
 
@@ -16,6 +16,7 @@ PR29 status: guardrails and dry-run harness only. Real providers are not activat
 [ ] No tests call real provider networks
 [ ] Rollback owner and rollback steps are recorded
 [ ] Scheduler behavior is understood before real sends
+[ ] Scheduler dispatch passes provider activation env in real-provider environments
 ```
 
 ## Email
@@ -31,6 +32,7 @@ PR29 status: guardrails and dry-run harness only. Real providers are not activat
 [ ] ENABLE_REAL_EMAIL_SENDS=true only after approval
 [ ] REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true
 [ ] ENABLE_PROVIDER_DRY_RUN=false only after dry-run passes
+[ ] Environment gateway factory constructs HTTP Email gateway only after readiness reports `networkCallsAllowed=true`
 ```
 
 Never log raw emails, email credentials, webhook secrets, subject/body content, or raw provider payloads.
@@ -45,6 +47,7 @@ Never log raw emails, email credentials, webhook secrets, subject/body content, 
 [ ] ENABLE_REAL_LINE_SENDS=true only after approval
 [ ] REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true
 [ ] ENABLE_PROVIDER_DRY_RUN=false only after dry-run passes
+[ ] Environment gateway factory constructs HTTP LINE gateway only after readiness reports `networkCallsAllowed=true`
 ```
 
 Never log raw LINE user IDs, channel secrets, access tokens, message bodies, or raw webhook payloads.
@@ -74,6 +77,7 @@ Never log card data, payment API keys, webhook secrets, raw payment payloads, or
 [ ] Dry-run output exposes secrets or PII
 [ ] Any test requires a real provider credential
 [ ] Any test sends email, LINE, payment, webhook, or vendor traffic
+[ ] Scheduler can dispatch Email or LINE without provider activation checks in real-provider environments
 [ ] Payment entitlement depends on client-side success
 [ ] Rollback owner is unknown
 ```

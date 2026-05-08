@@ -23,6 +23,8 @@ Accepted warnings:
 Result:
 ```
 
+Important: a passing `pnpm beta:dry-run` proves mock-safe configuration and readiness document links. It does not prove that this execution record, the smoke matrix, or the human go/no-go decision has been filled. Blank or pending execution records keep the beta decision pending/no-go.
+
 ## Required commands
 
 ```text

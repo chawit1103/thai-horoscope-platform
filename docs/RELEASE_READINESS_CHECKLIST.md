@@ -42,6 +42,8 @@ Runtime ephemeris downloads: prohibited
 - [Provider activation checklist](PROVIDER_ACTIVATION_CHECKLIST.md)
 - [Provider dry run](PROVIDER_DRY_RUN.md)
 
+The PR41 launch operation records are human-filled execution evidence. They must be linked and completed before human go approval, but `pnpm beta:dry-run` must not treat blank templates as completed launch evidence.
+
 ## Security readiness
 
 ```text

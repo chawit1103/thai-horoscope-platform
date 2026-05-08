@@ -92,6 +92,8 @@ PAYMENT_PROVIDER_MODE=mock
 
 Payment webhooks must verify signatures and be idempotent before mutating subscriptions.
 
+Payment HTTP provider construction must go through provider activation readiness and fail closed unless `networkCallsAllowed=true`. Checkout creation must not activate subscriptions, and client-side checkout success returns must be ignored. Subscription activation may happen only through verified webhook processing bound to a stored server-created checkout session.
+
 ## Notification scheduler
 
 Production enabled scheduler requires:

@@ -18,6 +18,7 @@ export interface PaymentProviderState { checkoutSessions:StoredCheckoutSession[]
 export interface PaymentProviderReference { userId:string; providerCustomerId?:string; providerSubscriptionId?:string; providerPaymentId?:string; updatedAt:string; }
 export interface PaymentWebhookProcessResult { status:PaymentWebhookProcessStatus; reason?:string; event?:PaymentWebhookEvent; subscriptionResult?:SubscriptionWebhookResult; receiptNotification?:EmailDeliveryResult; }
 export interface PaymentReceiptHook { emailGateway:EmailGateway; emailAccount:EmailChannelAccount; }
+export interface PaymentProviderEnvironmentOptions { env?:EnvironmentInput; fetcher?:typeof fetch; now?:()=>Date; }
 export type WebhookIdempotencyClaimResult = "claimed"|"duplicate";
 export interface WebhookIdempotencyRecord { provider:PaymentProviderCode; eventId:string; status:"claimed"|"processed"; result?:PaymentWebhookProcessStatus; claimedAt:string; processedAt?:string; }
 export interface WebhookIdempotencyStore { claim(provider:PaymentProviderCode, eventId:string):WebhookIdempotencyClaimResult; markProcessed(provider:PaymentProviderCode, eventId:string, result:PaymentWebhookProcessStatus):void; release(provider:PaymentProviderCode, eventId:string):void; list?():WebhookIdempotencyRecord[]; }
@@ -103,6 +104,30 @@ export class HttpPaymentProvider implements PaymentProvider {
   async parseWebhook(_headers:Headers, rawBody:string):Promise<PaymentWebhookEvent> {
     return parsePaymentWebhookBody(rawBody);
   }
+}
+
+export function createPaymentProviderFromEnvironment(options:PaymentProviderEnvironmentOptions = {}):PaymentProvider {
+  const env = options.env ?? process.env;
+  const mode = normalizeProviderMode(env.PAYMENT_PROVIDER_MODE ?? "mock");
+  if (mode !== "mock" && mode !== "http") throw new Error("PAYMENT_PROVIDER_MODE_INVALID");
+  const report = validateProviderActivationReadiness(env);
+  if (mode === "mock") {
+    if (report.status === "blocked") throw new Error("PAYMENT_PROVIDER_ACTIVATION_BLOCKED:ENVIRONMENT_CONFIGURATION_INVALID");
+    return new MockPaymentProvider({ webhookSecret:env.PAYMENT_WEBHOOK_SECRET?.trim() || "local-payment-webhook-secret", now:options.now });
+  }
+
+  const payment = report.components.find((component)=>component.component === "payment");
+  if (!payment?.networkCallsAllowed) {
+    const codes = payment ? [...payment.errors, ...payment.warnings].map((issue)=>issue.code).sort().join(",") : "UNKNOWN";
+    throw new Error(`PAYMENT_PROVIDER_ACTIVATION_BLOCKED:${codes || "UNKNOWN"}`);
+  }
+  return new HttpPaymentProvider({
+    checkoutEndpoint:env.PAYMENT_PROVIDER_CHECKOUT_ENDPOINT,
+    apiKey:env.PAYMENT_PROVIDER_API_KEY,
+    webhookSecret:env.PAYMENT_WEBHOOK_SECRET,
+    activationEnv:env,
+    fetcher:options.fetcher,
+  });
 }
 
 export function resetMockPaymentProviderState():void { state = { checkoutSessions:[], processedWebhookEventIds:[], processedReceiptKeys:[], auditLogs:[], receiptNotifications:[], providerReferences:[], webhookIdempotencyRecords:[] }; webhookIdempotencyStore = new InMemoryWebhookIdempotencyStore(state.webhookIdempotencyRecords); }
@@ -346,6 +371,9 @@ function isPaymentWebhookEventType(value:unknown):value is PaymentWebhookEventTy
   return value === "checkout.session.created" || value === "checkout.session.completed" || value === "payment.succeeded" || value === "payment.failed" || value === "subscription.created" || value === "subscription.renewed" || value === "subscription.renewal_failed" || value === "subscription.canceled" || value === "subscription.expired" || value === "refund.created" || value === "refund.succeeded";
 }
 
+function normalizeProviderMode(value:string):string {
+  return value.trim().toLowerCase();
+}
 function isPlanCode(value:unknown):value is PlanCode { return value === "free" || value === "basic" || value === "premium"; }
 function parsePaymentEventDate(value:string):Date|undefined { const ms=Date.parse(value); return Number.isFinite(ms) ? new Date(ms) : undefined; }
 function hmac(value:string, secret:string):string { return createHmac("sha256", secret).update(value).digest("base64url"); }

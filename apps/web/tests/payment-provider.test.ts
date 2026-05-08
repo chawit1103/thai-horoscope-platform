@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { EmailGateway, SandboxEmailProvider, createEmailChannelAccount, type EmailAuditLogEntry } from "../src/mvp/email-gateway";
 import { canAccessPeriod, getMockSubscriptionState, resetMockSubscriptionState } from "../src/mvp/subscription-lifecycle";
-import { HttpPaymentProvider, InMemoryWebhookIdempotencyStore, MockPaymentProvider, createPaymentCheckoutSession, createPaymentWebhookSignature, getMockPaymentProviderState, processPaymentWebhook, recordClientCheckoutReturn, resetMockPaymentProviderState, type CreateCheckoutInput, type PaymentWebhookEvent, type WebhookIdempotencyStore } from "../src/mvp/payment-provider";
+import { HttpPaymentProvider, InMemoryWebhookIdempotencyStore, MockPaymentProvider, createPaymentCheckoutSession, createPaymentProviderFromEnvironment, createPaymentWebhookSignature, getMockPaymentProviderState, processPaymentWebhook, recordClientCheckoutReturn, resetMockPaymentProviderState, type CreateCheckoutInput, type PaymentWebhookEvent, type WebhookIdempotencyStore } from "../src/mvp/payment-provider";
 
 // @ts-expect-error WebhookIdempotencyStore implementations must provide release so retryable claims can be cleared.
 const missingReleaseStore:WebhookIdempotencyStore = { claim:() => "claimed", markProcessed:() => undefined };
@@ -581,5 +581,84 @@ describe("payment provider foundation", () => {
     assert.equal(fetchCalls, 0);
     if (previousEnvSecret === undefined) delete process.env.PAYMENT_WEBHOOK_SECRET;
     else process.env.PAYMENT_WEBHOOK_SECRET = previousEnvSecret;
+  });
+
+  it("environment factory keeps mock mode safe without production secrets", async () => {
+    const provider = createPaymentProviderFromEnvironment({
+      env:{
+        APP_ENV:"local",
+        EMAIL_PROVIDER_MODE:"sandbox",
+        LINE_PROVIDER_MODE:"disabled",
+        PAYMENT_PROVIDER_MODE:"mock",
+        ASTRO_ENGINE:"mock",
+        ENABLE_PROVIDER_DRY_RUN:"true",
+      },
+      now:() => new Date("2026-05-01T00:00:00.000Z"),
+    });
+
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput());
+
+    assert.equal(provider.provider, "mock");
+    assert.equal(checkout.provider, "mock");
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
+  });
+
+  it("real payment activation fails closed without ENABLE_REAL_PAYMENT_PROVIDER=true", () => {
+    assert.throws(
+      () => createPaymentProviderFromEnvironment({ env:{ ...paymentActivationEnv, ENABLE_REAL_PAYMENT_PROVIDER:"false" } }),
+      /PAYMENT_PROVIDER_ACTIVATION_BLOCKED:PAYMENT_REAL_PROVIDER_FLAG_REQUIRED/,
+    );
+  });
+
+  it("real payment activation fails closed without provider config", () => {
+    assert.throws(
+      () => createPaymentProviderFromEnvironment({ env:{ ...paymentActivationEnv, PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"", PAYMENT_PROVIDER_API_KEY:"" } }),
+      /PAYMENT_PROVIDER_ACTIVATION_BLOCKED:PAYMENT_REAL_PROVIDER_CONFIG_MISSING/,
+    );
+  });
+
+  it("real payment activation fails closed without webhook secret", () => {
+    assert.throws(
+      () => createPaymentProviderFromEnvironment({ env:{ ...paymentActivationEnv, PAYMENT_WEBHOOK_SECRET:"" } }),
+      /PAYMENT_PROVIDER_ACTIVATION_BLOCKED:PAYMENT_REAL_PROVIDER_CONFIG_MISSING/,
+    );
+  });
+
+  it("real payment dry-run does not construct a live provider or call fetch", () => {
+    let fetchCalls = 0;
+    const fetcher = async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({ id:"checkout_1", checkoutUrl:"https://payments.example.test/checkout/checkout_1" }), { status:200, headers:{ "content-type":"application/json" } });
+    };
+
+    assert.throws(
+      () => createPaymentProviderFromEnvironment({ env:{ ...paymentActivationEnv, ENABLE_PROVIDER_DRY_RUN:"true" }, fetcher }),
+      /PAYMENT_PROVIDER_ACTIVATION_BLOCKED:PAYMENT_PROVIDER_DRY_RUN/,
+    );
+    assert.equal(fetchCalls, 0);
+  });
+
+  it("approved real payment factory creates checkout readiness without activating subscription", async () => {
+    let fetchCalls = 0;
+    const provider = createPaymentProviderFromEnvironment({
+      env:paymentActivationEnv,
+      fetcher:async (_url, init) => {
+        fetchCalls += 1;
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        assert.equal(body.userId, "user_a");
+        assert.equal(body.planCode, "premium");
+        assert.equal(JSON.stringify(body).includes("test_api_key"), false);
+        assert.equal(Object.keys(body).some((key)=>key.toLowerCase().includes("api") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("token")), false);
+        return new Response(JSON.stringify({ id:"real_checkout_1", checkoutUrl:"https://payments.example.test/checkout/real_checkout_1", providerCustomerId:"cus_real_a", providerSubscriptionId:"sub_real_a" }), { status:200, headers:{ "content-type":"application/json" } });
+      },
+    });
+
+    const checkout = await createPaymentCheckoutSession(provider, checkoutInput());
+
+    assert.equal(provider.provider, "http");
+    assert.equal(checkout.provider, "http");
+    assert.equal(checkout.id, "real_checkout_1");
+    assert.equal(fetchCalls, 1);
+    assert.equal(getMockSubscriptionState().subscriptions.length, 0);
   });
 });

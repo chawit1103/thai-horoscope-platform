@@ -2,7 +2,7 @@
 
 ## Goal
 
-Define the safe operator path for enabling real Email, LINE, or Payment providers after human approval. PR30 wires real Email and LINE construction through the provider activation guardrails; it does not add production secrets, deploy, send real messages, or call real payment APIs.
+Define the safe operator path for enabling real Email, LINE, or Payment providers after human approval. PR30 wires real Email and LINE construction through the provider activation guardrails. PR33 wires real Payment provider construction through the same activation guardrails. These PRs do not add production secrets, deploy, send real messages, charge users, or call real payment APIs from tests.
 
 ## Approval gates
 
@@ -33,7 +33,7 @@ ENABLE_PROVIDER_DRY_RUN=true
 
 Dry-run must not send real email, push LINE messages, create checkout sessions, call payment APIs, mutate real subscription/payment state, or log raw provider payloads.
 
-The Email and LINE gateway environment factories fail closed when provider mode is `http` but the matching PR29 readiness component does not allow network calls. With `ENABLE_PROVIDER_DRY_RUN=true`, the factories must not construct live HTTP gateways. Scheduler dispatches that pass provider activation environment must record `email_provider_activation_blocked` or `line_provider_activation_blocked` before calling a gateway.
+The Email, LINE, and Payment environment factories fail closed when provider mode is `http` but the matching PR29 readiness component does not allow network calls. With `ENABLE_PROVIDER_DRY_RUN=true`, the factories must not construct live HTTP gateways or create live payment checkout sessions. Scheduler dispatches that pass provider activation environment must record `email_provider_activation_blocked` or `line_provider_activation_blocked` before calling a gateway.
 
 ## Enable real email safely
 
@@ -86,6 +86,25 @@ ENABLE_PROVIDER_DRY_RUN=false
 
 Payment webhook signature verification and idempotency must be verified before activation. Client-side checkout success must never activate a subscription; only verified server-side webhooks may mutate entitlement state.
 
+Payment checkout creation must go through the environment factory or an equivalent PR29 readiness check before constructing the HTTP adapter. Checkout creation only returns a provider session reference and checkout URL. It must not activate entitlement. Subscription activation, receipt hooks, and lifecycle changes must run only after a valid signed webhook is processed against the stored server-created checkout binding.
+
+No-card-data policy:
+
+```text
+[ ] Do not store card number, PAN, CVC, CVV, raw payment payloads, provider API keys, or webhook secrets
+[ ] Store provider references only: checkout, customer, subscription, payment, and receipt identifiers
+[ ] Redact provider identifiers from support tickets unless a human owner explicitly requests a safe reference
+```
+
+Webhook setup:
+
+```text
+[ ] Configure the provider dashboard to send signed webhooks to the approved staging endpoint
+[ ] Verify `x-payment-timestamp` and `x-payment-signature` for the generic skeleton or replace it with an approved provider-specific scheme
+[ ] Confirm duplicate provider event IDs are idempotent before entitlement, receipt, or audit side effects
+[ ] Confirm unknown checkout sessions, user mismatch, plan mismatch, and provider mismatch reject without granting entitlement
+```
+
 ## Staging verification
 
 Run before any human staging activation:
@@ -113,4 +132,4 @@ Then run the provider dry-run checklist in `docs/PROVIDER_DRY_RUN.md` and confir
 
 ## Out of scope
 
-PR30 does not choose vendors, add secrets, deploy, send real messages, call real payment APIs, change payment provider behavior, change astrology calculation behavior, alter subscription lifecycle behavior, or approve production launch.
+PR33 does not choose vendors, add secrets, deploy, charge users, call real payment APIs in tests, store card data, change Email/LINE activation, change astrology calculation behavior, or approve production launch.

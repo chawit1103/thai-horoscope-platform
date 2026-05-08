@@ -46,6 +46,38 @@ describe("environment validation", () => {
     assertIssueVariables(payment.errors, "PAYMENT_REAL_PROVIDER_CONFIG_MISSING", ["PAYMENT_PROVIDER_API_KEY", "PAYMENT_PROVIDER_CHECKOUT_ENDPOINT", "PAYMENT_WEBHOOK_SECRET"]);
   });
 
+  it("real email mode rejects plaintext endpoint and sender domain mismatch", () => {
+    const report = validateDeploymentEnvironment({
+      ...localEnv,
+      EMAIL_PROVIDER_MODE:"http",
+      EMAIL_FROM_ADDRESS:"noreply@other.test",
+      EMAIL_PROVIDER_ENDPOINT:"http://email-provider.example.test/send",
+      EMAIL_PROVIDER_API_KEY:"email-api-secret",
+      EMAIL_WEBHOOK_SECRET:"email-webhook-secret",
+      EMAIL_AUDIT_HASH_SECRET:"email-audit-secret",
+      EMAIL_VERIFIED_SENDER_DOMAIN:"example.test",
+    });
+    const email = component(report, "email_gateway");
+
+    assert.equal(report.status, "error");
+    assertIssueVariables(email.errors, "EMAIL_PROVIDER_ENDPOINT_HTTPS_REQUIRED", ["EMAIL_PROVIDER_ENDPOINT"]);
+    assertIssueVariables(email.errors, "EMAIL_VERIFIED_SENDER_DOMAIN_MISMATCH", ["EMAIL_FROM_ADDRESS", "EMAIL_VERIFIED_SENDER_DOMAIN"]);
+  });
+
+  it("real payment mode rejects plaintext checkout endpoint", () => {
+    const report = validateDeploymentEnvironment({
+      ...localEnv,
+      PAYMENT_PROVIDER_MODE:"http",
+      PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"http://payments.example.test/checkout",
+      PAYMENT_PROVIDER_API_KEY:"payment-api-secret",
+      PAYMENT_WEBHOOK_SECRET:"payment-webhook-secret",
+    });
+    const payment = component(report, "payment_provider");
+
+    assert.equal(report.status, "error");
+    assertIssueVariables(payment.errors, "PAYMENT_PROVIDER_ENDPOINT_HTTPS_REQUIRED", ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT"]);
+  });
+
   it("astro swisseph production mode requires professional license and ephemeris path", () => {
     const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"production", ASTRO_ENGINE:"swisseph", SWISSEPH_LICENSE_MODE:"free", ADMIN_SESSION_SECRET:"admin-secret", EMAIL_AUDIT_HASH_SECRET:"email-audit", LINE_PROVIDER_MODE:"disabled", PAYMENT_PROVIDER_MODE:"http", PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"https://payments.example.test", PAYMENT_PROVIDER_API_KEY:"payment-api-secret", PAYMENT_WEBHOOK_SECRET:"payment-webhook-secret" });
     const astro = component(report, "astro_calc");

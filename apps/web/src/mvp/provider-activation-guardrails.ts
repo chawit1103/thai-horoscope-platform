@@ -154,6 +154,11 @@ function providerComponent(input:{
   if (input.mode === "http") {
     const missing = input.requiredVariables.filter((name)=>!hasValue(input.env[name]));
     if (missing.length > 0) errors.push(issue(`${input.component.toUpperCase()}_REAL_PROVIDER_CONFIG_MISSING`, "Real provider mode requires all provider activation configuration.", missing));
+    if (input.component === "email") {
+      if (hasValue(input.env.EMAIL_PROVIDER_ENDPOINT) && !isHttpsUrl(input.env.EMAIL_PROVIDER_ENDPOINT)) errors.push(issue("EMAIL_PROVIDER_ENDPOINT_HTTPS_REQUIRED", "Real email provider endpoint must use HTTPS before activation.", ["EMAIL_PROVIDER_ENDPOINT"]));
+      if (hasValue(input.env.EMAIL_FROM_ADDRESS) && hasValue(input.env.EMAIL_VERIFIED_SENDER_DOMAIN) && emailDomain(input.env.EMAIL_FROM_ADDRESS) !== normalize(input.env.EMAIL_VERIFIED_SENDER_DOMAIN)) errors.push(issue("EMAIL_VERIFIED_SENDER_DOMAIN_MISMATCH", "EMAIL_FROM_ADDRESS must belong to EMAIL_VERIFIED_SENDER_DOMAIN before activation.", ["EMAIL_FROM_ADDRESS", "EMAIL_VERIFIED_SENDER_DOMAIN"]));
+    }
+    if (input.component === "payment" && hasValue(input.env.PAYMENT_PROVIDER_CHECKOUT_ENDPOINT) && !isHttpsUrl(input.env.PAYMENT_PROVIDER_CHECKOUT_ENDPOINT)) errors.push(issue("PAYMENT_PROVIDER_ENDPOINT_HTTPS_REQUIRED", "Real payment provider checkout endpoint must use HTTPS before activation.", ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT"]));
     if (input.flags.enableProviderDryRun) {
       warnings.push(issue(`${input.component.toUpperCase()}_PROVIDER_DRY_RUN`, "Provider readiness is in dry-run mode; no real provider calls are allowed.", ["ENABLE_PROVIDER_DRY_RUN"]));
     } else {
@@ -190,6 +195,23 @@ function isExplicitFalse(value:string|undefined):boolean {
 
 function hasValue(value:string|undefined):boolean {
   return Boolean(value?.trim());
+}
+
+function normalize(value:string|undefined):string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function isHttpsUrl(value:string|undefined):boolean {
+  try {
+    return new URL(value ?? "").protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function emailDomain(value:string|undefined):string {
+  const normalized = normalize(value);
+  return normalized.includes("@") ? normalized.split("@").at(-1) ?? "" : "";
 }
 
 function isHarnessOptions(input:EnvironmentInput|ProviderActivationSafetyHarnessOptions):input is ProviderActivationSafetyHarnessOptions {

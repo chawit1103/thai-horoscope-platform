@@ -171,6 +171,36 @@ describe("provider activation guardrails", () => {
     assertIssueVariables(payment.errors, "PAYMENT_REAL_PROVIDER_CONFIG_MISSING", ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT", "PAYMENT_WEBHOOK_SECRET"]);
   });
 
+  it("real email readiness rejects plaintext endpoint and sender domain mismatch", () => {
+    const report = validateProviderActivationReadiness({
+      ...fullRealProviderEnv,
+      EMAIL_PROVIDER_ENDPOINT:"http://email-provider.example.test/send",
+      EMAIL_FROM_ADDRESS:"noreply@other.test",
+      ENABLE_REAL_EMAIL_SENDS:"true",
+      REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+    });
+    const email = component(report, "email");
+
+    assert.equal(report.status, "blocked");
+    assert.equal(email.networkCallsAllowed, false);
+    assertIssueVariables(email.errors, "EMAIL_PROVIDER_ENDPOINT_HTTPS_REQUIRED", ["EMAIL_PROVIDER_ENDPOINT"]);
+    assertIssueVariables(email.errors, "EMAIL_VERIFIED_SENDER_DOMAIN_MISMATCH", ["EMAIL_FROM_ADDRESS", "EMAIL_VERIFIED_SENDER_DOMAIN"]);
+  });
+
+  it("real payment readiness rejects plaintext checkout endpoint", () => {
+    const report = validateProviderActivationReadiness({
+      ...fullRealProviderEnv,
+      PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"http://payments.example.test/checkout",
+      ENABLE_REAL_PAYMENT_PROVIDER:"true",
+      REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+    });
+    const payment = component(report, "payment");
+
+    assert.equal(report.status, "blocked");
+    assert.equal(payment.networkCallsAllowed, false);
+    assertIssueVariables(payment.errors, "PAYMENT_PROVIDER_ENDPOINT_HTTPS_REQUIRED", ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT"]);
+  });
+
   it("dry-run mode validates readiness but blocks provider network calls", () => {
     const report = validateProviderActivationReadiness({ ...fullRealProviderEnv, ENABLE_PROVIDER_DRY_RUN:"true" });
 

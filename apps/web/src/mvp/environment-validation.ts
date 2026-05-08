@@ -143,6 +143,8 @@ function validateEmailGateway(env:EnvironmentInput, environment:DeploymentEnviro
   if (mode === "invalid") errors.push(issue("EMAIL_PROVIDER_MODE_INVALID", "EMAIL_PROVIDER_MODE must be sandbox or http.", ["EMAIL_PROVIDER_MODE"]));
   if (mode === "http") {
     requireVars(env, ["EMAIL_FROM_ADDRESS", "EMAIL_PROVIDER_ENDPOINT", "EMAIL_PROVIDER_API_KEY", "EMAIL_WEBHOOK_SECRET", "EMAIL_AUDIT_HASH_SECRET", "EMAIL_VERIFIED_SENDER_DOMAIN"], errors, "EMAIL_REAL_PROVIDER_CONFIG_MISSING", "Real email provider mode requires provider endpoint, API key, webhook secret, sender, verified sender/domain, and audit hash secret.");
+    if (hasValue(env.EMAIL_PROVIDER_ENDPOINT) && !isHttpsUrl(env.EMAIL_PROVIDER_ENDPOINT)) errors.push(issue("EMAIL_PROVIDER_ENDPOINT_HTTPS_REQUIRED", "Real email provider endpoint must use HTTPS before activation.", ["EMAIL_PROVIDER_ENDPOINT"]));
+    if (hasValue(env.EMAIL_FROM_ADDRESS) && hasValue(env.EMAIL_VERIFIED_SENDER_DOMAIN) && emailDomain(env.EMAIL_FROM_ADDRESS) !== normalize(env.EMAIL_VERIFIED_SENDER_DOMAIN ?? "")) errors.push(issue("EMAIL_VERIFIED_SENDER_DOMAIN_MISMATCH", "EMAIL_FROM_ADDRESS must belong to EMAIL_VERIFIED_SENDER_DOMAIN before activation.", ["EMAIL_FROM_ADDRESS", "EMAIL_VERIFIED_SENDER_DOMAIN"]));
     validateProviderActivationFlags(env, environment, errors, warnings, "EMAIL", "ENABLE_REAL_EMAIL_SENDS");
   }
   if (environment === "production" && mode === "sandbox") errors.push(issue("EMAIL_SANDBOX_MODE_PRODUCTION_FORBIDDEN", "Email sandbox mode is not production-ready.", ["EMAIL_PROVIDER_MODE"]));
@@ -174,6 +176,7 @@ function validatePaymentProvider(env:EnvironmentInput, environment:DeploymentEnv
   if (mode === "invalid") errors.push(issue("PAYMENT_PROVIDER_MODE_INVALID", "PAYMENT_PROVIDER_MODE must be mock or http.", ["PAYMENT_PROVIDER_MODE"]));
   if (mode === "http") {
     requireVars(env, ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT", "PAYMENT_PROVIDER_API_KEY", "PAYMENT_WEBHOOK_SECRET"], errors, "PAYMENT_REAL_PROVIDER_CONFIG_MISSING", "Real payment provider mode requires checkout endpoint, API key, and webhook secret.");
+    if (hasValue(env.PAYMENT_PROVIDER_CHECKOUT_ENDPOINT) && !isHttpsUrl(env.PAYMENT_PROVIDER_CHECKOUT_ENDPOINT)) errors.push(issue("PAYMENT_PROVIDER_ENDPOINT_HTTPS_REQUIRED", "Real payment provider checkout endpoint must use HTTPS before activation.", ["PAYMENT_PROVIDER_CHECKOUT_ENDPOINT"]));
     validateProviderActivationFlags(env, environment, errors, warnings, "PAYMENT", "ENABLE_REAL_PAYMENT_PROVIDER");
   }
   if (environment === "production" && mode === "mock") errors.push(issue("PAYMENT_MOCK_MODE_PRODUCTION_FORBIDDEN", "Mock payment provider is not production-ready.", ["PAYMENT_PROVIDER_MODE"]));
@@ -257,4 +260,17 @@ function isTrue(value:string|undefined):boolean {
 
 function isExplicitFalse(value:string|undefined):boolean {
   return normalize(value ?? "") === "false";
+}
+
+function isHttpsUrl(value:string|undefined):boolean {
+  try {
+    return new URL(value ?? "").protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function emailDomain(value:string|undefined):string {
+  const normalized = normalize(value ?? "");
+  return normalized.includes("@") ? normalized.split("@").at(-1) ?? "" : "";
 }

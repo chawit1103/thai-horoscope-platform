@@ -139,6 +139,7 @@ Production Swiss Ephemeris remains no-go unless all of the following are recorde
 [ ] Invalid webhook signature fails closed
 [ ] Duplicate webhook is idempotent
 [ ] Webhook payload cannot override stored checkout user or plan binding
+[ ] Payment incident containment includes webhook route/provider-dashboard disablement or webhook secret rotation; checkout mode alone is not treated as webhook containment
 [ ] Receipt hooks are sandboxed/mocked unless explicitly approved
 [ ] No card data is stored
 ```
@@ -277,7 +278,8 @@ Use [Launch disable switches](LAUNCH_DISABLE_SWITCHES.md) for fast containment b
 ```text
 [ ] Disable real Email sends: `ENABLE_REAL_EMAIL_SENDS=false` and `EMAIL_PROVIDER_MODE=sandbox`
 [ ] Disable real LINE sends: `ENABLE_REAL_LINE_SENDS=false` and `LINE_PROVIDER_MODE=sandbox` or `disabled`
-[ ] Disable real payment provider: `ENABLE_REAL_PAYMENT_PROVIDER=false` and `PAYMENT_PROVIDER_MODE=mock`
+[ ] Disable real payment checkout: `ENABLE_REAL_PAYMENT_PROVIDER=false` and `PAYMENT_PROVIDER_MODE=mock`
+[ ] Disable or block payment webhook ingress, or rotate/remove the payment webhook signing secret, before treating payment mutation as contained
 [ ] Disable scheduler trigger/cron/worker/manual runner; set `NOTIFICATION_SCHEDULER_MODE=disabled` or `dry_run` only as supporting validation/status evidence
 [ ] Switch astro engine to mock/prototype: `ASTRO_ENGINE=mock`, clear ephemeris path/manifest, and set `SWISSEPH_LICENSE_MODE=none`
 [ ] Disable beta enrollment by revoking unredeemed invite codes and allowlist entries; if any active shared invite code has prior redemptions or cannot be proven unredeemed, mark beta no-go until a real global pause or per-user migration exists

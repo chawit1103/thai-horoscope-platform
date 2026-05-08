@@ -48,6 +48,7 @@ Launch tag candidate:
 [ ] Swiss Ephemeris production license decision is documented or production Swiss Ephemeris is disabled
 [ ] No real payment is enabled unless explicitly approved
 [ ] Payment webhook signature validation and idempotency are validated in mock/staging-safe mode
+[ ] Payment rollback includes both checkout disablement and webhook ingress/secret containment
 [ ] Notification duplicate-send prevention and suppression are validated
 [ ] Scheduler trigger/cron/worker disablement is documented; `NOTIFICATION_SCHEDULER_MODE` alone is not treated as a kill switch
 [ ] Privacy export/delete/deactivation flows are working
@@ -62,6 +63,7 @@ Launch tag candidate:
 ```text
 [ ] Real provider activation guardrails are missing and real provider mode is requested
 [ ] Payment webhook signature validation is incomplete
+[ ] Payment rollback only disables checkout/provider mode but leaves signed provider webhook retries able to mutate state
 [ ] Notification duplicate-send risk is unresolved
 [ ] Scheduler rollback relies only on `NOTIFICATION_SCHEDULER_MODE` without stopping the actual trigger, cron job, worker, or manual runner
 [ ] Privacy delete/export flow is broken

@@ -42,7 +42,8 @@ Decision:
 
 ```text
 [ ] Set PAYMENT_PROVIDER_MODE=mock or disable checkout entry points according to approved controls
-[ ] Pause or disable provider webhook processing if duplicate or unsafe processing is suspected
+[ ] Pause or disable provider webhook processing at the provider dashboard, edge gateway, deployment route, or equivalent ingress control if duplicate or unsafe processing is suspected
+[ ] Rotate or remove the payment webhook signing secret if signed retries may still reach the app
 [ ] Preserve webhook idempotency and audit records
 [ ] Do not mark users paid manually unless an approved human support procedure requires it
 [ ] Document affected provider event references using sanitized IDs only

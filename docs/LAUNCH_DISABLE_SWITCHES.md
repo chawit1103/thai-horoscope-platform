@@ -62,10 +62,21 @@ PAYMENT_PROVIDER_MODE=mock
 ENABLE_PROVIDER_DRY_RUN=true
 ```
 
+Incoming webhook containment:
+
+```text
+[ ] Disable or block the payment webhook route at the deployment platform, edge gateway, or provider dashboard.
+[ ] Rotate or remove the payment webhook signing secret if signed retries may still reach the app.
+[ ] Preserve webhook event IDs and idempotency evidence before changing provider dashboard settings.
+```
+
+Important limitation: the payment provider switches above stop new real checkout creation, but they do not by themselves stop already-configured provider webhook retries from reaching the webhook route. For payment incidents, contain checkout and webhook ingress separately.
+
 Verify:
 
 ```text
 [ ] Checkout creation does not call a real payment provider
+[ ] Provider webhook retries cannot reach a mutating app route, or the webhook secret rotation makes them fail closed
 [ ] Client-side success cannot activate entitlement
 [ ] Webhook handling remains signature-verified in any staging/test mode
 [ ] Receipt hooks remain sandboxed/mocked

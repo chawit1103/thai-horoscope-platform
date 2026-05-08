@@ -88,7 +88,7 @@ describe("chart preview", () => {
     assert.equal(model.metadata.astronomical_ascendant_deg, 358.08990736);
     assert.equal(model.metadata.thai_lagna_deg, 349.59979108);
     assert.notEqual(model.angles.ascendant_deg, model.angles.lagna_deg);
-    assert.equal(rawChart.houses.ascendant_deg, model.metadata.thai_lagna_deg);
+    assert.equal(rawChart.houses.ascendant_deg, model.metadata.astronomical_ascendant_deg);
     assert.equal(rawChart.houses.lagna_deg, model.metadata.thai_lagna_deg);
     assert.equal(rawChart.angles.ascendant_deg, model.metadata.astronomical_ascendant_deg);
     assert.equal(rawChart.angles.lagna_deg, model.metadata.thai_lagna_deg);

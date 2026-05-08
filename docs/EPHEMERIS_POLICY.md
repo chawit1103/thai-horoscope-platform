@@ -181,6 +181,16 @@ ASTRO_EPHEMERIS_PATH=/mounted/ephemeris/path
 SWISSEPH_LICENSE_MODE=free|professional
 ```
 
+Local or staging validation may use Swiss Ephemeris built-in Moshier calculations without mounted ephemeris files:
+
+```text
+ASTRO_ENGINE=swisseph
+ASTRO_ALLOW_MOSHIER_EPHEMERIS=true
+SWISSEPH_LICENSE_MODE=free|professional
+```
+
+Moshier validation mode is only for non-production accuracy checks. It does not approve production Swiss Ephemeris use, does not permit runtime ephemeris downloads, and does not replace the pinned ephemeris manifest requirement for production.
+
 Production requires:
 
 ```text
@@ -191,7 +201,7 @@ ASTRO_EPHEMERIS_MANIFEST_PATH=/mounted/ephemeris/ephemeris-manifest.json
 ASTRO_REQUIRE_PINNED_EPHEMERIS=true
 ```
 
-If any production requirement is missing, the adapter fails closed before calculation. Free/license-unclear modes are local/test only and still require an explicit ephemeris path. Ephemeris files must be pinned, fingerprinted, manifest-verified, and provided by deployment artifact or mounted storage; the service must not download ephemeris files at runtime.
+If any production requirement is missing, the adapter fails closed before calculation. Free/license-unclear modes are local/test only and require either an explicit ephemeris path or Moshier validation mode. Ephemeris files must be pinned, fingerprinted, manifest-verified, and provided by deployment artifact or mounted storage; the service must not download ephemeris files at runtime.
 
 ## Calculation profile versioning
 

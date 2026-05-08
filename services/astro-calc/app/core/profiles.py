@@ -80,6 +80,50 @@ PROFILES: dict[str, CalculationProfile] = {
         ],
         aspect_orbs_deg={"conjunction": 8, "opposition": 8, "trine": 6, "square": 6, "sextile": 4},
     ),
+    "TH_NIRAYANA_LAHIRI_MEAN_NODE_SWISSEPH_V1": CalculationProfile(
+        code="TH_NIRAYANA_LAHIRI_MEAN_NODE_SWISSEPH_V1",
+        zodiac_type="sidereal",
+        ayanamsha="lahiri",
+        house_system="whole_sign",
+        node_type="mean_node",
+        planets=[
+            "sun",
+            "moon",
+            "mercury",
+            "venus",
+            "mars",
+            "jupiter",
+            "saturn",
+            "uranus",
+            "neptune",
+            "pluto",
+            "rahu",
+            "ketu",
+        ],
+        aspect_orbs_deg={"conjunction": 8, "opposition": 8, "trine": 6, "square": 6, "sextile": 4},
+    ),
+    "TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1": CalculationProfile(
+        code="TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1",
+        zodiac_type="sidereal",
+        ayanamsha="lahiri",
+        house_system="whole_sign",
+        node_type="mean_node",
+        planets=[
+            "sun",
+            "moon",
+            "mercury",
+            "venus",
+            "mars",
+            "jupiter",
+            "saturn",
+            "uranus",
+            "neptune",
+            "pluto",
+            "rahu",
+            "ketu",
+        ],
+        aspect_orbs_deg={"conjunction": 8, "opposition": 8, "trine": 6, "square": 6, "sextile": 4},
+    ),
 }
 
 
@@ -92,8 +136,26 @@ def get_profile(code: str) -> CalculationProfile:
 
 PROFILE_ENGINE_COMPATIBILITY: dict[str, set[str]] = {
     "TH_NIRAYANA_SWISSEPH_V1": {"swisseph"},
+    "TH_NIRAYANA_LAHIRI_MEAN_NODE_SWISSEPH_V1": {"swisseph"},
+    "TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1": {"swisseph"},
     "TH_NIRAYANA_MOCK_V1": {"mock"},
 }
+
+PROFILE_LAGNA_METHODS: dict[str, str] = {
+    "TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1": "thai_antonathi_saman_local_time_sunrise",
+}
+
+PROFILE_THAI_KETU_METHODS: dict[str, str] = {
+    "TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1": "thai_ketu_9_unsupported",
+}
+
+
+def lagna_method_for_profile(code: str) -> str:
+    return PROFILE_LAGNA_METHODS.get(code, "astronomical_ascendant")
+
+
+def thai_ketu_method_for_profile(code: str) -> str:
+    return PROFILE_THAI_KETU_METHODS.get(code, "not_enabled")
 
 
 def validate_profile_engine_compatibility(profile: CalculationProfile, engine_name: str) -> None:

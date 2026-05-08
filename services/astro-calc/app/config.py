@@ -19,6 +19,7 @@ class AstroRuntimeConfig:
     ephemeris_path: str | None = None
     ephemeris_manifest_path: str | None = None
     require_pinned_ephemeris: bool = False
+    allow_moshier_ephemeris: bool = False
     calculation_profile: str = "TH_NIRAYANA_V1"
     default_ayanamsha: str = "lahiri"
     swisseph_license_mode: str = "none"
@@ -33,6 +34,7 @@ class AstroRuntimeConfig:
             ephemeris_path=(os.getenv("ASTRO_EPHEMERIS_PATH") or "").strip() or None,
             ephemeris_manifest_path=(os.getenv("ASTRO_EPHEMERIS_MANIFEST_PATH") or "").strip() or None,
             require_pinned_ephemeris=os.getenv("ASTRO_REQUIRE_PINNED_EPHEMERIS", "false").lower() == "true",
+            allow_moshier_ephemeris=os.getenv("ASTRO_ALLOW_MOSHIER_EPHEMERIS", "false").lower() == "true",
             calculation_profile=os.getenv("ASTRO_CALCULATION_PROFILE", "TH_NIRAYANA_V1").strip()
             or "TH_NIRAYANA_V1",
             default_ayanamsha=os.getenv("ASTRO_DEFAULT_AYANAMSA", "lahiri").strip() or "lahiri",
@@ -63,7 +65,7 @@ class AstroRuntimeConfig:
         if self.engine == "swisseph" and self.runtime_env != "production":
             if self.swisseph_license_mode == "none":
                 raise PermissionError("LICENSE_MODE_NOT_PRODUCTION_READY: Swiss Ephemeris local/test use requires an explicit license mode.")
-            if not self.ephemeris_path:
+            if not self.ephemeris_path and not self.allow_moshier_ephemeris:
                 raise PermissionError("EPHEMERIS_FILE_MISSING: Swiss Ephemeris use requires ASTRO_EPHEMERIS_PATH; runtime downloads are disabled.")
 
 

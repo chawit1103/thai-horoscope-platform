@@ -159,7 +159,10 @@ Astro:
 ASTRO_ENGINE=mock|swisseph
 SWISSEPH_LICENSE_MODE=none|free|professional
 ASTRO_EPHEMERIS_PATH=
+ASTRO_ALLOW_MOSHIER_EPHEMERIS=false
 ```
+
+For local or staging calculation validation only, `ASTRO_ALLOW_MOSHIER_EPHEMERIS=true` permits the Swiss Ephemeris built-in Moshier calculation path without mounted ephemeris files. This is not a production activation path.
 
 Swiss Ephemeris production requires:
 

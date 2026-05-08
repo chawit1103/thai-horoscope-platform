@@ -206,8 +206,14 @@ function validateAstroCalc(env:EnvironmentInput, environment:DeploymentEnvironme
     if (!["none", "free", "professional"].includes(license)) errors.push(issue("SWISSEPH_LICENSE_MODE_INVALID", "SWISSEPH_LICENSE_MODE must be none, free, or professional.", ["SWISSEPH_LICENSE_MODE"]));
     if (environment === "production" && license !== "professional") errors.push(issue("SWISSEPH_PROFESSIONAL_LICENSE_REQUIRED", "Swiss Ephemeris production mode requires professional license mode.", ["SWISSEPH_LICENSE_MODE"]));
     if (environment !== "production" && license === "none") errors.push(issue("SWISSEPH_EXPLICIT_LICENSE_REQUIRED", "Swiss Ephemeris mode requires an explicit non-none license mode.", ["SWISSEPH_LICENSE_MODE"]));
-    requireVars(env, ["ASTRO_EPHEMERIS_PATH"], errors, "SWISSEPH_EPHEMERIS_PATH_REQUIRED", "Swiss Ephemeris mode requires an ephemeris path; runtime downloads are disabled.");
+    const allowMoshier = isTrue(env.ASTRO_ALLOW_MOSHIER_EPHEMERIS);
+    if (environment === "production" || !allowMoshier) {
+      requireVars(env, ["ASTRO_EPHEMERIS_PATH"], errors, "SWISSEPH_EPHEMERIS_PATH_REQUIRED", "Swiss Ephemeris mode requires an ephemeris path; runtime downloads are disabled.");
+    } else {
+      warnings.push(issue("SWISSEPH_MOSHIER_LOCAL_VALIDATION", "Swiss Ephemeris Moshier mode is allowed only for local/staging validation without ephemeris files.", ["ASTRO_ALLOW_MOSHIER_EPHEMERIS"]));
+    }
     if (environment === "production") {
+      if (allowMoshier) errors.push(issue("SWISSEPH_MOSHIER_PRODUCTION_FORBIDDEN", "Production Swiss Ephemeris mode requires pinned ephemeris files, not Moshier validation mode.", ["ASTRO_ALLOW_MOSHIER_EPHEMERIS"]));
       if (!isTrue(env.ASTRO_REQUIRE_PINNED_EPHEMERIS)) errors.push(issue("SWISSEPH_EPHEMERIS_PINNING_REQUIRED", "Swiss Ephemeris production mode requires pinned ephemeris validation.", ["ASTRO_REQUIRE_PINNED_EPHEMERIS"]));
       requireVars(env, ["ASTRO_EPHEMERIS_MANIFEST_PATH"], errors, "SWISSEPH_EPHEMERIS_MANIFEST_REQUIRED", "Swiss Ephemeris production mode requires an approved ephemeris manifest.");
     } else if (isTrue(env.ASTRO_REQUIRE_PINNED_EPHEMERIS)) {

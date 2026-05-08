@@ -15,6 +15,7 @@ from app.core.aspects import calculate_cross_aspects, calculate_transit_to_natal
 from app.core.calculators import AstroCoreService
 from app.core.math import normalize_deg, sign_index
 from app.core.time import local_to_utc, utc_to_iso
+from app.core.zodiac import degree_in_sign, sign_name_th
 from app.engines.mock import MockAstroEngine
 from app.engines.swisseph import SwissEphemerisEngine, build_ephemeris_file_manifest, fingerprint_ephemeris_path
 from app.main import create_service, health
@@ -105,6 +106,7 @@ class AstroCoreTests(unittest.TestCase):
 
     def test_timezone_conversion_bangkok_and_dst(self) -> None:
         self.assertEqual(utc_to_iso(local_to_utc("1990-05-12T08:30:00", "Asia/Bangkok")), "1990-05-12T01:30:00Z")
+        self.assertEqual(utc_to_iso(local_to_utc("1971-03-11T08:17:00", "Asia/Bangkok")), "1971-03-11T01:17:00Z")
         self.assertEqual(utc_to_iso(local_to_utc("2026-07-01T08:30:00", "America/New_York")), "2026-07-01T12:30:00Z")
         self.assertEqual(utc_to_iso(local_to_utc("2026-01-01T08:30:00", "America/New_York")), "2026-01-01T13:30:00Z")
         raw_timezone = "Not/AZone"
@@ -469,6 +471,66 @@ class AstroCoreTests(unittest.TestCase):
         self.assertIn("UNKNOWN_BIRTH_TIME", warning_codes)
         self.assertIn("UNKNOWN_BIRTH_TIME_USED_NOON_FALLBACK", warning_codes)
 
+    def test_bangkok_1971_local_birth_time_is_converted_to_utc_for_chart_snapshot(self) -> None:
+        snapshot = AstroCoreService().calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_V1",
+                datetime_local="1971-03-11T08:17:00",
+                timezone="Asia/Bangkok",
+                latitude=13.7563,
+                longitude=100.5018,
+                elevation_m=0,
+                time_accuracy_minutes=1,
+            )
+        )
+
+        self.assertEqual(snapshot.datetime_local, "1971-03-11T08:17:00")
+        self.assertEqual(snapshot.datetime_utc, "1971-03-11T01:17:00Z")
+        self.assertEqual(snapshot.datetime.local, "1971-03-11T08:17:00+07:00")
+        self.assertEqual(snapshot.datetime.utc, "1971-03-11T01:17:00Z")
+        self.assertEqual(snapshot.datetime.timezone, "Asia/Bangkok")
+        self.assertEqual(snapshot.datetime.julian_day_ut, snapshot.julian_day_ut)
+
+    def test_bangkok_1971_chart_uses_utc_instant_not_raw_local_clock_as_utc(self) -> None:
+        service = AstroCoreService()
+        bangkok_local = service.calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_V1",
+                datetime_local="1971-03-11T08:17:00",
+                timezone="Asia/Bangkok",
+                latitude=13.7563,
+                longitude=100.5018,
+            )
+        )
+        equivalent_utc = service.calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_V1",
+                datetime_local="1971-03-11T01:17:00",
+                timezone="UTC",
+                latitude=13.7563,
+                longitude=100.5018,
+            )
+        )
+        wrong_raw_local_as_utc = service.calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_NIRAYANA_V1",
+                datetime_local="1971-03-11T08:17:00",
+                timezone="UTC",
+                latitude=13.7563,
+                longitude=100.5018,
+            )
+        )
+
+        self.assertEqual(bangkok_local.datetime_utc, "1971-03-11T01:17:00Z")
+        self.assertEqual(bangkok_local.julian_day_ut, equivalent_utc.julian_day_ut)
+        self.assertEqual(bangkok_local.planets["moon"].sidereal_longitude_deg, equivalent_utc.planets["moon"].sidereal_longitude_deg)
+        self.assertEqual(bangkok_local.houses.ascendant_deg, equivalent_utc.houses.ascendant_deg)
+        self.assertEqual(bangkok_local.houses.cusps_deg, equivalent_utc.houses.cusps_deg)
+        self.assertNotEqual(bangkok_local.calculation_hash, wrong_raw_local_as_utc.calculation_hash)
+        self.assertNotEqual(bangkok_local.julian_day_ut, wrong_raw_local_as_utc.julian_day_ut)
+        self.assertNotEqual(bangkok_local.planets["moon"].sidereal_longitude_deg, wrong_raw_local_as_utc.planets["moon"].sidereal_longitude_deg)
+        self.assertNotEqual(bangkok_local.houses.ascendant_deg, wrong_raw_local_as_utc.houses.ascendant_deg)
+
     def test_unknown_birth_time_ignores_any_supplied_clock_time_and_hash_is_stable(self) -> None:
         service = AstroCoreService()
         early = service.calculate_natal_chart(replace(bangkok_request(birth_time_unknown=True), datetime_local="1990-05-12T04:15:00"))
@@ -617,6 +679,27 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(snapshot.planets["rahu"].retrograde, True)
         self.assertAlmostEqual((snapshot.planets["rahu"].sidereal_longitude_deg + 180) % 360, snapshot.planets["ketu"].sidereal_longitude_deg, places=6)
         self.assertAlmostEqual((snapshot.planets["rahu"].tropical_longitude_deg + 180) % 360, snapshot.planets["ketu"].tropical_longitude_deg, places=6)
+
+    def test_canonical_thai_zodiac_longitude_boundaries(self) -> None:
+        cases = [
+            (0, 0, "เมษ", 0),
+            (29.999, 0, "เมษ", 29.999),
+            (30, 1, "พฤษภ", 0),
+            (59.999, 1, "พฤษภ", 29.999),
+            (90, 3, "กรกฎ", 0),
+            (120, 4, "สิงห์", 0),
+            (180, 6, "ตุล", 0),
+            (240, 8, "ธนู", 0),
+            (270, 9, "มกร", 0),
+            (300, 10, "กุมภ์", 0),
+            (330, 11, "มีน", 0),
+            (359.999, 11, "มีน", 29.999),
+        ]
+        for longitude, expected_index, expected_sign, expected_degree in cases:
+            with self.subTest(longitude=longitude):
+                self.assertEqual(sign_index(longitude), expected_index)
+                self.assertEqual(sign_name_th(longitude), expected_sign)
+                self.assertEqual(degree_in_sign(longitude), expected_degree)
 
     def test_transit_to_natal_comparison_is_deterministic(self) -> None:
         service = AstroCoreService()
@@ -1776,7 +1859,7 @@ class AstroCoreTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "ok")
         self.assertTrue(fake_swe.sid_mode_set)
-        self.assertEqual(fake_swe.calc_body_ids, [FakeSwe.SUN, FakeSwe.SUN, FakeSwe.MOON, FakeSwe.MOON])
+        self.assertEqual(fake_swe.calc_body_ids, [FakeSwe.SUN, FakeSwe.MOON])
         self.assertTrue(fake_swe.houses_called)
 
     def test_health_runs_pinned_staging_swisseph_adapter_probe(self) -> None:
@@ -2255,9 +2338,9 @@ class AstroCoreTests(unittest.TestCase):
             engine = SwissEphemerisEngine(config, swe_module=fake)
             positions = engine.planet_positions(2451545.0, ["sun", "rahu", "ketu"], "lahiri")
             houses = engine.houses(2451545.0, 13.7563, 100.5018, "whole_sign", True)
-            self.assertEqual(fake.ephe_path, temp_dir)
+        self.assertEqual(fake.ephe_path, temp_dir)
         self.assertEqual(fake.sid_mode_set, True)
-        self.assertEqual(positions["sun"].sign_index, 0)
+        self.assertEqual(positions["sun"].sign_index, 11)
         self.assertAlmostEqual((positions["rahu"].longitude_deg + 180) % 360, positions["ketu"].longitude_deg, places=6)
         self.assertEqual(len(houses.cusps_deg), 12)
 

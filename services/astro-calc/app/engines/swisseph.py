@@ -42,14 +42,25 @@ class SwissEphemerisEngine(AstroEngine):
     def __init__(self, config: AstroRuntimeConfig, swe_module: Any | None = None) -> None:
         config.validate()
         self._config = config
-        self.ephemeris_fingerprint = fingerprint_ephemeris_path(
-            config.ephemeris_path,
-            manifest_path=config.ephemeris_manifest_path,
-            require_pinned=config.require_pinned_ephemeris,
-            active_profile=config.calculation_profile,
-        )
         self._swe = swe_module or importlib.import_module("swisseph")
-        self._swe.set_ephe_path(config.ephemeris_path)
+        if config.ephemeris_path:
+            self.ephemeris_source = "swiss-ephemeris"
+            self.ephemeris_fingerprint = fingerprint_ephemeris_path(
+                config.ephemeris_path,
+                manifest_path=config.ephemeris_manifest_path,
+                require_pinned=config.require_pinned_ephemeris,
+                active_profile=config.calculation_profile,
+            )
+            self._planet_flags = self._swe.FLG_SWIEPH | self._swe.FLG_SPEED
+            self._sidereal_flags = self._swe.FLG_SWIEPH | self._swe.FLG_SIDEREAL | self._swe.FLG_SPEED
+            self._required_ephemeris_flag = self._swe.FLG_SWIEPH
+            self._swe.set_ephe_path(config.ephemeris_path)
+        else:
+            self.ephemeris_source = "swiss-ephemeris-moshier"
+            self.ephemeris_fingerprint = "swisseph-moshier-built-in"
+            self._planet_flags = self._swe.FLG_MOSEPH | self._swe.FLG_SPEED
+            self._sidereal_flags = self._swe.FLG_MOSEPH | self._swe.FLG_SIDEREAL | self._swe.FLG_SPEED
+            self._required_ephemeris_flag = self._swe.FLG_MOSEPH
         self._set_ayanamsha(config.default_ayanamsha)
 
     def ayanamsha_deg(self, jd_ut: float, ayanamsha: str) -> float:
@@ -60,8 +71,6 @@ class SwissEphemerisEngine(AstroEngine):
         self, jd_ut: float, planet_names: list[str], ayanamsha: str, node_type: str = "true_node"
     ) -> dict[str, PlanetPosition]:
         self._set_ayanamsha(ayanamsha)
-        tropical_flags = self._swe.FLG_SWIEPH | self._swe.FLG_SPEED
-        sidereal_flags = self._swe.FLG_SWIEPH | self._swe.FLG_SIDEREAL | self._swe.FLG_SPEED
         ayanamsha_deg = self.ayanamsha_deg(jd_ut, ayanamsha)
         positions: dict[str, PlanetPosition] = {}
         for name in planet_names:
@@ -87,20 +96,18 @@ class SwissEphemerisEngine(AstroEngine):
                 )
                 continue
             body_id = self._body_id(name, node_type)
-            tropical_raw, tropical_return_flag = self._swe.calc_ut(jd_ut, body_id, tropical_flags)
-            sidereal_raw, sidereal_return_flag = self._swe.calc_ut(jd_ut, body_id, sidereal_flags)
-            self._require_swisseph_flag(tropical_return_flag)
-            self._require_swisseph_flag(sidereal_return_flag)
+            tropical_raw, tropical_return_flag = self._swe.calc_ut(jd_ut, body_id, self._planet_flags)
+            self._require_ephemeris_flag(tropical_return_flag)
             tropical = normalize_deg(float(tropical_raw[0]))
-            sidereal = normalize_deg(float(sidereal_raw[0]))
-            speed = float(sidereal_raw[3])
+            sidereal = normalize_deg(tropical - ayanamsha_deg)
+            speed = float(tropical_raw[3])
             positions[name] = PlanetPosition(
                 tropical_longitude_deg=tropical,
                 ayanamsa_deg=ayanamsha_deg,
                 sidereal_longitude_deg=sidereal,
-                ecliptic_latitude_deg=round(float(sidereal_raw[1]), 8),
+                ecliptic_latitude_deg=round(float(tropical_raw[1]), 8),
                 longitude_deg=sidereal,
-                latitude_deg=round(float(sidereal_raw[1]), 8),
+                latitude_deg=round(float(tropical_raw[1]), 8),
                 speed_longitude_deg_per_day=round(speed, 8),
                 sign_index=sign_index(sidereal),
                 sign_name_en=sign_name_en(sidereal),
@@ -136,9 +143,9 @@ class SwissEphemerisEngine(AstroEngine):
             raise ValueError(f"Unsupported Swiss Ephemeris ayanamsha: {ayanamsha}")
         self._swe.set_sid_mode(self._swe.SIDM_LAHIRI, 0, 0)
 
-    def _require_swisseph_flag(self, return_flag: int) -> None:
-        if int(return_flag) & int(self._swe.FLG_SWIEPH) != int(self._swe.FLG_SWIEPH):
-            raise ValueError("SWISSEPH_FALLBACK_FORBIDDEN: Swiss Ephemeris calculation did not use pinned ephemeris files.")
+    def _require_ephemeris_flag(self, return_flag: int) -> None:
+        if int(return_flag) & int(self._required_ephemeris_flag) != int(self._required_ephemeris_flag):
+            raise ValueError("SWISSEPH_FALLBACK_FORBIDDEN: Swiss Ephemeris calculation did not use the configured ephemeris mode.")
 
 
 def fingerprint_ephemeris_path(

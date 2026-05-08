@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { enrollBetaUserAction } from "../actions";
-import { buildBetaLaunchView, getBetaLaunchCopy } from "../../src/mvp/beta-launch";
+import { buildBetaLaunchView, ensureLocalMockBetaInvite, getBetaLaunchCopy, getLocalMockBetaInviteCode } from "../../src/mvp/beta-launch";
+import { readDeploymentEnvironment } from "../../src/mvp/environment-validation";
 import { getMockMvpState } from "../../src/mvp/mock-flow";
 import { getOptionalMockSession } from "../user-session";
 
 export default async function BetaPage() {
+  const deploymentEnvironment = readDeploymentEnvironment();
+  const localDemoInviteCode = getLocalMockBetaInviteCode({ deploymentEnvironment });
+  ensureLocalMockBetaInvite({ deploymentEnvironment });
   const session = await getOptionalMockSession();
   const state = getMockMvpState(session?.sessionId);
   const view = buildBetaLaunchView({ state, sessionId:session?.sessionId, userId:session?.userId });
@@ -25,9 +29,12 @@ export default async function BetaPage() {
       </section>
       {!view.allowed ? (
         <form className="form-panel" action={enrollBetaUserAction}>
+          {localDemoInviteCode ? (
+            <p className="muted">Local/mock demo invite code: <strong>{localDemoInviteCode}</strong></p>
+          ) : null}
           <label>
             Invite code
-            <input name="inviteCode" autoComplete="off" />
+            <input name="inviteCode" autoComplete="off" defaultValue={localDemoInviteCode ?? ""} />
           </label>
           <button type="submit">เข้าร่วม beta</button>
         </form>

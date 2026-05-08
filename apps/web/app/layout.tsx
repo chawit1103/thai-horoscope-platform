@@ -23,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/yearly">ปี</Link>
             <Link href="/subscribe">แพ็กเกจ</Link>
             <Link href="/beta">Beta</Link>
+            <Link href="/chart-preview">Chart</Link>
             <Link href="/account">บัญชี</Link>
             <Link href="/settings/notifications">ตั้งค่า</Link>
           </nav>

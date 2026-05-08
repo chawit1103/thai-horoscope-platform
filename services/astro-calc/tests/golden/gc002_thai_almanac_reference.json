@@ -1,0 +1,19 @@
+{
+  "case_id": "GC-002-THAI-ALMANAC-1971-BANGKOK",
+  "calculation_profile_code": "TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1",
+  "datetime_local": "1971-03-11T08:17:00",
+  "datetime_utc": "1971-03-11T01:17:00Z",
+  "timezone": "Asia/Bangkok",
+  "latitude": 13.759,
+  "longitude": 100.535,
+  "ayanamsa_code": "LAHIRI",
+  "node_type": "mean_node",
+  "lagna_method": "thai_antonathi_saman_local_time_sunrise",
+  "expected": {
+    "thai_lagna_deg": 349.6,
+    "mc_deg": 262.99333333,
+    "rahu_deg": 298.84611111,
+    "thai_ketu_9_deg": 176.38333333
+  },
+  "thai_ketu_9_status": "fixture_only_formula_unsupported"
+}

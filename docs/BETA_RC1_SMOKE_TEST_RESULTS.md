@@ -73,7 +73,7 @@ Stop and mark no-go if any preflight item fails.
 | RC1-16 | Monitoring redaction | Logs, alerts, health, audit notes, and support notes omit raw PII and secrets | pending |  |
 | RC1-17 | Provider flags | Real Email, LINE, and Payment remain disabled unless explicitly approved | pending |  |
 | RC1-18 | Astro guardrails | Production Swiss Ephemeris remains disabled unless license/path/manifest are approved | pending |  |
-| RC1-19 | Rollback rehearsal | Disable switches, rollback owner, rollback target, and support wording are recorded | pending |  |
+| RC1-19 | Rollback rehearsal | Disable switches, payment webhook ingress containment, rollback owner, rollback target, and support wording are recorded | pending |  |
 | RC1-20 | Beta enrollment | Enrollment/invite scope is limited to approved beta users or marked no-go | pending |  |
 
 ## Smoke no-go conditions
@@ -102,4 +102,3 @@ Follow-up issues:
 Tester:
 Timestamp:
 ```
-

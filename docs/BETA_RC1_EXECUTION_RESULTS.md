@@ -128,6 +128,7 @@ Timestamp:
 | Disable real Email sends or keep sandboxed |  | pending |  |
 | Disable real LINE sends or keep sandboxed |  | pending |  |
 | Disable payment provider or keep mock |  | pending |  |
+| Block payment webhook ingress or rotate/remove webhook signing secret if signed retries may still reach the app |  | pending |  |
 | Disable scheduler trigger/cron/worker/manual runner |  | pending |  |
 | Set scheduler mode to disabled or dry_run for status evidence |  | pending |  |
 | Switch astro engine to mock/prototype for non-production validation |  | pending |  |
@@ -145,4 +146,3 @@ Human decisions still needed:
 Rollback owner:
 Support owner:
 ```
-

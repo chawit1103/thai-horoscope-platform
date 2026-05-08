@@ -132,6 +132,7 @@ Beta audience accepted:
 [ ] Disable real Email sends or keep sandboxed
 [ ] Disable real LINE sends or keep sandboxed
 [ ] Disable payment provider or keep mock
+[ ] Block payment webhook ingress at the provider dashboard, edge gateway, deployment route, or rotate/remove the webhook signing secret if signed retries may still reach the app
 [ ] Disable scheduler trigger/cron/worker/manual runner
 [ ] Set NOTIFICATION_SCHEDULER_MODE=disabled or dry_run for status evidence
 [ ] Switch ASTRO_ENGINE=mock/prototype for non-production validation rollback
@@ -157,4 +158,3 @@ Blockers:
 Signed by:
 Timestamp:
 ```
-

@@ -22,8 +22,12 @@ Runtime ephemeris downloads: prohibited
 
 - [Beta release candidate](BETA_RELEASE_CANDIDATE.md)
 - [E2E beta smoke test matrix](E2E_BETA_SMOKE_TEST_MATRIX.md)
+- [Beta release notes](BETA_RELEASE_NOTES.md)
 - [Beta release notes template](BETA_RELEASE_NOTES_TEMPLATE.md)
 - [Final go/no-go checklist](FINAL_GO_NO_GO_CHECKLIST.md)
+- [Post-launch monitoring checklist](POST_LAUNCH_MONITORING_CHECKLIST.md)
+- [Beta support and feedback](BETA_SUPPORT_AND_FEEDBACK.md)
+- [Launch disable switches](LAUNCH_DISABLE_SWITCHES.md)
 - [Beta launch plan](BETA_LAUNCH_PLAN.md)
 - [Beta smoke tests](BETA_SMOKE_TESTS.md)
 - [Go/no-go criteria](GO_NO_GO_CRITERIA.md)
@@ -88,7 +92,8 @@ Runtime ephemeris downloads: prohibited
 [ ] Email gateway supports sandbox mode and configured HTTP mode
 [ ] LINE gateway supports sandbox mode, configured HTTP mode, and disabled mode where allowed
 [ ] Real Email and LINE sends require explicit ENABLE_REAL_* flags and human approval gate configuration
-[ ] Notification scheduler supports disabled, dry_run, and enabled modes
+[ ] Notification scheduler environment validation reports disabled, dry_run, and enabled modes
+[ ] Scheduler containment procedure disables the actual trigger, cron job, worker, or manual runner; `NOTIFICATION_SCHEDULER_MODE` alone is not treated as an execution kill switch
 [ ] Enabled scheduler requires an internal scheduler token outside local development
 [ ] Duplicate-send prevention is keyed by user/topic/period
 [ ] Quiet hours and timezone behavior are documented and tested for the intended beta scope
@@ -168,8 +173,12 @@ Runtime ephemeris downloads: prohibited
 [ ] Staging health is ok or warnings are explicitly accepted for beta
 [ ] Manual beta smoke tests pass
 [ ] Final go/no-go checklist is signed by the human owner
+[ ] Codex review reports no major issues or only accepted non-blocking findings
 [ ] Known limitations are accepted and visible to operators/support
 [ ] Rollback target and owner are recorded
+[ ] Disable switches for Email, LINE, payment, scheduler, and astro are documented
+[ ] Beta enrollment pause procedure is documented as unredeemed invite/allowlist revocation, with no-go status for active shared invite codes that have prior redemptions or unknown redemption history
+[ ] Post-launch monitoring owner and watch window are recorded
 [ ] Beta communication and support process are ready
 [ ] PR29 real provider activation guardrails are merged or marked as a pending dependency
 [ ] PR31 beta invite/content management is merged or marked as a pending dependency
@@ -189,6 +198,10 @@ Runtime ephemeris downloads: prohibited
 [ ] Rollback owner or rollback target is unknown
 [ ] PR29 is pending but real provider activation is described as ready
 [ ] PR31 is pending but beta invite/enrollment readiness is described as ready
+[ ] Launch tag is prepared before required checks, review, or human approval are complete
+[ ] Disable switches or rollback owner are missing
+[ ] Beta enrollment is marked quickly pausable while active invite codes or allowlist entries remain unrevoked
+[ ] Active shared invite codes with prior redemptions are treated as safely pausable without a global pause or per-user migration path
 ```
 
 ## Proof commands

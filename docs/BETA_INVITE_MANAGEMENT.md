@@ -88,6 +88,32 @@ before mutating invite state.
 Admin audit metadata records sanitized invite kind and status only. It does not
 record raw invite codes or raw email addresses.
 
+## Pause beta enrollment
+
+This release does not include a global beta-enrollment pause flag. To pause new
+enrollment with the current implementation, an operator must:
+
+1. Stop creating new invite codes.
+2. Revoke every unredeemed shared invite code.
+3. Revoke or remove every allowlisted email or mock user entry that can still
+   enroll.
+4. Confirm launch/support communications no longer expose an active invite code.
+5. Verify a previously valid but revoked invite code is rejected with a
+   sanitized error.
+6. Keep already enrolled users governed by normal entitlement, deletion,
+   deactivation, unsubscribe, and privacy controls.
+
+Shared invite-code caveat: an active shared invite code that has already been
+redeemed cannot be used as a safe pause switch in this release. Revoking the
+shared code can remove existing linked users' beta access, while leaving it
+active can allow new enrollments from anyone with the code. If any active shared
+invite code has prior redemptions, or if operators cannot prove that it has no
+prior redemptions, beta launch is no-go until a separate PR adds a real global
+enrollment pause or a per-user migration path.
+
+If operators require a one-step global pause switch, the beta launch is no-go
+until that switch is implemented and tested in a separate PR.
+
 ## Safety boundaries
 
 - Valid invite code can enroll a mock beta user.

@@ -64,8 +64,12 @@ Date:
 
 - [Beta release candidate](BETA_RELEASE_CANDIDATE.md)
 - [E2E beta smoke test matrix](E2E_BETA_SMOKE_TEST_MATRIX.md)
+- [Beta release notes](BETA_RELEASE_NOTES.md)
 - [Beta release notes template](BETA_RELEASE_NOTES_TEMPLATE.md)
 - [Final go/no-go checklist](FINAL_GO_NO_GO_CHECKLIST.md)
+- [Post-launch monitoring checklist](POST_LAUNCH_MONITORING_CHECKLIST.md)
+- [Beta support and feedback](BETA_SUPPORT_AND_FEEDBACK.md)
+- [Launch disable switches](LAUNCH_DISABLE_SWITCHES.md)
 - [Release readiness checklist](RELEASE_READINESS_CHECKLIST.md)
 - [Beta launch plan](BETA_LAUNCH_PLAN.md)
 - [Beta smoke tests](BETA_SMOKE_TESTS.md)

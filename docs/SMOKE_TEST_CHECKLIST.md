@@ -122,7 +122,8 @@ Real staging/test mode:
 ## Notification scheduler
 
 ```text
-[ ] NOTIFICATION_SCHEDULER_MODE=disabled or dry_run unless human approved
+[ ] Scheduler trigger/cron/worker/manual runner is stopped unless human approved
+[ ] NOTIFICATION_SCHEDULER_MODE=disabled or dry_run for validation/status unless human approved
 [ ] Scheduler does not send real LINE/email in smoke tests
 [ ] Queued messages are idempotent by user/topic/period
 [ ] Delivery attempts are recorded without PII or secrets

@@ -37,6 +37,9 @@ Critical  blocks production and usually blocks beta
 | R-018 | Dependency | PR31 beta invite/content management is pending but beta enrollment readiness is overclaimed. | High | Mark PR31 pending and keep invite/enrollment launch blocked unless already implemented in the candidate. | No-go for beta invite | No-go |
 | R-019 | Release candidate | E2E smoke evidence is partial but final go is recorded. | High | Complete E2E matrix and final go/no-go checklist before invite. | No-go | No-go |
 | R-020 | Test safety | Automated smoke helper bypasses mock guards or requires network/production secrets. | Critical | Keep smoke helper deterministic, no-network, mock/sandbox only, and fail on unsafe provider modes. | No-go | No-go |
+| R-021 | Release tag | A beta launch tag is created before checks, Codex review, human go/no-go, rollback, or support ownership is complete. | High | Tag only the exact human-approved commit after PR40 evidence is complete. | No-go | No-go |
+| R-022 | Disable switches | Operators cannot quickly disable real sends, payment, scheduler, astro real engine, or beta enrollment. | High | Keep `docs/LAUNCH_DISABLE_SWITCHES.md` completed and linked from the RC packet. | No-go | No-go |
+| R-023 | Post-launch monitoring | Launch proceeds without a watch owner or first-hour monitoring plan. | High | Complete `docs/POST_LAUNCH_MONITORING_CHECKLIST.md` before beta invitations. | No-go | No-go |
 
 ## Risk review checklist
 

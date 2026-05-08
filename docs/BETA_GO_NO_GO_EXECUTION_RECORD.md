@@ -40,6 +40,7 @@ Approved beta audience:
 [ ] No ephemeris binaries are committed
 [ ] No real provider calls occurred in tests
 [ ] Provider modes are sandbox/mock/dry-run unless explicitly approved for staging/test
+[ ] Admin/operator console and admin actions require server-verified admin auth
 [ ] Payment webhook signature verification and idempotency are accepted for beta scope
 [ ] Payment rollback includes webhook ingress or secret containment
 [ ] Scheduler containment uses trigger/worker disablement, not only NOTIFICATION_SCHEDULER_MODE
@@ -55,6 +56,7 @@ Approved beta audience:
 [ ] Any unresolved P0/P1 or critical P2 finding remains
 [ ] Any real provider call occurs in tests or unapproved dry-run
 [ ] Production secret handling is unclear
+[ ] Admin auth fails open or operator/admin actions are accessible without server-verified admin auth
 [ ] Payment webhook signature verification or idempotency is uncertain
 [ ] Client-side payment success can activate entitlement
 [ ] Duplicate notification risk is unresolved

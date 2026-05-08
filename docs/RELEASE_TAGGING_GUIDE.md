@@ -43,12 +43,13 @@ Run only after human go approval:
 
 ```bash
 git fetch origin
-git checkout <approved-branch>
-git pull --ff-only origin <approved-branch>
-git rev-parse HEAD
-git tag -a beta-rc-YYYYMMDD-N -m "Beta RC YYYY-MM-DD N: <short summary>; env=<staging/local>; providers=<sandbox/mock/dry-run>; astro=<mock>; decision=<owner>"
+git checkout --detach <approved-commit>
+test "$(git rev-parse HEAD)" = "<approved-commit>"
+git tag -a beta-rc-YYYYMMDD-N <approved-commit> -m "Beta RC YYYY-MM-DD N: <short summary>; commit=<approved-commit>; env=<staging/local>; providers=<sandbox/mock/dry-run>; astro=<mock>; decision=<owner>"
 git push origin beta-rc-YYYYMMDD-N
 ```
+
+Do not tag the moving branch tip unless it is exactly the commit recorded in the go/no-go execution record. If `<approved-branch>` has advanced after approval, keep the tag pinned to `<approved-commit>` and open a new go/no-go record for the newer commit.
 
 The tag message should include:
 

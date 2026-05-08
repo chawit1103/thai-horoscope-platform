@@ -1765,6 +1765,43 @@ class AstroCoreTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "ok")
         self.assertTrue(fake_swe.sid_mode_set)
+        self.assertEqual(fake_swe.calc_body_ids, [FakeSwe.SUN, FakeSwe.SUN, FakeSwe.MOON, FakeSwe.MOON])
+        self.assertTrue(fake_swe.houses_called)
+
+    def test_health_runs_pinned_staging_swisseph_adapter_probe(self) -> None:
+        names = [
+            "APP_ENV",
+            "ASTRO_ENGINE",
+            "SWISSEPH_LICENSE_MODE",
+            "ASTRO_EPHEMERIS_PATH",
+            "ASTRO_EPHEMERIS_MANIFEST_PATH",
+            "ASTRO_REQUIRE_PINNED_EPHEMERIS",
+        ]
+        previous = {name: os.environ.get(name) for name in names}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"fixture")
+            manifest = build_ephemeris_file_manifest(temp_dir)
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            os.environ["APP_ENV"] = "staging"
+            os.environ["ASTRO_ENGINE"] = "swisseph"
+            os.environ["SWISSEPH_LICENSE_MODE"] = "professional"
+            os.environ["ASTRO_EPHEMERIS_PATH"] = temp_dir
+            os.environ["ASTRO_EPHEMERIS_MANIFEST_PATH"] = str(manifest_path)
+            os.environ["ASTRO_REQUIRE_PINNED_EPHEMERIS"] = "true"
+            try:
+                with patch("app.engines.swisseph.importlib.import_module", side_effect=ModuleNotFoundError("swisseph")):
+                    report = health()
+            finally:
+                for name, value in previous.items():
+                    if value is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "SWISSEPH_ADAPTER_UNAVAILABLE")
 
     def test_swisseph_adapter_fails_closed_when_ephemeris_path_is_missing(self) -> None:
         config = AstroRuntimeConfig(
@@ -2241,6 +2278,7 @@ class FakeSwe(SimpleNamespace):
         self.ephe_path = ""
         self.sid_mode_set = False
         self.calc_body_ids: list[int] = []
+        self.houses_called = False
 
     def set_ephe_path(self, path: str) -> None:
         self.ephe_path = path
@@ -2258,6 +2296,7 @@ class FakeSwe(SimpleNamespace):
         return [longitude, 0.0, 0.0, speed], _flags
 
     def houses_ex(self, _jd_ut: float, _lat: float, _lon: float, _house_code: bytes, _flags: int) -> tuple[list[float], list[float]]:
+        self.houses_called = True
         return [float(index * 30) for index in range(12)], [15.0, 105.0]
 
 

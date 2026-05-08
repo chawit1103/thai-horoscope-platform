@@ -36,11 +36,13 @@ def validate_swisseph_health(config: AstroRuntimeConfig) -> None:
         manifest_path=config.ephemeris_manifest_path,
         require_pinned=config.require_pinned_ephemeris,
     )
-    if config.runtime_env != "production":
+    if config.runtime_env != "production" and not config.require_pinned_ephemeris:
         return
     try:
         engine = create_engine(config)
         engine.ayanamsha_deg(2451545.0, config.default_ayanamsha)
+        engine.planet_positions(2451545.0, ["sun", "moon"], config.default_ayanamsha)
+        engine.houses(2451545.0, 13.7563, 100.5018, "whole_sign", ascendant_required=True)
     except ImportError as error:
         raise RuntimeError("SWISSEPH_ADAPTER_UNAVAILABLE: Swiss Ephemeris adapter cannot be loaded.") from error
     except (PermissionError, ValueError, FileNotFoundError):

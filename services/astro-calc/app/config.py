@@ -17,6 +17,8 @@ RUNTIME_ENVIRONMENT_SOURCES = ("NODE_ENV", "ENVIRONMENT")
 class AstroRuntimeConfig:
     engine: str = "mock"
     ephemeris_path: str | None = None
+    ephemeris_manifest_path: str | None = None
+    require_pinned_ephemeris: bool = False
     calculation_profile: str = "TH_NIRAYANA_V1"
     default_ayanamsha: str = "lahiri"
     swisseph_license_mode: str = "none"
@@ -29,6 +31,8 @@ class AstroRuntimeConfig:
         return cls(
             engine=os.getenv("ASTRO_ENGINE", "mock").strip() or "mock",
             ephemeris_path=(os.getenv("ASTRO_EPHEMERIS_PATH") or "").strip() or None,
+            ephemeris_manifest_path=(os.getenv("ASTRO_EPHEMERIS_MANIFEST_PATH") or "").strip() or None,
+            require_pinned_ephemeris=os.getenv("ASTRO_REQUIRE_PINNED_EPHEMERIS", "false").lower() == "true",
             calculation_profile=os.getenv("ASTRO_CALCULATION_PROFILE", "TH_NIRAYANA_V1").strip()
             or "TH_NIRAYANA_V1",
             default_ayanamsha=os.getenv("ASTRO_DEFAULT_AYANAMSA", "lahiri").strip() or "lahiri",
@@ -52,6 +56,10 @@ class AstroRuntimeConfig:
                 raise PermissionError("LICENSE_MODE_NOT_PRODUCTION_READY: Swiss Ephemeris production use requires SWISSEPH_LICENSE_MODE=professional.")
             if not self.ephemeris_path:
                 raise PermissionError("EPHEMERIS_FILE_MISSING: Swiss Ephemeris production use requires ASTRO_EPHEMERIS_PATH.")
+            if not self.require_pinned_ephemeris:
+                raise PermissionError("EPHEMERIS_PINNING_REQUIRED: Swiss Ephemeris production use requires ASTRO_REQUIRE_PINNED_EPHEMERIS=true.")
+            if not self.ephemeris_manifest_path:
+                raise PermissionError("EPHEMERIS_MANIFEST_REQUIRED: Swiss Ephemeris production use requires ASTRO_EPHEMERIS_MANIFEST_PATH.")
         if self.engine == "swisseph" and self.runtime_env != "production":
             if self.swisseph_license_mode == "none":
                 raise PermissionError("LICENSE_MODE_NOT_PRODUCTION_READY: Swiss Ephemeris local/test use requires an explicit license mode.")

@@ -109,6 +109,8 @@ ASTRO_ENGINE=swisseph
 NODE_ENV=production
 SWISSEPH_LICENSE_MODE=professional
 ASTRO_EPHEMERIS_PATH=/mounted/ephemeris/path
+ASTRO_EPHEMERIS_MANIFEST_PATH=/mounted/ephemeris/ephemeris-manifest.json
+ASTRO_REQUIRE_PINNED_EPHEMERIS=true
 ```
 
 If any production requirement is missing, calculation must fail closed before loading or using the adapter.
@@ -135,6 +137,8 @@ calculation_profiles:
 `file_manifest` should include file names, sizes, and SHA-256 hashes. The chart snapshot should include the resulting `ephemeris_fingerprint`, not raw filesystem details.
 
 PR18 Swiss Ephemeris path validation treats only pinned Swiss Ephemeris data files as fingerprintable inputs. Supported file patterns are `*.se1` and `*.se2`, including standard `se*.se1` and `se*.se2` Swiss Ephemeris filenames. If `ASTRO_EPHEMERIS_PATH` points to a directory, the adapter recursively collects only supported files, deterministically fingerprints each relative filename, size, and SHA-256 content hash, and fails closed with `EPHEMERIS_FILES_EMPTY` when no supported files are present. Unrelated files such as logs, temporary downloads, and provider scratch files are ignored and cannot make a directory valid. If `ASTRO_EPHEMERIS_PATH` points to a single file, that file must match a supported pattern or the adapter fails with `EPHEMERIS_FILE_MISSING`.
+
+PR34 adds runtime manifest validation. When `ASTRO_REQUIRE_PINNED_EPHEMERIS=true`, or whenever production uses `ASTRO_ENGINE=swisseph`, `ASTRO_EPHEMERIS_MANIFEST_PATH` must point to a JSON manifest generated from the approved file set. The manifest must include `fingerprint` (or `combined_fingerprint`/`ephemeris_fingerprint`) and must include `files` (or `file_manifest`) entries with `name`, `size`, and `sha256`. It must also approve the active `ASTRO_CALCULATION_PROFILE` through `calculation_profiles` or `calculation_profile_code`; a manifest approved for another profile fails closed with `EPHEMERIS_PROFILE_NOT_APPROVED`. Fingerprint-only manifests are not valid for pinned or production Swiss Ephemeris activation. Any fingerprint or file-list mismatch fails closed with `EPHEMERIS_MANIFEST_MISMATCH`.
 
 Runtime behavior must not:
 
@@ -183,9 +187,11 @@ Production requires:
 NODE_ENV=production
 SWISSEPH_LICENSE_MODE=professional
 ASTRO_EPHEMERIS_PATH=/mounted/ephemeris/path
+ASTRO_EPHEMERIS_MANIFEST_PATH=/mounted/ephemeris/ephemeris-manifest.json
+ASTRO_REQUIRE_PINNED_EPHEMERIS=true
 ```
 
-If any production requirement is missing, the adapter fails closed before calculation. Free/license-unclear modes are local/test only and still require an explicit ephemeris path. Ephemeris files must be pinned, fingerprinted, and provided by deployment artifact or mounted storage; the service must not download ephemeris files at runtime.
+If any production requirement is missing, the adapter fails closed before calculation. Free/license-unclear modes are local/test only and still require an explicit ephemeris path. Ephemeris files must be pinned, fingerprinted, manifest-verified, and provided by deployment artifact or mounted storage; the service must not download ephemeris files at runtime.
 
 ## Calculation profile versioning
 

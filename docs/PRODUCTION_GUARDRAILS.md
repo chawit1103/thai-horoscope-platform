@@ -121,6 +121,10 @@ Swiss Ephemeris production requires:
 ASTRO_ENGINE=swisseph
 SWISSEPH_LICENSE_MODE=professional
 ASTRO_EPHEMERIS_PATH=/mounted/ephemeris/path
+ASTRO_EPHEMERIS_MANIFEST_PATH=/mounted/ephemeris/ephemeris-manifest.json
+ASTRO_REQUIRE_PINNED_EPHEMERIS=true
 ```
 
 The ephemeris path must refer to an approved mounted or packaged file set. Runtime ephemeris downloads and committed ephemeris binaries are forbidden.
+
+Swiss Ephemeris production startup must verify the manifest fingerprint and fail closed when the mounted file set is missing, empty, unsupported, or different from the approved manifest. Health output may report that a path is configured and may report sanitized error codes, but it must not expose raw local filesystem paths or license data.

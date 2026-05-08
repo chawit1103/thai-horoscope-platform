@@ -207,6 +207,12 @@ function validateAstroCalc(env:EnvironmentInput, environment:DeploymentEnvironme
     if (environment === "production" && license !== "professional") errors.push(issue("SWISSEPH_PROFESSIONAL_LICENSE_REQUIRED", "Swiss Ephemeris production mode requires professional license mode.", ["SWISSEPH_LICENSE_MODE"]));
     if (environment !== "production" && license === "none") errors.push(issue("SWISSEPH_EXPLICIT_LICENSE_REQUIRED", "Swiss Ephemeris mode requires an explicit non-none license mode.", ["SWISSEPH_LICENSE_MODE"]));
     requireVars(env, ["ASTRO_EPHEMERIS_PATH"], errors, "SWISSEPH_EPHEMERIS_PATH_REQUIRED", "Swiss Ephemeris mode requires an ephemeris path; runtime downloads are disabled.");
+    if (environment === "production") {
+      if (!isTrue(env.ASTRO_REQUIRE_PINNED_EPHEMERIS)) errors.push(issue("SWISSEPH_EPHEMERIS_PINNING_REQUIRED", "Swiss Ephemeris production mode requires pinned ephemeris validation.", ["ASTRO_REQUIRE_PINNED_EPHEMERIS"]));
+      requireVars(env, ["ASTRO_EPHEMERIS_MANIFEST_PATH"], errors, "SWISSEPH_EPHEMERIS_MANIFEST_REQUIRED", "Swiss Ephemeris production mode requires an approved ephemeris manifest.");
+    } else if (isTrue(env.ASTRO_REQUIRE_PINNED_EPHEMERIS)) {
+      requireVars(env, ["ASTRO_EPHEMERIS_MANIFEST_PATH"], errors, "SWISSEPH_EPHEMERIS_MANIFEST_REQUIRED", "Pinned Swiss Ephemeris validation requires an ephemeris manifest.");
+    }
   }
   if (environment === "production" && engine === "mock") errors.push(issue("ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN", "Mock astro engine is not production-ready.", ["ASTRO_ENGINE"]));
   if (environment === "staging" && engine === "mock") warnings.push(issue("ASTRO_MOCK_ENGINE_STAGING", "Staging astro engine is mock.", ["ASTRO_ENGINE"]));

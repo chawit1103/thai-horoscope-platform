@@ -87,6 +87,82 @@ describe("environment validation", () => {
     assertIssueVariables(astro.errors, "SWISSEPH_EPHEMERIS_PATH_REQUIRED", ["ASTRO_EPHEMERIS_PATH"]);
   });
 
+  it("astro swisseph production mode requires pinned ephemeris manifest", () => {
+    const report = validateDeploymentEnvironment({
+      ...localEnv,
+      APP_ENV:"production",
+      ADMIN_SESSION_SECRET:"admin-secret",
+      EMAIL_PROVIDER_MODE:"http",
+      EMAIL_FROM_ADDRESS:"noreply@example.test",
+      EMAIL_PROVIDER_ENDPOINT:"https://email-provider.example.test/send",
+      EMAIL_PROVIDER_API_KEY:"email-api-secret",
+      EMAIL_WEBHOOK_SECRET:"email-webhook-secret",
+      EMAIL_AUDIT_HASH_SECRET:"email-audit-secret",
+      EMAIL_VERIFIED_SENDER_DOMAIN:"example.test",
+      LINE_PROVIDER_MODE:"http",
+      LINE_CHANNEL_SECRET:"line-secret",
+      LINE_CHANNEL_ACCESS_TOKEN:"line-token",
+      LINE_AUDIT_HASH_SECRET:"line-audit-secret",
+      PAYMENT_PROVIDER_MODE:"http",
+      PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"https://payments.example.test/checkout",
+      PAYMENT_PROVIDER_API_KEY:"payment-api-secret",
+      PAYMENT_WEBHOOK_SECRET:"payment-webhook-secret",
+      ENABLE_REAL_EMAIL_SENDS:"true",
+      ENABLE_REAL_LINE_SENDS:"true",
+      ENABLE_REAL_PAYMENT_PROVIDER:"true",
+      ENABLE_PROVIDER_DRY_RUN:"false",
+      REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+      NOTIFICATION_SCHEDULER_MODE:"enabled",
+      NOTIFICATION_SCHEDULER_TOKEN:"scheduler-token",
+      ASTRO_ENGINE:"swisseph",
+      SWISSEPH_LICENSE_MODE:"professional",
+      ASTRO_EPHEMERIS_PATH:"/mounted/ephemeris/path",
+    });
+    const astro = component(report, "astro_calc");
+
+    assert.equal(report.status, "error");
+    assertIssueVariables(astro.errors, "SWISSEPH_EPHEMERIS_PINNING_REQUIRED", ["ASTRO_REQUIRE_PINNED_EPHEMERIS"]);
+    assertIssueVariables(astro.errors, "SWISSEPH_EPHEMERIS_MANIFEST_REQUIRED", ["ASTRO_EPHEMERIS_MANIFEST_PATH"]);
+  });
+
+  it("astro swisseph production readiness passes only with pinned ephemeris manifest config", () => {
+    const report = validateDeploymentEnvironment({
+      ...localEnv,
+      APP_ENV:"production",
+      ADMIN_SESSION_SECRET:"admin-secret",
+      EMAIL_PROVIDER_MODE:"http",
+      EMAIL_FROM_ADDRESS:"noreply@example.test",
+      EMAIL_PROVIDER_ENDPOINT:"https://email-provider.example.test/send",
+      EMAIL_PROVIDER_API_KEY:"email-api-secret",
+      EMAIL_WEBHOOK_SECRET:"email-webhook-secret",
+      EMAIL_AUDIT_HASH_SECRET:"email-audit-secret",
+      EMAIL_VERIFIED_SENDER_DOMAIN:"example.test",
+      LINE_PROVIDER_MODE:"http",
+      LINE_CHANNEL_SECRET:"line-secret",
+      LINE_CHANNEL_ACCESS_TOKEN:"line-token",
+      LINE_AUDIT_HASH_SECRET:"line-audit-secret",
+      PAYMENT_PROVIDER_MODE:"http",
+      PAYMENT_PROVIDER_CHECKOUT_ENDPOINT:"https://payments.example.test/checkout",
+      PAYMENT_PROVIDER_API_KEY:"payment-api-secret",
+      PAYMENT_WEBHOOK_SECRET:"payment-webhook-secret",
+      ENABLE_REAL_EMAIL_SENDS:"true",
+      ENABLE_REAL_LINE_SENDS:"true",
+      ENABLE_REAL_PAYMENT_PROVIDER:"true",
+      ENABLE_PROVIDER_DRY_RUN:"false",
+      REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+      NOTIFICATION_SCHEDULER_MODE:"enabled",
+      NOTIFICATION_SCHEDULER_TOKEN:"scheduler-token",
+      ASTRO_ENGINE:"swisseph",
+      SWISSEPH_LICENSE_MODE:"professional",
+      ASTRO_EPHEMERIS_PATH:"/mounted/ephemeris/path",
+      ASTRO_EPHEMERIS_MANIFEST_PATH:"/mounted/ephemeris/ephemeris-manifest.json",
+      ASTRO_REQUIRE_PINNED_EPHEMERIS:"true",
+    });
+
+    assert.equal(report.status, "ok");
+    assert.equal(component(report, "astro_calc").status, "ok");
+  });
+
   it("staging config fails closed for missing admin session secret", () => {
     const report = validateDeploymentEnvironment({ ...localEnv, APP_ENV:"staging", EMAIL_AUDIT_HASH_SECRET:"email-audit", LINE_AUDIT_HASH_SECRET:"line-audit" });
     const admin = component(report, "admin_auth");

@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import importlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,12 @@ class SwissEphemerisEngine(AstroEngine):
     def __init__(self, config: AstroRuntimeConfig, swe_module: Any | None = None) -> None:
         config.validate()
         self._config = config
-        self.ephemeris_fingerprint = fingerprint_ephemeris_path(config.ephemeris_path)
+        self.ephemeris_fingerprint = fingerprint_ephemeris_path(
+            config.ephemeris_path,
+            manifest_path=config.ephemeris_manifest_path,
+            require_pinned=config.require_pinned_ephemeris,
+            active_profile=config.calculation_profile,
+        )
         self._swe = swe_module or importlib.import_module("swisseph")
         self._swe.set_ephe_path(config.ephemeris_path)
         self._set_ayanamsha(config.default_ayanamsha)
@@ -81,8 +87,10 @@ class SwissEphemerisEngine(AstroEngine):
                 )
                 continue
             body_id = self._body_id(name, node_type)
-            tropical_raw, _return_flag = self._swe.calc_ut(jd_ut, body_id, tropical_flags)
-            sidereal_raw, _return_flag = self._swe.calc_ut(jd_ut, body_id, sidereal_flags)
+            tropical_raw, tropical_return_flag = self._swe.calc_ut(jd_ut, body_id, tropical_flags)
+            sidereal_raw, sidereal_return_flag = self._swe.calc_ut(jd_ut, body_id, sidereal_flags)
+            self._require_swisseph_flag(tropical_return_flag)
+            self._require_swisseph_flag(sidereal_return_flag)
             tropical = normalize_deg(float(tropical_raw[0]))
             sidereal = normalize_deg(float(sidereal_raw[0]))
             speed = float(sidereal_raw[3])
@@ -128,19 +136,119 @@ class SwissEphemerisEngine(AstroEngine):
             raise ValueError(f"Unsupported Swiss Ephemeris ayanamsha: {ayanamsha}")
         self._swe.set_sid_mode(self._swe.SIDM_LAHIRI, 0, 0)
 
+    def _require_swisseph_flag(self, return_flag: int) -> None:
+        if int(return_flag) & int(self._swe.FLG_SWIEPH) != int(self._swe.FLG_SWIEPH):
+            raise ValueError("SWISSEPH_FALLBACK_FORBIDDEN: Swiss Ephemeris calculation did not use pinned ephemeris files.")
 
-def fingerprint_ephemeris_path(path: str | None) -> str:
+
+def fingerprint_ephemeris_path(
+    path: str | None,
+    *,
+    manifest_path: str | None = None,
+    require_pinned: bool = False,
+    active_profile: str | None = None,
+) -> str:
     if not path:
         return "swisseph-unset"
+    manifest = build_ephemeris_file_manifest(path)
+    if require_pinned and not manifest_path:
+        raise PermissionError("EPHEMERIS_MANIFEST_REQUIRED: Pinned ephemeris validation requires ASTRO_EPHEMERIS_MANIFEST_PATH.")
+    if manifest_path:
+        validate_ephemeris_manifest(
+            manifest,
+            manifest_path,
+            require_file_manifest=require_pinned,
+            active_profile=active_profile,
+        )
+    return str(manifest["fingerprint"])
+
+
+def build_ephemeris_file_manifest(path: str) -> dict[str, object]:
     root = Path(path)
     files = _supported_ephemeris_files(root)
     aggregate_digest = hashlib.sha256()
+    entries: list[dict[str, object]] = []
     for file_path in files:
         relative_name = file_path.name if root.is_file() else file_path.relative_to(root).as_posix()
         size = file_path.stat().st_size
+        if size <= 0:
+            raise ValueError("EPHEMERIS_FILE_EMPTY: supported Swiss Ephemeris files must be non-empty.")
         content_digest = _sha256_file(file_path)
+        entries.append({"name": relative_name, "size": size, "sha256": content_digest})
         aggregate_digest.update(f"{relative_name}|{size}|{content_digest}\n".encode("utf-8"))
-    return f"swisseph-path-{aggregate_digest.hexdigest()[:16]}"
+    return {"fingerprint": f"swisseph-path-{aggregate_digest.hexdigest()[:16]}", "files": entries}
+
+
+def validate_ephemeris_manifest(
+    actual_manifest: dict[str, object],
+    manifest_path: str,
+    *,
+    require_file_manifest: bool = False,
+    active_profile: str | None = None,
+) -> None:
+    path = Path(manifest_path)
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError("EPHEMERIS_MANIFEST_MISSING: ASTRO_EPHEMERIS_MANIFEST_PATH does not exist.")
+    try:
+        expected = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: manifest must be valid JSON.") from error
+    if not isinstance(expected, dict):
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: manifest must be a JSON object.")
+    expected_fingerprint = expected.get("fingerprint") or expected.get("combined_fingerprint") or expected.get("ephemeris_fingerprint")
+    if expected_fingerprint != actual_manifest["fingerprint"]:
+        raise ValueError("EPHEMERIS_MANIFEST_MISMATCH: ephemeris fingerprint does not match manifest.")
+    expected_files = expected.get("files") or expected.get("file_manifest")
+    if require_file_manifest and expected_files is None:
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: pinned ephemeris manifest requires file entries.")
+    if require_file_manifest:
+        _validate_manifest_approval_metadata(expected, active_profile=active_profile)
+    if expected_files is not None and _normalize_manifest_files(expected_files) != _normalize_manifest_files(actual_manifest["files"]):
+        raise ValueError("EPHEMERIS_MANIFEST_MISMATCH: ephemeris file manifest does not match.")
+
+
+def _validate_manifest_approval_metadata(value: dict[str, object], *, active_profile: str | None = None) -> None:
+    license_mode = value.get("license_mode")
+    approved_by = value.get("approved_by")
+    approval_date = value.get("approval_date")
+    profiles = value.get("calculation_profiles") or value.get("calculation_profile_code")
+    approved_profiles = _approved_manifest_profiles(profiles)
+    if (
+        license_mode != "professional"
+        or not isinstance(approved_by, str)
+        or not approved_by.strip()
+        or not isinstance(approval_date, str)
+        or not approval_date.strip()
+        or not approved_profiles
+    ):
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: pinned ephemeris manifest requires approval metadata.")
+    if active_profile and active_profile not in approved_profiles:
+        raise ValueError("EPHEMERIS_PROFILE_NOT_APPROVED: active calculation profile is not approved by pinned ephemeris manifest.")
+
+
+def _approved_manifest_profiles(value: object) -> set[str]:
+    if isinstance(value, str):
+        profile = value.strip()
+        return {profile} if profile else set()
+    if isinstance(value, list):
+        return {profile.strip() for profile in value if isinstance(profile, str) and profile.strip()}
+    return set()
+
+
+def _normalize_manifest_files(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: file manifest must be a list.")
+    normalized: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("EPHEMERIS_MANIFEST_INVALID: file manifest entries must be objects.")
+        name = item.get("name") or item.get("relative_path")
+        size = item.get("size") if "size" in item else item.get("size_bytes")
+        sha256 = item.get("sha256")
+        if not isinstance(name, str) or not isinstance(size, int) or not isinstance(sha256, str):
+            raise ValueError("EPHEMERIS_MANIFEST_INVALID: file manifest entries require name/relative_path, size/size_bytes, and sha256.")
+        normalized.append({"name": name, "size": size, "sha256": sha256})
+    return sorted(normalized, key=lambda item: str(item["name"]))
 
 
 def _supported_ephemeris_files(root: Path) -> list[Path]:

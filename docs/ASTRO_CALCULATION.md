@@ -663,6 +663,8 @@ Runtime configuration:
 ```text
 ASTRO_ENGINE=mock|swisseph
 ASTRO_EPHEMERIS_PATH=
+ASTRO_EPHEMERIS_MANIFEST_PATH=
+ASTRO_REQUIRE_PINNED_EPHEMERIS=false
 ASTRO_CALCULATION_PROFILE=TH_NIRAYANA_V1
 ASTRO_DEFAULT_AYANAMSA=lahiri
 SWISSEPH_LICENSE_MODE=none|free|professional
@@ -674,7 +676,9 @@ Production guard:
 
 - If `ASTRO_ENGINE=swisseph` and `NODE_ENV=production`, `SWISSEPH_LICENSE_MODE=professional` is required.
 - If `ASTRO_ENGINE=swisseph` and `NODE_ENV=production`, `ASTRO_EPHEMERIS_PATH` is required.
+- If `ASTRO_ENGINE=swisseph` and `NODE_ENV=production`, `ASTRO_REQUIRE_PINNED_EPHEMERIS=true` and `ASTRO_EPHEMERIS_MANIFEST_PATH` are required.
 - Local/test Swiss Ephemeris use also requires an explicit non-`none` license mode and an ephemeris path.
+- If a manifest path is configured, supported ephemeris file names, sizes, hashes, and combined fingerprint must match before calculation starts.
 - Runtime ephemeris downloads are not supported.
 
 ## Testing

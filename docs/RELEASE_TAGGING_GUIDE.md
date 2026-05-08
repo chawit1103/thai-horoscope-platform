@@ -35,6 +35,10 @@ beta-rc-20260508-1
 beta-rc-20260508-2
 ```
 
+The first beta release candidate for this launch track is recorded as
+`beta-rc-1` in the RC1 execution records. Future tags should prefer the dated
+format unless a human release owner chooses the shorter sequence for continuity.
+
 Do not use `production`, `prod`, `stable`, or provider-specific wording unless a separate human production approval exists.
 
 ## Create a tag

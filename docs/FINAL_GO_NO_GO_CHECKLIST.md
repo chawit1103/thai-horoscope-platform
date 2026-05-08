@@ -114,6 +114,13 @@ Launch tag candidate:
 | Launch tag readiness | pending |  |  |  |
 | Final decision | pending |  |  |  |
 
+For `beta-rc-1`, the final decision should link the RC1-specific evidence
+records:
+
+- [Beta RC1 execution results](BETA_RC1_EXECUTION_RESULTS.md)
+- [Beta RC1 smoke test results](BETA_RC1_SMOKE_TEST_RESULTS.md)
+- [Beta RC1 go/no-go decision](BETA_RC1_GO_NO_GO_DECISION.md)
+
 ## Human sign-off
 
 ```text

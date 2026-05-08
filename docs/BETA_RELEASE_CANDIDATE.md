@@ -100,6 +100,19 @@ Do not invent missing implementation details. If any expected dependency is not 
 Evidence notes:
 ```
 
+## RC1 execution records
+
+Use the RC1-specific records after the `beta-rc-1` tag is selected for human
+staging or beta launch review:
+
+- [Beta RC1 execution results](BETA_RC1_EXECUTION_RESULTS.md)
+- [Beta RC1 smoke test results](BETA_RC1_SMOKE_TEST_RESULTS.md)
+- [Beta RC1 go/no-go decision](BETA_RC1_GO_NO_GO_DECISION.md)
+
+The RC1 records must remain pending or no-go until command proof, smoke
+evidence, provider flag status, rollback readiness, and human approvals are
+filled for the actual launch window.
+
 ## Provider activation status
 
 ```text

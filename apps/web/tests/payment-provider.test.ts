@@ -647,7 +647,8 @@ describe("payment provider foundation", () => {
         const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
         assert.equal(body.userId, "user_a");
         assert.equal(body.planCode, "premium");
-        assert.equal(String(init?.headers).includes("test_api_key"), false);
+        assert.equal(JSON.stringify(body).includes("test_api_key"), false);
+        assert.equal(Object.keys(body).some((key)=>key.toLowerCase().includes("api") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("token")), false);
         return new Response(JSON.stringify({ id:"real_checkout_1", checkoutUrl:"https://payments.example.test/checkout/real_checkout_1", providerCustomerId:"cus_real_a", providerSubscriptionId:"sub_real_a" }), { status:200, headers:{ "content-type":"application/json" } });
       },
     });

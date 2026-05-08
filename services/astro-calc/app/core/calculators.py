@@ -5,8 +5,9 @@ from datetime import UTC, datetime, timedelta
 from app.config import AstroRuntimeConfig
 from app.core.aspects import calculate_aspects, calculate_cross_aspects, calculate_transit_to_natal_hits
 from app.core.math import angular_distance, sign_index, stable_hash
-from app.core.profiles import get_profile, validate_profile_engine_compatibility
+from app.core.profiles import get_profile, lagna_method_for_profile, thai_ketu_method_for_profile, validate_profile_engine_compatibility
 from app.core.storage import ChartSnapshotStore
+from app.core.thai_lagna import ThaiLagnaResult, calculate_thai_antonathi_saman_lagna, reference_sunrise_local_datetime
 from app.core.time import (
     birth_datetime_local,
     date_from_datetime_local,
@@ -453,9 +454,27 @@ class AstroCoreService:
                 )
             )
             warnings.append(WarningMessage(code="UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE", message="Ascendant and houses are not reliable because birth time is unknown."))
-        angles = build_angles(houses)
-        planets = assign_planet_houses(planets, houses)
-        derived_points = build_derived_points(houses, ayanamsha_value)
+        lagna_method = lagna_method_for_profile(profile.code)
+        thai_lagna_result = self._calculate_thai_lagna(
+            lagna_method=lagna_method,
+            profile_ayanamsha=profile.ayanamsha,
+            profile_node_type=profile.node_type,
+            local_datetime=parsed_datetime_local,
+            timezone=timezone,
+            latitude=request.latitude,
+            longitude=request.longitude,
+            houses_reliable=houses_reliable,
+        )
+        lagna_deg = thai_lagna_result.lagna_deg if thai_lagna_result else None
+        angles = build_angles(houses, lagna_deg=lagna_deg)
+        house_snapshot = rebase_whole_sign_houses(houses, lagna_deg)
+        planets = assign_planet_houses(planets, house_snapshot, house_reference_deg=lagna_deg)
+        derived_points = build_derived_points(
+            house_snapshot,
+            ayanamsha_value,
+            lagna_deg=lagna_deg,
+            astronomical_ascendant_deg=houses.ascendant_deg,
+        )
         aspects = calculate_aspects(planets, profile.aspect_orbs_deg)
         hash_payload = {
             "datetime_local": canonical_datetime_local,
@@ -508,7 +527,7 @@ class AstroCoreService:
             ayanamsa_deg=ayanamsha_value,
             ayanamsha=Ayanamsha(name=profile.ayanamsha, value_deg=ayanamsha_value),
             planets=planets,
-            houses=houses,
+            houses=house_snapshot,
             angles=angles,
             derived_points=derived_points,
             aspects=aspects,
@@ -516,9 +535,50 @@ class AstroCoreService:
             metadata={
                 "zodiac_type": profile.zodiac_type,
                 "node_type": profile.node_type,
+                "ketu_method": "south_node",
+                "thai_ketu_9_method": thai_ketu_method_for_profile(profile.code),
                 "house_system": profile.house_system,
+                "lagna_method": lagna_method,
+                "lagna_source": thai_lagna_result.lagna_source if thai_lagna_result else "astronomical_ascendant",
+                "astronomical_ascendant": "" if houses.ascendant_deg is None else str(round(houses.ascendant_deg, 8)),
+                "local_time_correction_minutes": ""
+                if thai_lagna_result is None
+                else str(thai_lagna_result.local_time_correction_minutes),
+                "sunrise_local_time": "" if thai_lagna_result is None else thai_lagna_result.sunrise_local_time,
                 "calculation_profile_version": profile.code,
             },
+        )
+
+    def _calculate_thai_lagna(
+        self,
+        *,
+        lagna_method: str,
+        profile_ayanamsha: str,
+        profile_node_type: str,
+        local_datetime: datetime,
+        timezone: str,
+        latitude: float,
+        longitude: float,
+        houses_reliable: bool,
+    ) -> ThaiLagnaResult | None:
+        if lagna_method != "thai_antonathi_saman_local_time_sunrise" or not houses_reliable:
+            return None
+        sunrise = reference_sunrise_local_datetime(
+            local_datetime=local_datetime,
+            timezone=timezone,
+            latitude=latitude,
+            longitude=longitude,
+        )
+        sunrise_local = sunrise.isoformat(timespec="seconds")
+        sunrise_utc = local_to_utc(sunrise_local, timezone)
+        sunrise_jd_ut = round(julian_day_ut(sunrise_utc), 8)
+        sunrise_sun = self.engine.planet_positions(sunrise_jd_ut, ["sun"], profile_ayanamsha, profile_node_type)["sun"]
+        return calculate_thai_antonathi_saman_lagna(
+            local_datetime=local_datetime,
+            timezone=timezone,
+            latitude=latitude,
+            longitude=longitude,
+            sunrise_sun_sidereal_longitude_deg=sunrise_sun.sidereal_longitude_deg,
         )
 
 
@@ -766,12 +826,12 @@ def has_location(request: ChartRequest) -> bool:
     return request.latitude != 0 or request.longitude != 0
 
 
-def build_angles(houses: Houses) -> Angles:
+def build_angles(houses: Houses, lagna_deg: float | None = None) -> Angles:
     asc = houses.ascendant_deg
     mc = houses.mc_deg
     return Angles(
         ascendant_deg=asc,
-        lagna_deg=asc,
+        lagna_deg=lagna_deg if lagna_deg is not None else asc,
         mc_deg=mc,
         ic_deg=None if mc is None else round((mc + 180) % 360, 8),
         descendant_deg=None if asc is None else round((asc + 180) % 360, 8),
@@ -779,7 +839,23 @@ def build_angles(houses: Houses) -> Angles:
     )
 
 
-def assign_planet_houses(planets: dict[str, PlanetPosition], houses: Houses) -> dict[str, PlanetPosition]:
+def rebase_whole_sign_houses(houses: Houses, house_reference_deg: float | None) -> Houses:
+    if house_reference_deg is None or not houses.reliable or houses.system != "whole_sign":
+        return houses
+    reference = round(house_reference_deg % 360, 8)
+    reference_sign = sign_index(reference)
+    return Houses(
+        system=houses.system,
+        ascendant_deg=houses.ascendant_deg,
+        mc_deg=houses.mc_deg,
+        cusps_deg=[float((reference_sign + house) % 12 * 30) for house in range(12)],
+        reliable=houses.reliable,
+    )
+
+
+def assign_planet_houses(
+    planets: dict[str, PlanetPosition], houses: Houses, house_reference_deg: float | None = None
+) -> dict[str, PlanetPosition]:
     assigned: dict[str, PlanetPosition] = {}
     for name, planet in planets.items():
         assigned[name] = PlanetPosition(
@@ -796,17 +872,19 @@ def assign_planet_houses(planets: dict[str, PlanetPosition], houses: Houses) -> 
             degree_in_sign=planet.degree_in_sign,
             retrograde=planet.retrograde,
             nakshatra=planet.nakshatra,
-            house_number=planet_house_number(planet.sidereal_longitude_deg, houses) if houses.reliable else None,
+            house_number=planet_house_number(planet.sidereal_longitude_deg, houses, house_reference_deg)
+            if houses.reliable
+            else None,
             warnings=planet.warnings,
         )
     return assigned
 
 
-def planet_house_number(sidereal_longitude_deg: float, houses: Houses) -> int | None:
+def planet_house_number(sidereal_longitude_deg: float, houses: Houses, house_reference_deg: float | None = None) -> int | None:
     if not houses.reliable:
         return None
     if houses.system == "whole_sign":
-        return whole_sign_house_number(sidereal_longitude_deg, houses.ascendant_deg)
+        return whole_sign_house_number(sidereal_longitude_deg, house_reference_deg if house_reference_deg is not None else houses.ascendant_deg)
     if len(houses.cusps_deg) < 12:
         raise ValueError(f"House system {houses.system} did not return 12 cusps.")
     return cusp_house_number(sidereal_longitude_deg, houses.cusps_deg)
@@ -829,17 +907,31 @@ def _arc_contains(longitude: float, start: float, end: float) -> bool:
     return longitude >= start or longitude < end
 
 
-def build_derived_points(houses: Houses, ayanamsha_deg: float | None) -> dict[str, PlanetPosition]:
+def build_derived_points(
+    houses: Houses,
+    ayanamsha_deg: float | None,
+    lagna_deg: float | None = None,
+    astronomical_ascendant_deg: float | None = None,
+) -> dict[str, PlanetPosition]:
     if not houses.reliable or houses.ascendant_deg is None:
         return {}
     asc = houses.ascendant_deg
-    return {
-        "lagna": _derived_point(asc, ayanamsha_deg, houses),
-        "descendant": _derived_point((asc + 180) % 360, ayanamsha_deg, houses),
+    lagna = lagna_deg if lagna_deg is not None else asc
+    house_reference = lagna_deg if lagna_deg is not None else houses.ascendant_deg
+    points = {
+        "lagna": _derived_point(lagna, ayanamsha_deg, houses, house_reference),
+        "descendant": _derived_point((asc + 180) % 360, ayanamsha_deg, houses, house_reference),
     }
+    if lagna_deg is not None and astronomical_ascendant_deg is not None:
+        points["astronomical_ascendant"] = _derived_point(
+            astronomical_ascendant_deg, ayanamsha_deg, houses, house_reference
+        )
+    return points
 
 
-def _derived_point(sidereal_longitude_deg: float, ayanamsha_deg: float | None, houses: Houses) -> PlanetPosition:
+def _derived_point(
+    sidereal_longitude_deg: float, ayanamsha_deg: float | None, houses: Houses, house_reference_deg: float | None
+) -> PlanetPosition:
     sidereal = round(sidereal_longitude_deg % 360, 8)
     tropical = sidereal if ayanamsha_deg is None else round((sidereal + ayanamsha_deg) % 360, 8)
     return PlanetPosition(
@@ -856,5 +948,5 @@ def _derived_point(sidereal_longitude_deg: float, ayanamsha_deg: float | None, h
         degree_in_sign=degree_in_sign(sidereal),
         retrograde=False,
         nakshatra=None,
-        house_number=whole_sign_house_number(sidereal, houses.ascendant_deg),
+        house_number=whole_sign_house_number(sidereal, house_reference_deg),
     )

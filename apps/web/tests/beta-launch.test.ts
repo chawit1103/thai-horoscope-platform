@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { createAdminSessionCookie, createBetaInviteWithAdminCookie } from "../src/mvp/admin-auth";
-import { BETA_INVITE_SCOPE_ID, assertBetaCopySafe, buildBetaLaunchView, canAccessBetaEntitledPeriod, canAccessBetaOnlyFlow, createBetaInvite, enrollBetaUser, getBetaDisclaimers, getBetaLaunchCopy, getBetaLaunchState, isBetaUserAllowed, resetBetaLaunchState, revokeBetaInvite, setBetaEnrollmentStatus, validateBetaInviteCode } from "../src/mvp/beta-launch";
+import { BETA_INVITE_SCOPE_ID, LOCAL_MOCK_BETA_INVITE_CODE, assertBetaCopySafe, buildBetaLaunchView, canAccessBetaEntitledPeriod, canAccessBetaOnlyFlow, createBetaInvite, enrollBetaUser, ensureLocalMockBetaInvite, getBetaDisclaimers, getBetaLaunchCopy, getBetaLaunchState, getLocalMockBetaInviteCode, isBetaUserAllowed, resetBetaLaunchState, revokeBetaInvite, setBetaEnrollmentStatus, validateBetaInviteCode } from "../src/mvp/beta-launch";
 import { ENTERTAINMENT_DISCLAIMER } from "../src/mvp/beta-user-ux";
 import { getMockMvpState, requestAccountDeletion, resetMockMvpState, setMockUserPlan } from "../src/mvp/mock-flow";
 import { processMockSubscriptionWebhook, resetMockSubscriptionState, type MockSubscriptionWebhookEvent } from "../src/mvp/subscription-lifecycle";
@@ -50,6 +50,19 @@ describe("beta launch content and invite management", () => {
     assert.equal(isBetaUserAllowed({ sessionId, userId }), "enrolled");
   });
 
+  it("local mock invite code enrolls a beta user", () => {
+    const invite = ensureLocalMockBetaInvite({ deploymentEnvironment:"local" });
+
+    assert.ok(invite);
+    assert.equal(getLocalMockBetaInviteCode({ deploymentEnvironment:"local" }), LOCAL_MOCK_BETA_INVITE_CODE);
+    assert.equal(validateBetaInviteCode({ inviteCode:LOCAL_MOCK_BETA_INVITE_CODE }).ok, true);
+
+    const enrollment = enrollBetaUser({ sessionId, userId, inviteCode:LOCAL_MOCK_BETA_INVITE_CODE });
+
+    assert.equal(enrollment.status, "enrolled");
+    assert.equal(isBetaUserAllowed({ sessionId, userId }), "enrolled");
+  });
+
   it("invalid invite code is rejected with sanitized error", () => {
     const validation = validateBetaInviteCode({ sessionId, inviteCode:"wrong-code" });
 
@@ -57,6 +70,19 @@ describe("beta launch content and invite management", () => {
     assert.equal(validation.errorCode, "invalid_beta_invite");
     assert.throws(() => enrollBetaUser({ sessionId, userId, inviteCode:"wrong-code" }), /Invalid beta invite/);
     assert.equal(JSON.stringify(validation).includes("wrong-code"), false);
+  });
+
+  it("production mode does not auto-allow the local demo invite unless explicitly configured", () => {
+    const invite = ensureLocalMockBetaInvite({ deploymentEnvironment:"production" });
+
+    assert.equal(invite, undefined);
+    assert.equal(getLocalMockBetaInviteCode({ deploymentEnvironment:"production" }), undefined);
+    assert.equal(validateBetaInviteCode({ inviteCode:LOCAL_MOCK_BETA_INVITE_CODE }).ok, false);
+    assert.throws(() => enrollBetaUser({ sessionId, userId, inviteCode:LOCAL_MOCK_BETA_INVITE_CODE }), /Invalid beta invite/);
+
+    createBetaInvite({ inviteCode:LOCAL_MOCK_BETA_INVITE_CODE });
+
+    assert.equal(validateBetaInviteCode({ inviteCode:LOCAL_MOCK_BETA_INVITE_CODE }).ok, true);
   });
 
   it("revoked invite cannot enroll", () => {

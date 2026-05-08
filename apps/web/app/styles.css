@@ -114,6 +114,41 @@ h2 {
   margin-top: 24px;
 }
 
+.mode-selector {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 12px 0;
+}
+
+.mode-option {
+  border: 1px solid #cbbfa9;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  text-decoration: none;
+}
+
+.mode-option.selected {
+  border-color: #0f766e;
+  box-shadow: inset 0 0 0 2px #0f766e;
+}
+
+.mode-option.unavailable {
+  background: #f7f3ea;
+  color: #6b7280;
+}
+
+.mode-option span {
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.mode-status {
+  margin-top: 12px;
+}
+
 .form-panel {
   display: grid;
   gap: 14px;
@@ -131,6 +166,92 @@ input {
   border-radius: 8px;
   font: inherit;
   padding: 10px;
+}
+
+table {
+  border-collapse: collapse;
+  min-width: 980px;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid #ded5c4;
+  padding: 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: #4b5563;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+pre {
+  background: #111827;
+  border-radius: 8px;
+  color: #f9fafb;
+  line-height: 1.5;
+  margin: 12px 0 0;
+  overflow-x: auto;
+  padding: 14px;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.chart-table-panel {
+  margin: 22px 0;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.zodiac-wheel {
+  aspect-ratio: 1;
+  border: 1px solid #d8dedb;
+  border-radius: 50%;
+  margin: 18px auto 4px;
+  max-width: 620px;
+  min-height: 320px;
+  position: relative;
+}
+
+.zodiac-wheel::after {
+  border: 1px dashed #c3ccc8;
+  border-radius: 50%;
+  bottom: 20%;
+  content: "";
+  left: 20%;
+  position: absolute;
+  right: 20%;
+  top: 20%;
+}
+
+.zodiac-node {
+  align-items: center;
+  background: #fffdfa;
+  border: 1px solid #d8dedb;
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+  min-height: 74px;
+  padding: 8px;
+  position: absolute;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  width: 92px;
+  z-index: 1;
+}
+
+.zodiac-node span,
+.zodiac-node small {
+  color: #637067;
+  font-size: 0.72rem;
 }
 
 .check-row {

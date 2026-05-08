@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { ENTERTAINMENT_DISCLAIMER, UNKNOWN_BIRTH_TIME_WARNING, buildSubscriptionSummary, containsUnsafeUserFacingLeak, type SafeHoroscopeView } from "./beta-user-ux";
+import { type DeploymentEnvironment } from "./environment-validation";
 import { type MockMvpState, type PeriodType } from "./mock-flow";
 import { canAccessPeriod, type SubscriptionRecord } from "./subscription-lifecycle";
 
@@ -55,6 +56,7 @@ export interface BetaLaunchState {
 }
 
 export const BETA_INVITE_SCOPE_ID = "__beta_invites__";
+export const LOCAL_MOCK_BETA_INVITE_CODE = "BETA-LOCAL-2026";
 
 const MOCK_INVITE_HASH_NAMESPACE = "mock-beta-invite-v1";
 const MOCK_EMAIL_HASH_NAMESPACE = "mock-beta-email-v1";
@@ -133,6 +135,23 @@ export function createBetaInvite(input:{ sessionId?:string; inviteCode?:string; 
   };
   state.invites.push(invite);
   return structuredClone(invite);
+}
+
+export function isLocalMockBetaInviteEnabled(input:{ deploymentEnvironment?:DeploymentEnvironment } = {}):boolean {
+  return (input.deploymentEnvironment ?? "local") === "local";
+}
+
+export function getLocalMockBetaInviteCode(input:{ deploymentEnvironment?:DeploymentEnvironment } = {}):string|undefined {
+  return isLocalMockBetaInviteEnabled(input) ? LOCAL_MOCK_BETA_INVITE_CODE : undefined;
+}
+
+export function ensureLocalMockBetaInvite(input:{ deploymentEnvironment?:DeploymentEnvironment; now?:Date } = {}):BetaInvite|undefined {
+  if (!isLocalMockBetaInviteEnabled(input)) return undefined;
+  const state = getState(BETA_INVITE_SCOPE_ID);
+  const codeHash = hashInviteCode(LOCAL_MOCK_BETA_INVITE_CODE);
+  const existing = state.invites.find((item)=>item.kind === "invite_code" && item.codeHash && constantTimeEqual(item.codeHash, codeHash));
+  if (existing) return structuredClone(existing);
+  return createBetaInvite({ sessionId:BETA_INVITE_SCOPE_ID, inviteCode:LOCAL_MOCK_BETA_INVITE_CODE, now:input.now });
 }
 
 export function revokeBetaInvite(input:{ sessionId?:string; inviteId:string; now?:Date }):BetaInvite {

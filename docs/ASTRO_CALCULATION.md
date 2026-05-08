@@ -416,18 +416,22 @@ The calculation boundary uses stable warning/error codes so callers can handle d
 
 Invalid timezone and fail-closed ephemeris/license cases may be raised before a chart snapshot exists. Successful degraded calculations return warning objects in `warnings`.
 
-## House and ascendant policy
+## House, Ascendant, and Thai Lagna policy
 
 House calculation is profile-driven. The selected `calculation_profile.house_system` is copied to `houses.system` and `metadata.house_system` in every chart snapshot.
 
-The engine calculates Ascendant/Lagna and house cusps only when both conditions are true:
+The engine calculates the astronomical Ascendant and house cusps only when both conditions are true:
 
 - birth time is known
 - location is present
 
 When birth time is unknown or location is missing, `houses.reliable=false`, `houses.ascendant_deg=null`, `angles.reliable=false`, `derived_points={}`, and every planet has `house_number=null`.
 
-Planet house assignment must use the house system returned in the snapshot. The current Thai Nirayana profiles use `whole_sign`; future profile-specific systems must be implemented explicitly and must not silently reuse whole-sign assignment.
+Thai almanac style profiles may also expose a separate Thai Lagna. For `TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1`, `houses.ascendant_deg` and `angles.ascendant_deg` remain the standard Swiss Ephemeris astronomical Ascendant. `angles.lagna_deg` is calculated with `metadata.lagna_method=thai_antonathi_saman_local_time_sunrise`, using local mean time correction from the Thai standard meridian at 105E and a local sunrise reference. This profile records `metadata.local_time_correction_minutes`, `metadata.sunrise_local_time`, `metadata.lagna_source`, and `metadata.astronomical_ascendant` so operators can verify which convention was used.
+
+Planet house assignment must use the house system and the profile-selected Lagna convention returned in the snapshot. The current Thai Nirayana profiles use `whole_sign`; future profile-specific systems must be implemented explicitly and must not silently reuse whole-sign assignment.
+
+Thai Ketu ๙ is distinct from the South Node. The engine keeps `ketu` as `metadata.ketu_method=south_node`, where Ketu is Rahu plus 180 degrees normalized. Thai traditional Ketu ๙ is tracked separately with `metadata.thai_ketu_9_method`; it is currently marked unsupported until the project approves and implements the traditional formula.
 
 ## Transit-to-natal calculation
 
@@ -643,11 +647,13 @@ TH_NIRAYANA_V1
 
 `TH_NIRAYANA_SWISSEPH_V1` is an explicit Swiss Ephemeris production profile code with the same Thai Nirayana calculation settings, intended for deployments where `ASTRO_ENGINE=swisseph` passes the professional license and ephemeris path guard.
 
+`TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1` is an explicit Swiss Ephemeris Thai almanac validation profile. It keeps planetary positions, MC, UTC conversion, and Lahiri ayanamsa on the same real-engine path, but separates astronomical Ascendant from Thai Lagna using `thai_antonathi_saman_local_time_sunrise`. It also records that Thai Ketu ๙ is separate from the South Node and remains unsupported until a formula is approved.
+
 The engine returns deterministic, JSON-serializable chart snapshots with:
 
 - detailed natal planet positions, including tropical longitude, ayanamsa, sidereal longitude, ecliptic latitude, speed, retrograde, sign index, English/Thai sign names, degree in sign, optional nakshatra placeholder, planet warnings, and house number when houses are reliable
-- ascendant/lัคนา and whole-sign house cusps when birth time is known
-- angles for Ascendant/Lagna, MC, IC, and Descendant
+- astronomical Ascendant, optional Thai Lagna, and whole-sign house cusps when birth time is known
+- angles for astronomical Ascendant, optional profile-selected Lagna, MC, IC, and Descendant
 - derived points for Lagna and Descendant when houses are reliable
 - unknown-birth-time warnings and unreliable houses when birth time is unknown
 - natal aspects
@@ -665,6 +671,7 @@ ASTRO_ENGINE=mock|swisseph
 ASTRO_EPHEMERIS_PATH=
 ASTRO_EPHEMERIS_MANIFEST_PATH=
 ASTRO_REQUIRE_PINNED_EPHEMERIS=false
+ASTRO_ALLOW_MOSHIER_EPHEMERIS=false
 ASTRO_CALCULATION_PROFILE=TH_NIRAYANA_V1
 ASTRO_DEFAULT_AYANAMSA=lahiri
 SWISSEPH_LICENSE_MODE=none|free|professional
@@ -677,7 +684,8 @@ Production guard:
 - If `ASTRO_ENGINE=swisseph` and `NODE_ENV=production`, `SWISSEPH_LICENSE_MODE=professional` is required.
 - If `ASTRO_ENGINE=swisseph` and `NODE_ENV=production`, `ASTRO_EPHEMERIS_PATH` is required.
 - If `ASTRO_ENGINE=swisseph` and `NODE_ENV=production`, `ASTRO_REQUIRE_PINNED_EPHEMERIS=true` and `ASTRO_EPHEMERIS_MANIFEST_PATH` are required.
-- Local/test Swiss Ephemeris use also requires an explicit non-`none` license mode and an ephemeris path.
+- Local/test Swiss Ephemeris use requires an explicit non-`none` license mode and either an ephemeris path or `ASTRO_ALLOW_MOSHIER_EPHEMERIS=true` for local validation.
+- `ASTRO_ALLOW_MOSHIER_EPHEMERIS=true` is not a production mode and must not be used to bypass pinned ephemeris file approval.
 - If a manifest path is configured, supported ephemeris file names, sizes, hashes, and combined fingerprint must match before calculation starts.
 - Runtime ephemeris downloads are not supported.
 

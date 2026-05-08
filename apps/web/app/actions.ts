@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ADMIN_COOKIE_NAME, UNAUTHENTICATED_ADMIN_AUDIT_SESSION_ID, approveAndQueueWithAdminCookie, approveContentBatchWithAdminCookie, authorizeAdminRoute, createBetaInviteWithAdminCookie, recordAdminSessionStartedWithAdminCookie, rejectContentBatchWithAdminCookie, rejectDraftWithAdminCookie, revokeBetaInviteWithAdminCookie, startDevMockAdminSessionForToken } from "../src/mvp/admin-auth";
-import { BETA_INVITE_SCOPE_ID, canAccessBetaOnlyFlow, enrollBetaUser } from "../src/mvp/beta-launch";
+import { BETA_INVITE_SCOPE_ID, canAccessBetaOnlyFlow, enrollBetaUser, ensureLocalMockBetaInvite } from "../src/mvp/beta-launch";
 import { buildBetaMockSubscriptionWindow, validateOnboardingFields } from "../src/mvp/beta-user-ux";
 import { CONTENT_PREVIEW_APPROVAL_SESSION_ID } from "../src/mvp/content-preview-approval";
 import { readDeploymentEnvironment } from "../src/mvp/environment-validation";
@@ -106,7 +106,7 @@ export async function saveOnboardingAction(formData: FormData): Promise<void> {
   for (const periodType of ["daily", "weekly", "monthly", "yearly"] as PeriodType[]) {
     generateHoroscopeResult({ chartSnapshot, periodType, periodKey: getMockPeriodKey(periodType), sessionId });
   }
-  redirect("/today");
+  redirect("/chart-preview");
 }
 
 export async function selectMockPlanAction(formData: FormData): Promise<void> {
@@ -133,6 +133,7 @@ export async function selectMockPlanAction(formData: FormData): Promise<void> {
 
 export async function enrollBetaUserAction(formData: FormData): Promise<void> {
   const { sessionId, userId } = await getOrCreateSessionContext();
+  ensureLocalMockBetaInvite({ deploymentEnvironment:readDeploymentEnvironment() });
   const inviteCode = String(formData.get("inviteCode") ?? "").trim();
   try {
     enrollBetaUser({ sessionId, userId, inviteCode:inviteCode || undefined });

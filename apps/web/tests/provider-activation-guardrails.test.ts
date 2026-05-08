@@ -227,6 +227,8 @@ describe("provider activation guardrails", () => {
       networkTelemetry:{ emailNetworkCalls:1 },
     });
 
+    assert.equal(harness.status, "blocked");
+    assert.equal(harness.providerActivation.status, "dry_run");
     assert.equal(harness.networkCallsAttempted, true);
   });
 

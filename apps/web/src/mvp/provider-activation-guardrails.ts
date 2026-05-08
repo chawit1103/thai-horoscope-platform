@@ -133,7 +133,8 @@ export function runProviderActivationSafetyHarness(input:EnvironmentInput|Provid
   const networkTelemetry = isHarnessOptions(input) ? input.networkTelemetry : undefined;
   const providerActivation = toPublicProviderActivationReport(validateProviderActivationReadiness(env));
   const environmentHealth = toPublicHealthReport(validateDeploymentEnvironment(env));
-  return { status:providerActivation.status, providerActivation, environmentHealth, networkCallsAttempted:networkCallsAttempted(networkTelemetry) };
+  const networkCallsDetected = networkCallsAttempted(networkTelemetry);
+  return { status:networkCallsDetected ? "blocked" : providerActivation.status, providerActivation, environmentHealth, networkCallsAttempted:networkCallsDetected };
 }
 
 function providerComponent(input:{

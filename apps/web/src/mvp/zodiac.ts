@@ -51,14 +51,14 @@ export function englishSignNameFromLongitude(longitudeDeg:number):string {
 
 export function buildCounterclockwiseZodiacLayout():ZodiacLayoutSign[] {
   return CANONICAL_ZODIAC_SIGNS.map((sign, index)=>{
-    const mathAngleDeg = index * 30;
+    const mathAngleDeg = -90 - index * 30;
     const radians = (mathAngleDeg * Math.PI) / 180;
     return {
       ...sign,
       counterclockwise_order:index,
       math_angle_deg:mathAngleDeg,
       screen_x:roundDeg(Math.cos(radians)),
-      screen_y:roundDeg(-Math.sin(radians)),
+      screen_y:roundDeg(Math.sin(radians)),
     };
   });
 }

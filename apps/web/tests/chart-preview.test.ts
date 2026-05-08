@@ -80,10 +80,18 @@ describe("chart preview", () => {
 
   it("displays Thai Lagna separately from astronomical Ascendant in the golden model", () => {
     const model = buildThaiAlmanacGoldenChartPreviewModel();
+    const rawChart = model.chartSnapshotJson as {
+      houses:{ ascendant_deg:number|null; lagna_deg:number|null };
+      angles:{ ascendant_deg:number|null; lagna_deg:number|null };
+    };
 
     assert.equal(model.metadata.astronomical_ascendant_deg, 358.08990736);
     assert.equal(model.metadata.thai_lagna_deg, 349.59979108);
     assert.notEqual(model.angles.ascendant_deg, model.angles.lagna_deg);
+    assert.equal(rawChart.houses.ascendant_deg, model.metadata.thai_lagna_deg);
+    assert.equal(rawChart.houses.lagna_deg, model.metadata.thai_lagna_deg);
+    assert.equal(rawChart.angles.ascendant_deg, model.metadata.astronomical_ascendant_deg);
+    assert.equal(rawChart.angles.lagna_deg, model.metadata.thai_lagna_deg);
     assert.equal(model.planets.find((planet)=>planet.planet_key === "astronomical_ascendant")?.thai_zodiac_sign, "มีน");
     assert.equal(model.planets.find((planet)=>planet.planet_key === "thai_lagna")?.thai_zodiac_sign, "มีน");
     assert.equal(model.planets.find((planet)=>planet.planet_key === "mc")?.thai_zodiac_sign, "ธนู");

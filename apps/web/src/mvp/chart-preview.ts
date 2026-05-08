@@ -194,7 +194,7 @@ export function buildThaiAlmanacGoldenChartPreviewModel():ChartPreviewModel {
     data_source:"golden_fixture_reference",
     metadata,
     planets:Object.fromEntries(planets.map((planet)=>[planet.planet_key, planet])),
-    houses:{ system:"whole_sign", ascendant_deg:metadata.astronomical_ascendant_deg, lagna_deg:metadata.thai_lagna_deg, mc_deg:262.99334732, cusps_deg:wholeSignCuspsFromLagna(metadata.thai_lagna_deg), reliable:true },
+    houses:{ system:"whole_sign", ascendant_deg:metadata.thai_lagna_deg, lagna_deg:metadata.thai_lagna_deg, mc_deg:262.99334732, cusps_deg:wholeSignCuspsFromLagna(metadata.thai_lagna_deg), reliable:true },
     angles:{ ascendant_deg:metadata.astronomical_ascendant_deg, lagna_deg:metadata.thai_lagna_deg, mc_deg:262.99334732, descendant_deg:178.08990736, ic_deg:82.99334732, reliable:true },
     note:"Golden fixture/reference chart for local Thai almanac validation; no horoscope interpretation text.",
   };

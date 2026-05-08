@@ -1684,6 +1684,16 @@ class AstroCoreTests(unittest.TestCase):
             require_pinned_ephemeris=True,
         ).validate()
 
+    def test_swisseph_local_pinned_mode_blocks_moshier_without_ephemeris_path(self) -> None:
+        with self.assertRaisesRegex(PermissionError, "EPHEMERIS_FILE_MISSING"):
+            AstroRuntimeConfig(
+                engine="swisseph",
+                runtime_env="test",
+                swisseph_license_mode="free",
+                allow_moshier_ephemeris=True,
+                require_pinned_ephemeris=True,
+            ).validate()
+
     def test_runtime_environment_reads_deployment_sources_before_node_env(self) -> None:
         names = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV", "ENVIRONMENT"]
         previous = {name: os.environ.get(name) for name in names}

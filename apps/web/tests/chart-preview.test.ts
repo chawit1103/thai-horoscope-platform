@@ -199,6 +199,20 @@ describe("chart preview", () => {
       assert.equal(serialized.includes(blocked), false);
     }
   });
+
+  it("redacts mock birth data from raw preview JSON", () => {
+    createStoredChart({ birthTimeUnknown:false });
+
+    const model = buildChartPreviewModel({ state:getMockMvpState(sessionId), userId });
+
+    assert.ok(model);
+    const serialized = JSON.stringify({ chart:model.chartSnapshotJson, metadata:model.calculationMetadataJson });
+    for (const blocked of ["1992-08-15", "07:30", "Asia/Bangkok", "13.7563", "100.5018"]) {
+      assert.equal(serialized.includes(blocked), false);
+    }
+    assert.match(serialized, /redacted-mock-birth-datetime-local/);
+    assert.match(serialized, /redacted-mock-calculation-hash/);
+  });
 });
 
 function createStoredChart(input:{ birthTimeUnknown:boolean }) {

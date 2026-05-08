@@ -7,7 +7,7 @@ from app.core.aspects import calculate_aspects, calculate_cross_aspects, calcula
 from app.core.math import angular_distance, sign_index, stable_hash
 from app.core.profiles import get_profile, lagna_method_for_profile, thai_ketu_method_for_profile, validate_profile_engine_compatibility
 from app.core.storage import ChartSnapshotStore
-from app.core.thai_lagna import ThaiLagnaResult, calculate_thai_antonathi_saman_lagna
+from app.core.thai_lagna import ThaiLagnaResult, calculate_thai_antonathi_saman_lagna, reference_sunrise_local_datetime
 from app.core.time import (
     birth_datetime_local,
     date_from_datetime_local,
@@ -557,14 +557,13 @@ class AstroCoreService:
     ) -> ThaiLagnaResult | None:
         if lagna_method != "thai_antonathi_saman_local_time_sunrise" or not houses_reliable:
             return None
-        sunrise_probe = calculate_thai_antonathi_saman_lagna(
+        sunrise = reference_sunrise_local_datetime(
             local_datetime=local_datetime,
             timezone=timezone,
             latitude=latitude,
             longitude=longitude,
-            sunrise_sun_sidereal_longitude_deg=0,
         )
-        sunrise_local = f"{local_datetime.date().isoformat()}T{sunrise_probe.sunrise_local_time}:00"
+        sunrise_local = sunrise.isoformat(timespec="seconds")
         sunrise_utc = local_to_utc(sunrise_local, timezone)
         sunrise_jd_ut = round(julian_day_ut(sunrise_utc), 8)
         sunrise_sun = self.engine.planet_positions(sunrise_jd_ut, ["sun"], profile_ayanamsha, profile_node_type)["sun"]
@@ -893,16 +892,19 @@ def build_derived_points(houses: Houses, ayanamsha_deg: float | None, lagna_deg:
         return {}
     asc = houses.ascendant_deg
     lagna = lagna_deg if lagna_deg is not None else asc
+    house_reference = lagna_deg if lagna_deg is not None else houses.ascendant_deg
     points = {
-        "lagna": _derived_point(lagna, ayanamsha_deg, houses),
-        "descendant": _derived_point((asc + 180) % 360, ayanamsha_deg, houses),
+        "lagna": _derived_point(lagna, ayanamsha_deg, houses, house_reference),
+        "descendant": _derived_point((asc + 180) % 360, ayanamsha_deg, houses, houses.ascendant_deg),
     }
     if lagna_deg is not None:
-        points["astronomical_ascendant"] = _derived_point(asc, ayanamsha_deg, houses)
+        points["astronomical_ascendant"] = _derived_point(asc, ayanamsha_deg, houses, houses.ascendant_deg)
     return points
 
 
-def _derived_point(sidereal_longitude_deg: float, ayanamsha_deg: float | None, houses: Houses) -> PlanetPosition:
+def _derived_point(
+    sidereal_longitude_deg: float, ayanamsha_deg: float | None, houses: Houses, house_reference_deg: float | None
+) -> PlanetPosition:
     sidereal = round(sidereal_longitude_deg % 360, 8)
     tropical = sidereal if ayanamsha_deg is None else round((sidereal + ayanamsha_deg) % 360, 8)
     return PlanetPosition(
@@ -919,5 +921,5 @@ def _derived_point(sidereal_longitude_deg: float, ayanamsha_deg: float | None, h
         degree_in_sign=degree_in_sign(sidereal),
         retrograde=False,
         nakshatra=None,
-        house_number=whole_sign_house_number(sidereal, houses.ascendant_deg),
+        house_number=whole_sign_house_number(sidereal, house_reference_deg),
     )

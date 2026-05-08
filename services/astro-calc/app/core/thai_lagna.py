@@ -29,11 +29,9 @@ def calculate_thai_antonathi_saman_lagna(
     sunrise_sun_sidereal_longitude_deg: float,
 ) -> ThaiLagnaResult:
     correction_minutes = local_time_correction_minutes(longitude)
-    sunrise = approximate_sunrise_local_datetime(local_datetime, timezone, latitude, longitude)
+    sunrise = reference_sunrise_local_datetime(local_datetime, timezone, latitude, longitude)
     local_mean_datetime = local_datetime + timedelta(minutes=correction_minutes)
     elapsed_minutes = (local_mean_datetime - sunrise).total_seconds() / 60
-    if elapsed_minutes < 0:
-        elapsed_minutes += 24 * 60
     lagna = normalize_deg(
         sunrise_sun_sidereal_longitude_deg + elapsed_minutes / THAI_ANTONATHI_SAMAN_MINUTES_PER_DEG
     )
@@ -47,6 +45,16 @@ def calculate_thai_antonathi_saman_lagna(
 
 def local_time_correction_minutes(longitude: float) -> float:
     return (longitude - THAI_STANDARD_MERIDIAN_DEG) * 4
+
+
+def reference_sunrise_local_datetime(local_datetime: datetime, timezone: str, latitude: float, longitude: float) -> datetime:
+    correction_minutes = local_time_correction_minutes(longitude)
+    same_day_sunrise = approximate_sunrise_local_datetime(local_datetime, timezone, latitude, longitude)
+    local_mean_datetime = local_datetime + timedelta(minutes=correction_minutes)
+    if local_mean_datetime >= same_day_sunrise:
+        return same_day_sunrise
+    previous_day = local_datetime - timedelta(days=1)
+    return approximate_sunrise_local_datetime(previous_day, timezone, latitude, longitude)
 
 
 def approximate_sunrise_local_datetime(local_datetime: datetime, timezone: str, latitude: float, longitude: float) -> datetime:

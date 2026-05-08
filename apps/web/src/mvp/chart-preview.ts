@@ -227,9 +227,11 @@ function buildMockChartPreviewModel(input:{ state:MockMvpState; userId:string })
   const chart = [...input.state.chartSnapshots].reverse().find((item)=>item.userId===input.userId && item.birthProfileId===profile.id);
   if (!chart) return undefined;
   const metadata = metadataFromMockChart(chart);
+  const redactedChart = redactedMockChartSnapshot(chart);
+  const redactedMetadata = redactedMockMetadata(metadata);
   return {
     profile,
-    chart,
+    chart:redactedChart,
     dataSource:"mock_mvp_snapshot",
     warningBanner:"MOCK DATA - not valid for Thai astrology calculation verification",
     referenceNotice:null,
@@ -245,8 +247,8 @@ function buildMockChartPreviewModel(input:{ state:MockMvpState; userId:string })
       ic_deg:chart.angles.ic_deg,
     },
     houseCusps:chart.houses.cusps_deg.map((cusp, index)=>({ house:index+1, cusp_deg:cusp })),
-    chartSnapshotJson:chart,
-    calculationMetadataJson:metadata,
+    chartSnapshotJson:redactedChart,
+    calculationMetadataJson:redactedMetadata,
   };
 }
 
@@ -277,6 +279,34 @@ function metadataFromMockChart(chart:ChartSnapshot):ChartPreviewMetadata {
     ephemeris_fingerprint:chart.ephemeris_fingerprint,
     calculation_hash:chart.calculation_hash,
     warnings:["MOCK_DATA_NOT_VALID_FOR_THAI_ASTROLOGY_VERIFICATION", ...chart.warnings],
+  };
+}
+
+function redactedMockChartSnapshot(chart:ChartSnapshot):unknown {
+  return {
+    ...chart,
+    id:"[redacted-mock-chart-id]",
+    userId:"[redacted-mock-user-id]",
+    birthProfileId:"[redacted-mock-birth-profile-id]",
+    datetime_local:"[redacted-mock-birth-datetime-local]",
+    datetime_utc:"[redacted-mock-birth-datetime-utc]",
+    timezone:"[redacted-mock-timezone]",
+    latitude:"[redacted-mock-latitude]",
+    longitude:"[redacted-mock-longitude]",
+    julian_day_ut:"[redacted-mock-julian-day]",
+    calculation_hash:"[redacted-mock-calculation-hash]",
+  };
+}
+
+function redactedMockMetadata(metadata:ChartPreviewMetadata):ChartPreviewMetadata {
+  return {
+    ...metadata,
+    birth_datetime_local:"[redacted-mock-birth-datetime-local]",
+    birth_datetime_utc:"[redacted-mock-birth-datetime-utc]",
+    timezone:"[redacted-mock-timezone]",
+    latitude:Number.NaN,
+    longitude:Number.NaN,
+    calculation_hash:"[redacted-mock-calculation-hash]",
   };
 }
 

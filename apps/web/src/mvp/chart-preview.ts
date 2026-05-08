@@ -206,7 +206,8 @@ export function buildLiveSwissephChartPreviewModel(snapshot:unknown):ChartPrevie
 
   const metadata = liveMetadataFromSnapshot(root);
   validateLiveChartMetadata(metadata);
-  const planets = planetsFromLiveSnapshot(root, metadata);
+  const displayMetadata = sanitizeLiveChartPreviewMetadata(metadata);
+  const planets = planetsFromLiveSnapshot(root, displayMetadata);
   if (!planets.length) throw new Error("LIVE_CHART_PREVIEW_EMPTY_PLANET_TABLE");
 
   const houses = asRecord(root.houses);
@@ -221,20 +222,20 @@ export function buildLiveSwissephChartPreviewModel(snapshot:unknown):ChartPrevie
     dataSource:"live_swisseph_service",
     warningBanner:null,
     referenceNotice:"Live Swisseph service mode: values are returned by the configured astro-calc service for the Thai almanac golden validation input. This mode never falls back to Mock MVP data.",
-    metadata,
+    metadata:displayMetadata,
     planets,
     zodiacLayout:buildCounterclockwiseZodiacLayout(),
     housesReliable,
     angles:{
-      ascendant_deg:metadata.astronomical_ascendant_deg,
-      lagna_deg:metadata.thai_lagna_deg,
+      ascendant_deg:displayMetadata.astronomical_ascendant_deg,
+      lagna_deg:displayMetadata.thai_lagna_deg,
       mc_deg:numberValue(angles?.mc_deg),
       descendant_deg:numberValue(angles?.descendant_deg),
       ic_deg:numberValue(angles?.ic_deg),
     },
     houseCusps,
     chartSnapshotJson:chart,
-    calculationMetadataJson:metadata,
+    calculationMetadataJson:displayMetadata,
   };
 
   assertChartPreviewSafe(model);
@@ -584,6 +585,23 @@ function warningsFromLiveSnapshot(root:Record<string, unknown>):string[] {
   }).filter(Boolean);
 }
 
+function sanitizeLiveChartPreviewMetadata(metadata:ChartPreviewMetadata):ChartPreviewMetadata {
+  return {
+    ...metadata,
+    engine_version:sanitizeLiveChartPreviewString(metadata.engine_version),
+    house_system:sanitizeLiveChartPreviewString(metadata.house_system),
+    ketu_method:sanitizeLiveChartPreviewString(metadata.ketu_method),
+    thai_ketu_9_method:sanitizeLiveChartPreviewString(metadata.thai_ketu_9_method),
+    lagna_method:sanitizeLiveChartPreviewString(metadata.lagna_method),
+    lagna_source:sanitizeLiveChartPreviewString(metadata.lagna_source),
+    sunrise_local_time:metadata.sunrise_local_time === null ? null : sanitizeLiveChartPreviewString(metadata.sunrise_local_time),
+    ephemeris_source:sanitizeLiveChartPreviewString(metadata.ephemeris_source),
+    ephemeris_fingerprint:sanitizeLiveChartPreviewString(metadata.ephemeris_fingerprint),
+    calculation_hash:sanitizeLiveChartPreviewString(metadata.calculation_hash),
+    warnings:metadata.warnings.map(sanitizeLiveChartPreviewString),
+  };
+}
+
 function sanitizeLiveChartPreviewValue(value:unknown):unknown {
   if (Array.isArray(value)) return value.map(sanitizeLiveChartPreviewValue);
   if (value && typeof value === "object") {
@@ -596,6 +614,10 @@ function sanitizeLiveChartPreviewValue(value:unknown):unknown {
     }));
   }
   if (typeof value !== "string") return value;
+  return sanitizeLiveChartPreviewString(value);
+}
+
+function sanitizeLiveChartPreviewString(value:string):string {
   if (/@[a-z0-9.-]+/i.test(value)) return "[redacted-email]";
   if (/\bU[a-z0-9]{8,}\b/i.test(value)) return "[redacted-line-id]";
   if (/secret|token|api[_-]?key|webhook|bearer\s+/i.test(value)) return "[redacted-secret]";

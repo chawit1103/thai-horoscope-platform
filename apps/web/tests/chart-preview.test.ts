@@ -117,6 +117,9 @@ describe("chart preview", () => {
 
   it("redacts sensitive values from live raw JSON output", () => {
     const snapshot = liveServiceSnapshot({
+      override:{
+        ephemeris_source:"/opt/swisseph/sepl_18.se1",
+      },
       extra:{
         ephemeris_path:"/Users/chawit/private/ephemeris",
         mounted_file:"/opt/swisseph/sepl_18.se1",
@@ -130,6 +133,7 @@ describe("chart preview", () => {
     const serialized = JSON.stringify({ chart:model.chartSnapshotJson, metadata:model.calculationMetadataJson });
 
     assert.doesNotThrow(() => assertChartPreviewSafe(model));
+    assert.equal(model.metadata.ephemeris_source, "[redacted-path]");
     for (const blocked of ["/Users/chawit", "/opt/swisseph", "sk_live_abc123", "abc123", "UrawLineUserId123456", "beta@example.test"]) {
       assert.equal(serialized.includes(blocked), false);
     }

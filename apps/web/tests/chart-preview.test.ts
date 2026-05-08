@@ -89,7 +89,7 @@ describe("chart preview", () => {
     let requestedUrl = "";
     let requestedBody:unknown;
     const result = await fetchLiveChartPreviewModel({
-      env:{ ASTRO_CALC_SERVICE_URL:"http://localhost:8000" },
+      env:{ ASTRO_CALC_SERVICE_URL:"https://example.test/astro-calc" },
       fetcher:async (url, init) => {
         requestedUrl = String(url);
         requestedBody = JSON.parse(String(init?.body ?? "{}"));
@@ -97,7 +97,7 @@ describe("chart preview", () => {
       },
     });
 
-    assert.equal(requestedUrl, "http://localhost:8000/v1/charts/natal");
+    assert.equal(requestedUrl, "https://example.test/astro-calc/v1/charts/natal");
     assert.deepEqual(requestedBody, LIVE_CHART_PREVIEW_REQUEST);
     assert.ok(result.model);
     assert.equal(result.model.dataSource, "live_swisseph_service");

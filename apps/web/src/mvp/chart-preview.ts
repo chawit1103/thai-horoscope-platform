@@ -179,7 +179,7 @@ export async function fetchLiveChartPreviewModel(input?:{
   }
 
   try {
-    const endpoint = new URL("/v1/charts/natal", serviceUrl).toString();
+    const endpoint = liveChartPreviewEndpoint(serviceUrl);
     const response = await fetcher(endpoint, {
       method:"POST",
       headers:{ "content-type":"application/json" },
@@ -596,10 +596,16 @@ function normalizeServiceUrl(value:string|undefined):URL|null {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     if (url.username || url.password) return null;
+    url.search = "";
+    url.hash = "";
     return url;
   } catch {
     return null;
   }
+}
+
+function liveChartPreviewEndpoint(serviceUrl:URL):string {
+  return `${serviceUrl.toString().replace(/\/+$/, "")}/v1/charts/natal`;
 }
 
 function liveUnavailable(reason:string):LiveChartPreviewLoadResult {

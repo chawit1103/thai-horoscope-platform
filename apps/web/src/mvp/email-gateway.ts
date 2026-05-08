@@ -45,7 +45,9 @@ export class HttpEmailProvider implements EmailProvider {
   constructor(private readonly config:{ endpoint:string; apiKey:string; webhookSecret?:string; fetcher?:typeof fetch; activationEnv?:EnvironmentInput }) {}
 
   async send(request: EmailProviderRequest): Promise<EmailProviderResult> {
-    assertProviderNetworkAllowed(validateProviderActivationReadiness(this.config.activationEnv ?? process.env), "email");
+    const activationEnv = this.config.activationEnv ?? process.env;
+    assertProviderNetworkAllowed(validateProviderActivationReadiness(activationEnv), "email");
+    assertVerifiedEmailSender(request.from, activationEnv);
     const fetcher = this.config.fetcher ?? fetch;
     const response = await fetcher(this.config.endpoint, {
       method: "POST",
@@ -228,4 +230,12 @@ function verifySignedEmailWebhook(headers:Headers, body:string, secret:string|un
 function hmac(value:string, secret:string):string { return createHmac("sha256", secret).update(value).digest("base64url"); }
 function constantTimeEqual(a:string,b:string):boolean { const left=Buffer.from(a); const right=Buffer.from(b); return left.length===right.length && timingSafeEqual(left,right); }
 function normalizeEmail(email:string):string { return email.trim().toLowerCase(); }
+function assertVerifiedEmailSender(from:string, env:EnvironmentInput):void {
+  const normalizedFrom = normalizeEmail(from);
+  const configuredFrom = normalizeEmail(env.EMAIL_FROM_ADDRESS ?? "");
+  const verifiedDomain = normalizeEmail(env.EMAIL_VERIFIED_SENDER_DOMAIN ?? "");
+  const fromDomain = normalizedFrom.includes("@") ? normalizedFrom.split("@").at(-1) ?? "" : "";
+  if (!configuredFrom || normalizedFrom !== configuredFrom) throw new Error("EMAIL_VERIFIED_SENDER_MISMATCH");
+  if (!verifiedDomain || fromDomain !== verifiedDomain) throw new Error("EMAIL_VERIFIED_SENDER_MISMATCH");
+}
 function escapeHtml(value:string):string { return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }

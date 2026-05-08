@@ -7,6 +7,25 @@ const makeGateway = (provider: EmailProvider = new SandboxEmailProvider(), audit
   new EmailGateway({ provider, fromEmail: "noreply@example.test", sandboxMode: true, auditHashSecret: "test-audit-secret", auditLogs });
 
 const testNow = new Date("2026-05-03T10:00:00.000Z");
+const emailActivationEnv = {
+  APP_ENV:"staging",
+  ADMIN_SESSION_SECRET:"admin-session-secret",
+  EMAIL_PROVIDER_MODE:"http",
+  EMAIL_FROM_ADDRESS:"noreply@example.test",
+  EMAIL_PROVIDER_ENDPOINT:"https://email-provider.test/send",
+  EMAIL_PROVIDER_API_KEY:"test-key",
+  EMAIL_WEBHOOK_SECRET:"test-email-webhook-secret",
+  EMAIL_AUDIT_HASH_SECRET:"test-audit-secret",
+  EMAIL_VERIFIED_SENDER_DOMAIN:"example.test",
+  LINE_PROVIDER_MODE:"disabled",
+  PAYMENT_PROVIDER_MODE:"mock",
+  NOTIFICATION_SCHEDULER_MODE:"dry_run",
+  ASTRO_ENGINE:"mock",
+  SWISSEPH_LICENSE_MODE:"none",
+  ENABLE_REAL_EMAIL_SENDS:"true",
+  ENABLE_PROVIDER_DRY_RUN:"false",
+  REQUIRE_PROVIDER_ACTIVATION_APPROVAL:"true",
+};
 const createTestEmailAccount = (input: { userId:string; email:string }) => createEmailChannelAccount({ ...input, now: testNow });
 
 const signVerificationToken = (payload: Record<string, string>, secret: string) => {
@@ -188,6 +207,22 @@ describe("email gateway", () => {
     const result = await gateway.send(account, renderTransactionalEmailTemplate("email_verification", { actionUrl: "https://example.test/verify" }));
     assert.equal(result.status, "sent");
     assert.equal(fetchCalls, 0);
+  });
+
+  it("HttpEmailProvider requires configured verified sender before real sends", async () => {
+    let fetchCalls = 0;
+    const provider = new HttpEmailProvider({ endpoint: "https://email-provider.test/send", apiKey: "test-key", activationEnv:emailActivationEnv, fetcher: async () => {
+      fetchCalls += 1;
+      return new Response(null, { status: 200, headers:{ "x-provider-message-id":"provider_msg_1" } });
+    } });
+    const baseRequest = { to:"user@example.test", subject:"Test", text:"Test", html:"<p>Test</p>", headers:{} };
+
+    await assert.rejects(provider.send({ ...baseRequest, from:"alerts@other.example.test" }), /EMAIL_VERIFIED_SENDER_MISMATCH/);
+    assert.equal(fetchCalls, 0);
+
+    const result = await provider.send({ ...baseRequest, from:"NoReply@Example.Test" });
+    assert.equal(result.providerMessageId, "provider_msg_1");
+    assert.equal(fetchCalls, 1);
   });
 
   it("fails closed for default webhook verification", async () => {

@@ -175,7 +175,8 @@ Runtime ephemeris downloads: prohibited
 [ ] Codex review reports no major issues or only accepted non-blocking findings
 [ ] Known limitations are accepted and visible to operators/support
 [ ] Rollback target and owner are recorded
-[ ] Disable switches for Email, LINE, payment, scheduler, astro, and beta enrollment are documented
+[ ] Disable switches for Email, LINE, payment, scheduler, and astro are documented
+[ ] Beta enrollment pause procedure is documented as invite/allowlist revocation, or the launch is no-go if a one-step global flag is required
 [ ] Post-launch monitoring owner and watch window are recorded
 [ ] Beta communication and support process are ready
 [ ] PR29 real provider activation guardrails are merged or marked as a pending dependency
@@ -198,6 +199,7 @@ Runtime ephemeris downloads: prohibited
 [ ] PR31 is pending but beta invite/enrollment readiness is described as ready
 [ ] Launch tag is prepared before required checks, review, or human approval are complete
 [ ] Disable switches or rollback owner are missing
+[ ] Beta enrollment is marked quickly pausable while active invite codes or allowlist entries remain unrevoked
 ```
 
 ## Proof commands

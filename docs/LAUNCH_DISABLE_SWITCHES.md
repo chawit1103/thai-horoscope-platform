@@ -113,12 +113,24 @@ Verify:
 
 ## Disable beta enrollment
 
-Use the beta invite/content management controls documented in [Beta invite management](BETA_INVITE_MANAGEMENT.md). If a dedicated environment flag is available in the deployed environment, set it through the deployment platform only.
+There is no global beta-enrollment environment kill switch in this release candidate. The supported disable procedure is operator-controlled invite shutdown:
+
+```text
+[ ] Revoke every unredeemed shared invite code through the admin beta controls
+[ ] Revoke or remove every allowlisted email or mock user entry that can still enroll
+[ ] Stop creating new invite codes
+[ ] Confirm support and launch communications no longer publish active invite codes
+[ ] Confirm PR31 beta invite management is merged before treating this procedure as available
+```
+
+If the launch requires a one-step global enrollment pause flag, the beta decision is no-go until that flag is implemented and tested in a separate PR.
 
 Verify:
 
 ```text
-[ ] New beta invite redemption is paused
+[ ] New beta invite redemption is paused because no active invite or allowlist entry remains
+[ ] A previously valid but revoked invite code is rejected with a sanitized error
+[ ] Waitlisted and revoked users cannot enter beta-only flows
 [ ] Existing users retain only the intended beta access
 [ ] Support and feedback forms remain available
 [ ] Launch communications explain temporary enrollment pause without exposing internal incident details

@@ -53,6 +53,7 @@ Launch tag candidate:
 [ ] Content safety checks and unknown birth time warnings are visible
 [ ] Support and feedback plan is ready
 [ ] Beta release notes are prepared without PII, secrets, or overclaimed readiness
+[ ] Beta enrollment pause evidence is recorded: active invite codes and allowlist entries can be revoked, or one-step global pause is marked missing/no-go
 ```
 
 ## No-go if
@@ -75,6 +76,7 @@ Launch tag candidate:
 [ ] PR31 dependency is pending but invite/enrollment readiness is overclaimed or beta invite is marked go
 [ ] Rollback or disable-switch owner/process is unclear
 [ ] Swiss Ephemeris license, ephemeris path, manifest, or active profile approval is unclear while production swisseph is enabled
+[ ] Beta enrollment pause is described as a switch but only unrevoked active invite codes or allowlist entries exist
 ```
 
 ## Pending dependency record

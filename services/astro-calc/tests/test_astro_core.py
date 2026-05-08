@@ -2085,6 +2085,9 @@ class AstroCoreTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILE_MISSING"):
             SwissEphemerisEngine(config)
+        with patch("app.engines.swisseph.importlib.import_module", side_effect=ModuleNotFoundError("swisseph")):
+            with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILE_MISSING"):
+                SwissEphemerisEngine(config)
 
     def test_swisseph_adapter_fails_closed_when_ephemeris_directory_is_empty(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

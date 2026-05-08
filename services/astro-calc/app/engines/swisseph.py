@@ -42,7 +42,6 @@ class SwissEphemerisEngine(AstroEngine):
     def __init__(self, config: AstroRuntimeConfig, swe_module: Any | None = None) -> None:
         config.validate()
         self._config = config
-        self._swe = swe_module or importlib.import_module("swisseph")
         if config.ephemeris_path:
             self.ephemeris_source = "swiss-ephemeris"
             self.ephemeris_fingerprint = fingerprint_ephemeris_path(
@@ -51,11 +50,13 @@ class SwissEphemerisEngine(AstroEngine):
                 require_pinned=config.require_pinned_ephemeris,
                 active_profile=config.calculation_profile,
             )
+            self._swe = swe_module or importlib.import_module("swisseph")
             self._planet_flags = self._swe.FLG_SWIEPH | self._swe.FLG_SPEED
             self._sidereal_flags = self._swe.FLG_SWIEPH | self._swe.FLG_SIDEREAL | self._swe.FLG_SPEED
             self._required_ephemeris_flag = self._swe.FLG_SWIEPH
             self._swe.set_ephe_path(config.ephemeris_path)
         else:
+            self._swe = swe_module or importlib.import_module("swisseph")
             self.ephemeris_source = "swiss-ephemeris-moshier"
             self.ephemeris_fingerprint = "swisseph-moshier-built-in"
             self._planet_flags = self._swe.FLG_MOSEPH | self._swe.FLG_SPEED

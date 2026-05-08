@@ -30,13 +30,13 @@ from app.schemas import (
 )
 
 
-def approved_ephemeris_manifest(manifest: dict[str, object]) -> dict[str, object]:
+def approved_ephemeris_manifest(manifest: dict[str, object], profiles: list[str] | None = None) -> dict[str, object]:
     return {
         **manifest,
         "license_mode": "professional",
         "approved_by": "astro-ops",
         "approval_date": "2026-05-08",
-        "calculation_profiles": ["TH_NIRAYANA_V1"],
+        "calculation_profiles": profiles or ["TH_NIRAYANA_V1"],
     }
 
 
@@ -1813,6 +1813,42 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(report["status"], "error")
         self.assertEqual(report["error_code"], "SWISSEPH_ADAPTER_UNAVAILABLE")
 
+    def test_health_rejects_pinned_manifest_without_active_profile_approval(self) -> None:
+        names = [
+            "APP_ENV",
+            "ASTRO_ENGINE",
+            "ASTRO_CALCULATION_PROFILE",
+            "SWISSEPH_LICENSE_MODE",
+            "ASTRO_EPHEMERIS_PATH",
+            "ASTRO_EPHEMERIS_MANIFEST_PATH",
+            "ASTRO_REQUIRE_PINNED_EPHEMERIS",
+        ]
+        previous = {name: os.environ.get(name) for name in names}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"fixture")
+            manifest = approved_ephemeris_manifest(build_ephemeris_file_manifest(temp_dir), profiles=["TH_NIRAYANA_V1"])
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            os.environ["APP_ENV"] = "production"
+            os.environ["ASTRO_ENGINE"] = "swisseph"
+            os.environ["ASTRO_CALCULATION_PROFILE"] = "TH_SIMPLE_RASI_V1"
+            os.environ["SWISSEPH_LICENSE_MODE"] = "professional"
+            os.environ["ASTRO_EPHEMERIS_PATH"] = temp_dir
+            os.environ["ASTRO_EPHEMERIS_MANIFEST_PATH"] = str(manifest_path)
+            os.environ["ASTRO_REQUIRE_PINNED_EPHEMERIS"] = "true"
+            try:
+                report = health()
+            finally:
+                for name, value in previous.items():
+                    if value is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = value
+
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["error_code"], "EPHEMERIS_PROFILE_NOT_APPROVED")
+
     def test_health_rejects_swisseph_fallback_return_flags(self) -> None:
         names = [
             "APP_ENV",
@@ -2040,6 +2076,30 @@ class AstroCoreTests(unittest.TestCase):
             manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_INVALID"):
                 fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
+
+    def test_pinned_ephemeris_manifest_requires_active_profile_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"fixture")
+            manifest = build_ephemeris_file_manifest(temp_dir)
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text(json.dumps(approved_ephemeris_manifest(manifest), sort_keys=True), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "EPHEMERIS_PROFILE_NOT_APPROVED"):
+                fingerprint_ephemeris_path(
+                    temp_dir,
+                    manifest_path=str(manifest_path),
+                    require_pinned=True,
+                    active_profile="TH_SIMPLE_RASI_V1",
+                )
+            self.assertEqual(
+                fingerprint_ephemeris_path(
+                    temp_dir,
+                    manifest_path=str(manifest_path),
+                    require_pinned=True,
+                    active_profile="TH_NIRAYANA_V1",
+                ),
+                manifest["fingerprint"],
+            )
 
     def test_ephemeris_manifest_accepts_operator_runbook_file_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

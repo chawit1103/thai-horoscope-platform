@@ -35,6 +35,7 @@ def validate_swisseph_health(config: AstroRuntimeConfig) -> None:
         config.ephemeris_path,
         manifest_path=config.ephemeris_manifest_path,
         require_pinned=config.require_pinned_ephemeris,
+        active_profile=config.calculation_profile,
     )
     if config.runtime_env != "production" and not config.require_pinned_ephemeris:
         return

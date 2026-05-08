@@ -46,6 +46,7 @@ class SwissEphemerisEngine(AstroEngine):
             config.ephemeris_path,
             manifest_path=config.ephemeris_manifest_path,
             require_pinned=config.require_pinned_ephemeris,
+            active_profile=config.calculation_profile,
         )
         self._swe = swe_module or importlib.import_module("swisseph")
         self._swe.set_ephe_path(config.ephemeris_path)
@@ -140,14 +141,25 @@ class SwissEphemerisEngine(AstroEngine):
             raise ValueError("SWISSEPH_FALLBACK_FORBIDDEN: Swiss Ephemeris calculation did not use pinned ephemeris files.")
 
 
-def fingerprint_ephemeris_path(path: str | None, *, manifest_path: str | None = None, require_pinned: bool = False) -> str:
+def fingerprint_ephemeris_path(
+    path: str | None,
+    *,
+    manifest_path: str | None = None,
+    require_pinned: bool = False,
+    active_profile: str | None = None,
+) -> str:
     if not path:
         return "swisseph-unset"
     manifest = build_ephemeris_file_manifest(path)
     if require_pinned and not manifest_path:
         raise PermissionError("EPHEMERIS_MANIFEST_REQUIRED: Pinned ephemeris validation requires ASTRO_EPHEMERIS_MANIFEST_PATH.")
     if manifest_path:
-        validate_ephemeris_manifest(manifest, manifest_path, require_file_manifest=require_pinned)
+        validate_ephemeris_manifest(
+            manifest,
+            manifest_path,
+            require_file_manifest=require_pinned,
+            active_profile=active_profile,
+        )
     return str(manifest["fingerprint"])
 
 
@@ -167,7 +179,13 @@ def build_ephemeris_file_manifest(path: str) -> dict[str, object]:
     return {"fingerprint": f"swisseph-path-{aggregate_digest.hexdigest()[:16]}", "files": entries}
 
 
-def validate_ephemeris_manifest(actual_manifest: dict[str, object], manifest_path: str, *, require_file_manifest: bool = False) -> None:
+def validate_ephemeris_manifest(
+    actual_manifest: dict[str, object],
+    manifest_path: str,
+    *,
+    require_file_manifest: bool = False,
+    active_profile: str | None = None,
+) -> None:
     path = Path(manifest_path)
     if not path.exists() or not path.is_file():
         raise FileNotFoundError("EPHEMERIS_MANIFEST_MISSING: ASTRO_EPHEMERIS_MANIFEST_PATH does not exist.")
@@ -184,27 +202,37 @@ def validate_ephemeris_manifest(actual_manifest: dict[str, object], manifest_pat
     if require_file_manifest and expected_files is None:
         raise ValueError("EPHEMERIS_MANIFEST_INVALID: pinned ephemeris manifest requires file entries.")
     if require_file_manifest:
-        _validate_manifest_approval_metadata(expected)
+        _validate_manifest_approval_metadata(expected, active_profile=active_profile)
     if expected_files is not None and _normalize_manifest_files(expected_files) != _normalize_manifest_files(actual_manifest["files"]):
         raise ValueError("EPHEMERIS_MANIFEST_MISMATCH: ephemeris file manifest does not match.")
 
 
-def _validate_manifest_approval_metadata(value: dict[str, object]) -> None:
+def _validate_manifest_approval_metadata(value: dict[str, object], *, active_profile: str | None = None) -> None:
     license_mode = value.get("license_mode")
     approved_by = value.get("approved_by")
     approval_date = value.get("approval_date")
     profiles = value.get("calculation_profiles") or value.get("calculation_profile_code")
-    has_profile_string = isinstance(profiles, str) and bool(profiles.strip())
-    has_profile_list = isinstance(profiles, list) and any(isinstance(profile, str) and profile.strip() for profile in profiles)
+    approved_profiles = _approved_manifest_profiles(profiles)
     if (
         license_mode != "professional"
         or not isinstance(approved_by, str)
         or not approved_by.strip()
         or not isinstance(approval_date, str)
         or not approval_date.strip()
-        or not (has_profile_string or has_profile_list)
+        or not approved_profiles
     ):
         raise ValueError("EPHEMERIS_MANIFEST_INVALID: pinned ephemeris manifest requires approval metadata.")
+    if active_profile and active_profile not in approved_profiles:
+        raise ValueError("EPHEMERIS_PROFILE_NOT_APPROVED: active calculation profile is not approved by pinned ephemeris manifest.")
+
+
+def _approved_manifest_profiles(value: object) -> set[str]:
+    if isinstance(value, str):
+        profile = value.strip()
+        return {profile} if profile else set()
+    if isinstance(value, list):
+        return {profile.strip() for profile in value if isinstance(profile, str) and profile.strip()}
+    return set()
 
 
 def _normalize_manifest_files(value: object) -> list[dict[str, object]]:

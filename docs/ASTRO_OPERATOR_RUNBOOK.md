@@ -83,6 +83,8 @@ approval_date:
 rollback_profile_code:
 ```
 
+The manifest approval must match the active `ASTRO_CALCULATION_PROFILE`. For a multi-profile file set, use `calculation_profiles`; for a single approved profile, `calculation_profile_code` is accepted. Production and pinned staging health checks fail closed if the active profile is not listed.
+
 Each manifest item should include:
 
 ```text

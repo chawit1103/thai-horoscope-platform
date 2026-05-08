@@ -472,6 +472,7 @@ function validateLiveChartMetadata(metadata:ChartPreviewMetadata):void {
   if (metadata.zodiac_type !== "sidereal") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_ZODIAC");
   if (metadata.ayanamsa_code.toUpperCase() !== "LAHIRI") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_AYANAMSA");
   if (metadata.node_type !== "mean_node") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_NODE_TYPE");
+  if (!metadata.ephemeris_fingerprint.trim()) throw new Error("LIVE_CHART_PREVIEW_MISSING_EPHEMERIS_FINGERPRINT");
 }
 
 function planetsFromLiveSnapshot(root:Record<string, unknown>, metadata:ChartPreviewMetadata):ChartPreviewPlanet[] {
@@ -567,10 +568,13 @@ function warningsFromLiveSnapshot(root:Record<string, unknown>):string[] {
 function sanitizeLiveChartPreviewValue(value:unknown):unknown {
   if (Array.isArray(value)) return value.map(sanitizeLiveChartPreviewValue);
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nestedValue])=>[
-      sanitizeLiveChartPreviewKey(key),
-      sanitizeLiveChartPreviewValue(nestedValue),
-    ]));
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nestedValue])=>{
+      const sanitizedKey = sanitizeLiveChartPreviewKey(key);
+      return [
+        sanitizedKey,
+        sanitizedKey === key ? sanitizeLiveChartPreviewValue(nestedValue) : "[redacted-sensitive-value]",
+      ];
+    }));
   }
   if (typeof value !== "string") return value;
   if (/@[a-z0-9.-]+/i.test(value)) return "[redacted-email]";

@@ -119,7 +119,8 @@ describe("chart preview", () => {
     const snapshot = liveServiceSnapshot({
       extra:{
         ephemeris_path:"/Users/chawit/private/ephemeris",
-        provider_secret:"api_key=secret-token",
+        provider_secret:"sk_live_abc123",
+        token:"abc123",
         line_user:"UrawLineUserId123456",
         contact:"beta@example.test",
       },
@@ -128,9 +129,26 @@ describe("chart preview", () => {
     const serialized = JSON.stringify({ chart:model.chartSnapshotJson, metadata:model.calculationMetadataJson });
 
     assert.doesNotThrow(() => assertChartPreviewSafe(model));
-    for (const blocked of ["/Users/chawit", "api_key", "secret-token", "UrawLineUserId123456", "beta@example.test"]) {
+    for (const blocked of ["/Users/chawit", "sk_live_abc123", "abc123", "UrawLineUserId123456", "beta@example.test"]) {
       assert.equal(serialized.includes(blocked), false);
     }
+  });
+
+  it("rejects live service responses without an ephemeris fingerprint", () => {
+    const snapshot = liveServiceSnapshot({
+      override:{
+        ephemeris_fingerprint:"",
+        engine:{
+          name:"swisseph",
+          version:"adapter-0.1.0",
+          license_mode:"free",
+          ephemeris_path_configured:false,
+          ephemeris_fingerprint:"",
+        },
+      },
+    });
+
+    assert.throws(() => buildLiveSwissephChartPreviewModel(snapshot), /LIVE_CHART_PREVIEW_MISSING_EPHEMERIS_FINGERPRINT/);
   });
 
   it("marks live mode available only after a successful service-backed model exists", () => {
@@ -346,8 +364,8 @@ function createStoredChart(input:{ birthTimeUnknown:boolean }) {
   return storeChartSnapshot(callMockAstroCalc(profile), sessionId);
 }
 
-function liveServiceSnapshot(input?:{ extra?:Record<string, unknown> }) {
-  return {
+function liveServiceSnapshot(input?:{ extra?:Record<string, unknown>; override?:Record<string, unknown> }) {
+  const snapshot = {
     chart_type:"natal",
     engine_name:"swisseph",
     engine:{
@@ -430,6 +448,7 @@ function liveServiceSnapshot(input?:{ extra?:Record<string, unknown> }) {
       ...input?.extra,
     },
   };
+  return { ...snapshot, ...input?.override };
 }
 
 function livePlanet(

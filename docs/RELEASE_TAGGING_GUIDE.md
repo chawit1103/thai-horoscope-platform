@@ -71,10 +71,19 @@ Never include secrets, raw provider payloads, raw email addresses, raw LINE user
 ```bash
 git fetch origin --tags
 git show --stat beta-rc-YYYYMMDD-N
+git rev-list -n 1 beta-rc-YYYYMMDD-N
+git tag -n99 beta-rc-YYYYMMDD-N
+```
+
+For unsigned annotated tags created with `git tag -a`, verify that `git rev-list -n 1` matches the approved commit and that the tag message contains the expected RC metadata.
+
+If the team uses signed tags, create the tag with `git tag -s` instead of `git tag -a`, then add:
+
+```bash
 git tag -v beta-rc-YYYYMMDD-N
 ```
 
-If signed tags are not configured, record that explicitly in the execution log and verify the tag target commit through GitHub instead.
+If signed tags are not configured, record that explicitly in the execution log and verify the tag target commit through GitHub or the commands above instead.
 
 ## Roll back a tag or deployment
 

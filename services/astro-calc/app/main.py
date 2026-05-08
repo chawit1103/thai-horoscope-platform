@@ -24,14 +24,29 @@ def health() -> dict[str, str]:
     try:
         config.validate()
         if config.engine == "swisseph":
-            fingerprint_ephemeris_path(
-                config.ephemeris_path,
-                manifest_path=config.ephemeris_manifest_path,
-                require_pinned=config.require_pinned_ephemeris,
-            )
-    except (PermissionError, ValueError, FileNotFoundError) as error:
+            validate_swisseph_health(config)
+    except (PermissionError, ValueError, FileNotFoundError, RuntimeError) as error:
         return {**base, "status": "error", "error_code": str(error).split(":", 1)[0]}
     return {**base, "status": "ok"}
+
+
+def validate_swisseph_health(config: AstroRuntimeConfig) -> None:
+    fingerprint_ephemeris_path(
+        config.ephemeris_path,
+        manifest_path=config.ephemeris_manifest_path,
+        require_pinned=config.require_pinned_ephemeris,
+    )
+    if config.runtime_env != "production":
+        return
+    try:
+        engine = create_engine(config)
+        engine.ayanamsha_deg(2451545.0, config.default_ayanamsha)
+    except ImportError as error:
+        raise RuntimeError("SWISSEPH_ADAPTER_UNAVAILABLE: Swiss Ephemeris adapter cannot be loaded.") from error
+    except (PermissionError, ValueError, FileNotFoundError):
+        raise
+    except Exception as error:
+        raise RuntimeError("SWISSEPH_HEALTH_CHECK_FAILED: Swiss Ephemeris adapter probe failed.") from error
 
 
 def health_value(value: str, allowed: set[str]) -> str:

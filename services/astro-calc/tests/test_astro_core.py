@@ -1817,6 +1817,16 @@ class AstroCoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_MISMATCH"):
                 fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
 
+    def test_pinned_ephemeris_manifest_requires_file_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"fixture")
+            manifest = build_ephemeris_file_manifest(temp_dir)
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text(json.dumps({"fingerprint": manifest["fingerprint"]}, sort_keys=True), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_INVALID"):
+                fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
+
     def test_mock_engine_works_without_license_or_ephemeris_path(self) -> None:
         config = AstroRuntimeConfig(engine="mock", swisseph_license_mode="none", ephemeris_path=None)
         config.validate()

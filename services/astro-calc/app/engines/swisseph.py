@@ -141,7 +141,7 @@ def fingerprint_ephemeris_path(path: str | None, *, manifest_path: str | None = 
     if require_pinned and not manifest_path:
         raise PermissionError("EPHEMERIS_MANIFEST_REQUIRED: Pinned ephemeris validation requires ASTRO_EPHEMERIS_MANIFEST_PATH.")
     if manifest_path:
-        validate_ephemeris_manifest(manifest, manifest_path)
+        validate_ephemeris_manifest(manifest, manifest_path, require_file_manifest=require_pinned)
     return str(manifest["fingerprint"])
 
 
@@ -159,7 +159,7 @@ def build_ephemeris_file_manifest(path: str) -> dict[str, object]:
     return {"fingerprint": f"swisseph-path-{aggregate_digest.hexdigest()[:16]}", "files": entries}
 
 
-def validate_ephemeris_manifest(actual_manifest: dict[str, object], manifest_path: str) -> None:
+def validate_ephemeris_manifest(actual_manifest: dict[str, object], manifest_path: str, *, require_file_manifest: bool = False) -> None:
     path = Path(manifest_path)
     if not path.exists() or not path.is_file():
         raise FileNotFoundError("EPHEMERIS_MANIFEST_MISSING: ASTRO_EPHEMERIS_MANIFEST_PATH does not exist.")
@@ -171,6 +171,8 @@ def validate_ephemeris_manifest(actual_manifest: dict[str, object], manifest_pat
     if expected_fingerprint != actual_manifest["fingerprint"]:
         raise ValueError("EPHEMERIS_MANIFEST_MISMATCH: ephemeris fingerprint does not match manifest.")
     expected_files = expected.get("files") or expected.get("file_manifest")
+    if require_file_manifest and expected_files is None:
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: pinned ephemeris manifest requires file entries.")
     if expected_files is not None and _normalize_manifest_files(expected_files) != _normalize_manifest_files(actual_manifest["files"]):
         raise ValueError("EPHEMERIS_MANIFEST_MISMATCH: ephemeris file manifest does not match.")
 

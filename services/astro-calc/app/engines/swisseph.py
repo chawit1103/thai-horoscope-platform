@@ -86,8 +86,10 @@ class SwissEphemerisEngine(AstroEngine):
                 )
                 continue
             body_id = self._body_id(name, node_type)
-            tropical_raw, _return_flag = self._swe.calc_ut(jd_ut, body_id, tropical_flags)
-            sidereal_raw, _return_flag = self._swe.calc_ut(jd_ut, body_id, sidereal_flags)
+            tropical_raw, tropical_return_flag = self._swe.calc_ut(jd_ut, body_id, tropical_flags)
+            sidereal_raw, sidereal_return_flag = self._swe.calc_ut(jd_ut, body_id, sidereal_flags)
+            self._require_swisseph_flag(tropical_return_flag)
+            self._require_swisseph_flag(sidereal_return_flag)
             tropical = normalize_deg(float(tropical_raw[0]))
             sidereal = normalize_deg(float(sidereal_raw[0]))
             speed = float(sidereal_raw[3])
@@ -132,6 +134,10 @@ class SwissEphemerisEngine(AstroEngine):
         if ayanamsha != "lahiri":
             raise ValueError(f"Unsupported Swiss Ephemeris ayanamsha: {ayanamsha}")
         self._swe.set_sid_mode(self._swe.SIDM_LAHIRI, 0, 0)
+
+    def _require_swisseph_flag(self, return_flag: int) -> None:
+        if int(return_flag) & int(self._swe.FLG_SWIEPH) != int(self._swe.FLG_SWIEPH):
+            raise ValueError("SWISSEPH_FALLBACK_FORBIDDEN: Swiss Ephemeris calculation did not use pinned ephemeris files.")
 
 
 def fingerprint_ephemeris_path(path: str | None, *, manifest_path: str | None = None, require_pinned: bool = False) -> str:

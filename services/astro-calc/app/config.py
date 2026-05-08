@@ -56,6 +56,10 @@ class AstroRuntimeConfig:
                 raise PermissionError("LICENSE_MODE_NOT_PRODUCTION_READY: Swiss Ephemeris production use requires SWISSEPH_LICENSE_MODE=professional.")
             if not self.ephemeris_path:
                 raise PermissionError("EPHEMERIS_FILE_MISSING: Swiss Ephemeris production use requires ASTRO_EPHEMERIS_PATH.")
+            if not self.require_pinned_ephemeris:
+                raise PermissionError("EPHEMERIS_PINNING_REQUIRED: Swiss Ephemeris production use requires ASTRO_REQUIRE_PINNED_EPHEMERIS=true.")
+            if not self.ephemeris_manifest_path:
+                raise PermissionError("EPHEMERIS_MANIFEST_REQUIRED: Swiss Ephemeris production use requires ASTRO_EPHEMERIS_MANIFEST_PATH.")
         if self.engine == "swisseph" and self.runtime_env != "production":
             if self.swisseph_license_mode == "none":
                 raise PermissionError("LICENSE_MODE_NOT_PRODUCTION_READY: Swiss Ephemeris local/test use requires an explicit license mode.")

@@ -1463,7 +1463,24 @@ class AstroCoreTests(unittest.TestCase):
             AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="free", ephemeris_path="/tmp").validate()
         with self.assertRaisesRegex(PermissionError, "EPHEMERIS_FILE_MISSING"):
             AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="professional").validate()
-        AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="professional", ephemeris_path="/tmp").validate()
+        with self.assertRaisesRegex(PermissionError, "EPHEMERIS_PINNING_REQUIRED"):
+            AstroRuntimeConfig(engine="swisseph", runtime_env="production", swisseph_license_mode="professional", ephemeris_path="/tmp").validate()
+        with self.assertRaisesRegex(PermissionError, "EPHEMERIS_MANIFEST_REQUIRED"):
+            AstroRuntimeConfig(
+                engine="swisseph",
+                runtime_env="production",
+                swisseph_license_mode="professional",
+                ephemeris_path="/tmp",
+                require_pinned_ephemeris=True,
+            ).validate()
+        AstroRuntimeConfig(
+            engine="swisseph",
+            runtime_env="production",
+            swisseph_license_mode="professional",
+            ephemeris_path="/tmp",
+            ephemeris_manifest_path="/tmp/ephemeris-manifest.json",
+            require_pinned_ephemeris=True,
+        ).validate()
 
     def test_runtime_environment_reads_deployment_sources_before_node_env(self) -> None:
         names = ["APP_ENV", "DEPLOYMENT_ENV", "VERCEL_ENV", "NODE_ENV", "ENVIRONMENT"]
@@ -1647,11 +1664,23 @@ class AstroCoreTests(unittest.TestCase):
         self.assertEqual(report["error_code"], "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN")
 
     def test_health_verifies_swisseph_ephemeris_path_exists_without_exposing_it(self) -> None:
-        previous = {name: os.environ.get(name) for name in ["ASTRO_ENGINE", "NODE_ENV", "SWISSEPH_LICENSE_MODE", "ASTRO_EPHEMERIS_PATH"]}
+        previous = {
+            name: os.environ.get(name)
+            for name in [
+                "ASTRO_ENGINE",
+                "NODE_ENV",
+                "SWISSEPH_LICENSE_MODE",
+                "ASTRO_EPHEMERIS_PATH",
+                "ASTRO_EPHEMERIS_MANIFEST_PATH",
+                "ASTRO_REQUIRE_PINNED_EPHEMERIS",
+            ]
+        }
         os.environ["ASTRO_ENGINE"] = "swisseph"
         os.environ["NODE_ENV"] = "production"
         os.environ["SWISSEPH_LICENSE_MODE"] = "professional"
         os.environ["ASTRO_EPHEMERIS_PATH"] = "/private/missing/ephemeris/path"
+        os.environ["ASTRO_EPHEMERIS_MANIFEST_PATH"] = "/private/missing/ephemeris/ephemeris-manifest.json"
+        os.environ["ASTRO_REQUIRE_PINNED_EPHEMERIS"] = "true"
         try:
             report = health()
         finally:
@@ -1755,6 +1784,7 @@ class AstroCoreTests(unittest.TestCase):
             runtime_env="production",
             swisseph_license_mode="professional",
             ephemeris_path="/tmp/thai-horoscope-missing-production-ephemeris",
+            ephemeris_manifest_path="/tmp/thai-horoscope-missing-production-ephemeris/ephemeris-manifest.json",
             require_pinned_ephemeris=True,
         )
         with self.assertRaisesRegex(FileNotFoundError, "EPHEMERIS_FILE_MISSING"):
@@ -1770,6 +1800,7 @@ class AstroCoreTests(unittest.TestCase):
                     runtime_env="production",
                     swisseph_license_mode="professional",
                     ephemeris_path=ephemeris_path,
+                    ephemeris_manifest_path=str(Path(ephemeris_path) / "ephemeris-manifest.json"),
                     require_pinned_ephemeris=True,
                 )
                 with self.assertRaisesRegex(FileNotFoundError, error_code):
@@ -1783,8 +1814,27 @@ class AstroCoreTests(unittest.TestCase):
                 runtime_env="production",
                 swisseph_license_mode="professional",
                 ephemeris_path=temp_dir,
+                require_pinned_ephemeris=True,
             )
             with self.assertRaisesRegex(PermissionError, "EPHEMERIS_MANIFEST_REQUIRED"):
+                SwissEphemerisEngine(config, swe_module=FakeSwe())
+
+    def test_swisseph_production_requires_explicit_pinning_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"fixture")
+            manifest = build_ephemeris_file_manifest(temp_dir)
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+            config = AstroRuntimeConfig(
+                engine="swisseph",
+                runtime_env="production",
+                swisseph_license_mode="professional",
+                ephemeris_path=temp_dir,
+                ephemeris_manifest_path=str(manifest_path),
+                require_pinned_ephemeris=False,
+            )
+            with self.assertRaisesRegex(PermissionError, "EPHEMERIS_PINNING_REQUIRED"):
                 SwissEphemerisEngine(config, swe_module=FakeSwe())
 
     def test_swisseph_production_passes_with_supported_fixture_and_matching_manifest(self) -> None:
@@ -1826,6 +1876,22 @@ class AstroCoreTests(unittest.TestCase):
             manifest_path.write_text(json.dumps({"fingerprint": manifest["fingerprint"]}, sort_keys=True), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_INVALID"):
                 fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
+
+    def test_ephemeris_manifest_must_be_json_object(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"fixture")
+            manifest_path = root / "ephemeris-manifest.json"
+            manifest_path.write_text("[]", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "EPHEMERIS_MANIFEST_INVALID"):
+                fingerprint_ephemeris_path(temp_dir, manifest_path=str(manifest_path), require_pinned=True)
+
+    def test_supported_ephemeris_files_must_be_non_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "sepl_18.se1").write_bytes(b"")
+            with self.assertRaisesRegex(ValueError, "EPHEMERIS_FILE_EMPTY"):
+                fingerprint_ephemeris_path(temp_dir)
 
     def test_mock_engine_works_without_license_or_ephemeris_path(self) -> None:
         config = AstroRuntimeConfig(engine="mock", swisseph_license_mode="none", ephemeris_path=None)

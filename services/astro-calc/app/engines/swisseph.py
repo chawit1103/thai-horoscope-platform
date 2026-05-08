@@ -45,7 +45,7 @@ class SwissEphemerisEngine(AstroEngine):
         self.ephemeris_fingerprint = fingerprint_ephemeris_path(
             config.ephemeris_path,
             manifest_path=config.ephemeris_manifest_path,
-            require_pinned=config.require_pinned_ephemeris or config.runtime_env == "production",
+            require_pinned=config.require_pinned_ephemeris,
         )
         self._swe = swe_module or importlib.import_module("swisseph")
         self._swe.set_ephe_path(config.ephemeris_path)
@@ -153,6 +153,8 @@ def build_ephemeris_file_manifest(path: str) -> dict[str, object]:
     for file_path in files:
         relative_name = file_path.name if root.is_file() else file_path.relative_to(root).as_posix()
         size = file_path.stat().st_size
+        if size <= 0:
+            raise ValueError("EPHEMERIS_FILE_EMPTY: supported Swiss Ephemeris files must be non-empty.")
         content_digest = _sha256_file(file_path)
         entries.append({"name": relative_name, "size": size, "sha256": content_digest})
         aggregate_digest.update(f"{relative_name}|{size}|{content_digest}\n".encode("utf-8"))
@@ -167,6 +169,8 @@ def validate_ephemeris_manifest(actual_manifest: dict[str, object], manifest_pat
         expected = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
         raise ValueError("EPHEMERIS_MANIFEST_INVALID: manifest must be valid JSON.") from error
+    if not isinstance(expected, dict):
+        raise ValueError("EPHEMERIS_MANIFEST_INVALID: manifest must be a JSON object.")
     expected_fingerprint = expected.get("fingerprint") or expected.get("combined_fingerprint") or expected.get("ephemeris_fingerprint")
     if expected_fingerprint != actual_manifest["fingerprint"]:
         raise ValueError("EPHEMERIS_MANIFEST_MISMATCH: ephemeris fingerprint does not match manifest.")

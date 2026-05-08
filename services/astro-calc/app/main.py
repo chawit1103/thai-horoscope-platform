@@ -27,7 +27,7 @@ def health() -> dict[str, str]:
             fingerprint_ephemeris_path(
                 config.ephemeris_path,
                 manifest_path=config.ephemeris_manifest_path,
-                require_pinned=config.require_pinned_ephemeris or config.runtime_env == "production",
+                require_pinned=config.require_pinned_ephemeris,
             )
     except (PermissionError, ValueError, FileNotFoundError) as error:
         return {**base, "status": "error", "error_code": str(error).split(":", 1)[0]}

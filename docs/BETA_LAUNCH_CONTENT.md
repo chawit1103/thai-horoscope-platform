@@ -41,6 +41,13 @@ Use the copy pack exposed by `getBetaLaunchCopy()` for:
 - beta feedback request
 - support/contact placeholder
 
+Related operator/user communication docs:
+
+- [Beta launch content pack](BETA_LAUNCH_CONTENT_PACK.md)
+- [Beta user FAQ](BETA_USER_FAQ.md)
+- [Beta support templates](BETA_SUPPORT_TEMPLATES.md)
+- [Beta feedback guide](BETA_FEEDBACK_GUIDE.md)
+
 Required disclaimer:
 
 ```text

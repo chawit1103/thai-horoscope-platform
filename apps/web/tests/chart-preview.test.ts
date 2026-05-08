@@ -119,6 +119,7 @@ describe("chart preview", () => {
     const snapshot = liveServiceSnapshot({
       extra:{
         ephemeris_path:"/Users/chawit/private/ephemeris",
+        mounted_file:"/opt/swisseph/sepl_18.se1",
         provider_secret:"sk_live_abc123",
         token:"abc123",
         line_user:"UrawLineUserId123456",
@@ -129,7 +130,7 @@ describe("chart preview", () => {
     const serialized = JSON.stringify({ chart:model.chartSnapshotJson, metadata:model.calculationMetadataJson });
 
     assert.doesNotThrow(() => assertChartPreviewSafe(model));
-    for (const blocked of ["/Users/chawit", "sk_live_abc123", "abc123", "UrawLineUserId123456", "beta@example.test"]) {
+    for (const blocked of ["/Users/chawit", "/opt/swisseph", "sk_live_abc123", "abc123", "UrawLineUserId123456", "beta@example.test"]) {
       assert.equal(serialized.includes(blocked), false);
     }
   });

@@ -580,7 +580,7 @@ function sanitizeLiveChartPreviewValue(value:unknown):unknown {
   if (/@[a-z0-9.-]+/i.test(value)) return "[redacted-email]";
   if (/\bU[a-z0-9]{8,}\b/i.test(value)) return "[redacted-line-id]";
   if (/secret|token|api[_-]?key|webhook|bearer\s+/i.test(value)) return "[redacted-secret]";
-  if (/\/Users\/|\/private\/|\/Volumes\/|\/mounted\/|\/tmp\/|[A-Za-z]:\\/i.test(value)) return "[redacted-path]";
+  if (/(^|\s)\/[A-Za-z0-9._/-]+|[A-Za-z]:\\/i.test(value)) return "[redacted-path]";
   return value;
 }
 
@@ -677,7 +677,7 @@ export function assertChartPreviewSafe(model:ChartPreviewModel):void {
     /api[_-]?key/i,
     /bearer\s+/i,
     /card/i,
-    /\/Users\/|\/private\/|\/Volumes\/|\/mounted\/|\/tmp\//i,
+    /(^|\s)\/[A-Za-z0-9._/-]+|[A-Za-z]:\\/i,
     /ASTRO_EPHEMERIS_PATH/i,
   ];
   if (blocked.some((pattern)=>pattern.test(serialized))) throw new Error("Chart preview must not expose secrets or provider identifiers.");

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from app.config import AstroRuntimeConfig, read_runtime_environment
 from app.core.aspects import calculate_cross_aspects, calculate_transit_to_natal_hits
-from app.core.calculators import AstroCoreService, build_derived_points
+from app.core.calculators import AstroCoreService, build_derived_points, rebase_whole_sign_houses
 from app.core.math import normalize_deg, sign_index
 from app.core.thai_lagna import reference_sunrise_local_datetime
 from app.core.time import julian_day_ut, local_to_utc, utc_to_iso
@@ -172,6 +172,32 @@ class AstroCoreTests(unittest.TestCase):
 
         self.assertEqual(expected_sunrise.date().isoformat(), "1971-03-10")
         self.assertIn(expected_jd, sun_only_calls)
+
+    def test_thai_almanac_houses_and_planets_use_lagna_reference(self) -> None:
+        snapshot = AstroCoreService(
+            engine=RecordingSwissephMockEngine(),
+            config=AstroRuntimeConfig(engine="swisseph"),
+        ).calculate_natal_chart(
+            ChartRequest(
+                calculation_profile_code="TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1",
+                datetime_local="1971-03-11T08:17:00",
+                timezone="Asia/Bangkok",
+                latitude=13.759,
+                longitude=100.535,
+            )
+        )
+
+        self.assertIsNotNone(snapshot.angles.ascendant_deg)
+        self.assertIsNotNone(snapshot.angles.lagna_deg)
+        self.assertNotEqual(snapshot.angles.ascendant_deg, snapshot.angles.lagna_deg)
+        self.assertEqual(snapshot.houses.ascendant_deg, snapshot.angles.lagna_deg)
+        self.assertEqual(snapshot.houses.cusps_deg[0], float(sign_index(snapshot.angles.lagna_deg or 0) * 30))
+        self.assertEqual(snapshot.derived_points["lagna"].house_number, 1)
+        for planet in snapshot.planets.values():
+            self.assertEqual(
+                planet.house_number,
+                ((planet.sign_index - sign_index(snapshot.houses.ascendant_deg or 0)) % 12) + 1,
+            )
 
     def test_invalid_timezone_error_sanitizes_secret_like_values(self) -> None:
         raw_timezone = "Asia/Bangkok?birth=1971-03-11T08:17:00&token=secret-token"
@@ -375,10 +401,18 @@ class AstroCoreTests(unittest.TestCase):
             reliable=True,
         )
 
-        points = build_derived_points(houses, ayanamsha_deg=0, lagna_deg=350)
+        rebased_houses = rebase_whole_sign_houses(houses, 350)
+        points = build_derived_points(
+            rebased_houses,
+            ayanamsha_deg=0,
+            lagna_deg=350,
+            astronomical_ascendant_deg=houses.ascendant_deg,
+        )
 
+        self.assertEqual(rebased_houses.ascendant_deg, 350)
+        self.assertEqual(rebased_houses.cusps_deg[0], 330)
         self.assertEqual(points["lagna"].house_number, 1)
-        self.assertEqual(points["astronomical_ascendant"].house_number, 1)
+        self.assertEqual(points["astronomical_ascendant"].house_number, 2)
         self.assertEqual(points["lagna"].sidereal_longitude_deg, 350)
 
     def test_birth_date_input_shape_resolves_datetime_local(self) -> None:

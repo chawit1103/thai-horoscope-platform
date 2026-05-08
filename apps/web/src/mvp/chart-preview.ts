@@ -230,12 +230,12 @@ function buildMockChartPreviewModel(input:{ state:MockMvpState; userId:string })
   const redactedChart = redactedMockChartSnapshot(chart);
   const redactedMetadata = redactedMockMetadata(metadata);
   return {
-    profile,
+    profile:null,
     chart:redactedChart,
     dataSource:"mock_mvp_snapshot",
     warningBanner:"MOCK DATA - not valid for Thai astrology calculation verification",
     referenceNotice:null,
-    metadata,
+    metadata:redactedMetadata,
     planets:planetsFromMockChart(chart),
     zodiacLayout:buildCounterclockwiseZodiacLayout(),
     housesReliable:chart.houses.reliable && chart.angles.reliable,

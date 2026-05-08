@@ -467,8 +467,14 @@ class AstroCoreService:
         )
         lagna_deg = thai_lagna_result.lagna_deg if thai_lagna_result else None
         angles = build_angles(houses, lagna_deg=lagna_deg)
-        planets = assign_planet_houses(planets, houses, house_reference_deg=lagna_deg)
-        derived_points = build_derived_points(houses, ayanamsha_value, lagna_deg=lagna_deg)
+        house_snapshot = rebase_whole_sign_houses(houses, lagna_deg)
+        planets = assign_planet_houses(planets, house_snapshot)
+        derived_points = build_derived_points(
+            house_snapshot,
+            ayanamsha_value,
+            lagna_deg=lagna_deg,
+            astronomical_ascendant_deg=houses.ascendant_deg,
+        )
         aspects = calculate_aspects(planets, profile.aspect_orbs_deg)
         hash_payload = {
             "datetime_local": canonical_datetime_local,
@@ -521,7 +527,7 @@ class AstroCoreService:
             ayanamsa_deg=ayanamsha_value,
             ayanamsha=Ayanamsha(name=profile.ayanamsha, value_deg=ayanamsha_value),
             planets=planets,
-            houses=houses,
+            houses=house_snapshot,
             angles=angles,
             derived_points=derived_points,
             aspects=aspects,
@@ -833,6 +839,20 @@ def build_angles(houses: Houses, lagna_deg: float | None = None) -> Angles:
     )
 
 
+def rebase_whole_sign_houses(houses: Houses, house_reference_deg: float | None) -> Houses:
+    if house_reference_deg is None or not houses.reliable or houses.system != "whole_sign":
+        return houses
+    reference = round(house_reference_deg % 360, 8)
+    reference_sign = sign_index(reference)
+    return Houses(
+        system=houses.system,
+        ascendant_deg=reference,
+        mc_deg=houses.mc_deg,
+        cusps_deg=[float((reference_sign + house) % 12 * 30) for house in range(12)],
+        reliable=houses.reliable,
+    )
+
+
 def assign_planet_houses(
     planets: dict[str, PlanetPosition], houses: Houses, house_reference_deg: float | None = None
 ) -> dict[str, PlanetPosition]:
@@ -887,18 +907,25 @@ def _arc_contains(longitude: float, start: float, end: float) -> bool:
     return longitude >= start or longitude < end
 
 
-def build_derived_points(houses: Houses, ayanamsha_deg: float | None, lagna_deg: float | None = None) -> dict[str, PlanetPosition]:
+def build_derived_points(
+    houses: Houses,
+    ayanamsha_deg: float | None,
+    lagna_deg: float | None = None,
+    astronomical_ascendant_deg: float | None = None,
+) -> dict[str, PlanetPosition]:
     if not houses.reliable or houses.ascendant_deg is None:
         return {}
     asc = houses.ascendant_deg
     lagna = lagna_deg if lagna_deg is not None else asc
-    house_reference = lagna_deg if lagna_deg is not None else houses.ascendant_deg
+    house_reference = houses.ascendant_deg
     points = {
         "lagna": _derived_point(lagna, ayanamsha_deg, houses, house_reference),
         "descendant": _derived_point((asc + 180) % 360, ayanamsha_deg, houses, houses.ascendant_deg),
     }
-    if lagna_deg is not None:
-        points["astronomical_ascendant"] = _derived_point(asc, ayanamsha_deg, houses, houses.ascendant_deg)
+    if lagna_deg is not None and astronomical_ascendant_deg is not None:
+        points["astronomical_ascendant"] = _derived_point(
+            astronomical_ascendant_deg, ayanamsha_deg, houses, houses.ascendant_deg
+        )
     return points
 
 

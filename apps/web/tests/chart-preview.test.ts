@@ -63,6 +63,11 @@ describe("chart preview", () => {
     assert.equal(model.metadata.calculation_profile_code, "TH_MOCK_MVP_V1");
     assert.equal(model.metadata.engine, "mock");
     assert.equal(model.metadata.engine_version, "0.1.0");
+    assert.equal(model.metadata.birth_datetime_local, "[redacted-mock-birth-datetime-local]");
+    assert.equal(model.metadata.birth_datetime_utc, "[redacted-mock-birth-datetime-utc]");
+    assert.equal(model.metadata.timezone, "[redacted-mock-timezone]");
+    assert.equal(Number.isNaN(model.metadata.latitude), true);
+    assert.equal(Number.isNaN(model.metadata.longitude), true);
     assert.equal(model.metadata.ayanamsa_code, "lahiri_mock");
     assert.equal(model.metadata.house_system, "mock_whole_sign");
     assert.equal(model.metadata.lagna_method, "astronomical_ascendant");
@@ -212,6 +217,19 @@ describe("chart preview", () => {
     }
     assert.match(serialized, /redacted-mock-birth-datetime-local/);
     assert.match(serialized, /redacted-mock-calculation-hash/);
+  });
+
+  it("redacts mock birth data from visible preview metadata", () => {
+    createStoredChart({ birthTimeUnknown:false });
+
+    const model = buildChartPreviewModel({ state:getMockMvpState(sessionId), userId });
+
+    assert.ok(model);
+    const serialized = JSON.stringify(model.metadata);
+    for (const blocked of ["1992-08-15", "07:30", "Asia/Bangkok", "13.7563", "100.5018"]) {
+      assert.equal(serialized.includes(blocked), false);
+    }
+    assert.match(serialized, /redacted-mock-birth-datetime-local/);
   });
 });
 

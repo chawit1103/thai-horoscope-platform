@@ -71,6 +71,8 @@ Profile edit links from LINE messages should use:
 
 The PR51 Rich Menu template builds these links through the same safe URL helper as LINE command replies. If `LINE_LIFF_URL` is configured, the Rich Menu uses the HTTPS LIFF URL plus the allowlisted `line_route` query parameter. Rich Menu creation and upload remain manual operator actions.
 
+PR52 validates this path through a LINE beta pilot dry run: Rich Menu onboarding opens the same safe `/line/onboarding` or LIFF-routed link, the mock profile save creates a birth profile, and follow-up horoscope commands use that profile without exposing raw LINE IDs or birth data.
+
 ## Test guarantee
 
 Tests use local helpers and mocked astro-calc responses. They must not send real LINE messages or call the LINE Messaging API.

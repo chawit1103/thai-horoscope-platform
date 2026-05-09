@@ -128,6 +128,7 @@ Sandbox mode:
 [ ] LINE_PROVIDER_MODE=sandbox
 [ ] No real LINE push call occurs
 [ ] Audit metadata excludes raw LINE user IDs and tokens
+[ ] PR52 LINE beta pilot dry run passes for follow, Rich Menu onboarding, birth profile save, today horoscope, entitlement limits, settings/privacy/help, and suppression scenarios
 ```
 
 Real staging/test mode, only after approval:

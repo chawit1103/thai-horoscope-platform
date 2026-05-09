@@ -101,3 +101,5 @@ If the LINE pilot rehearsal finds a blocker:
 ```
 
 Use [Rollback checklist](ROLLBACK_CHECKLIST.md), [LINE Rich Menu](LINE_RICH_MENU.md), and [LINE LIFF onboarding](LINE_LIFF_ONBOARDING.md) for the surrounding operator procedure.
+
+For a one-person owner rehearsal after this dry run passes, use [Personal LINE pilot runbook](PERSONAL_LINE_PILOT_RUNBOOK.md), [Personal LINE pilot checklist](PERSONAL_LINE_PILOT_CHECKLIST.md), [LINE local tunnel setup](LINE_LOCAL_TUNNEL_SETUP.md), and [LINE pilot troubleshooting](LINE_PILOT_TROUBLESHOOTING.md). The personal pilot remains owner-only and must not enable public beta or real LINE sends without explicit human approval.

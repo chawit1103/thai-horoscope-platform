@@ -76,3 +76,7 @@ PR52 validates this path through a LINE beta pilot dry run: Rich Menu onboarding
 ## Test guarantee
 
 Tests use local helpers and mocked astro-calc responses. They must not send real LINE messages or call the LINE Messaging API.
+
+## Personal owner pilot
+
+For a one-person owner pilot, the onboarding/profile routes can be opened from a local tunnel, staging host, or LIFF URL after dry-run proof. Use [Personal LINE pilot runbook](PERSONAL_LINE_PILOT_RUNBOOK.md) for the full script and [LINE pilot troubleshooting](LINE_PILOT_TROUBLESHOOTING.md) for wrong LIFF URL, missing `ASTRO_CALC_SERVICE_URL`, and webhook issues. Do not put raw LINE user IDs, birth data, payment IDs, or secrets in `line_route` links.

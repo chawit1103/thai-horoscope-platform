@@ -159,6 +159,8 @@ LINE_PROVIDER_MODE=disabled  # no LINE gateway should be constructed
 
 When `ENABLE_PROVIDER_DRY_RUN=true` or required LINE config/flags are missing, the environment gateway factory fails closed before constructing a live HTTP gateway.
 
+For a one-person owner pilot, keep LINE sandboxed for dry-run and webhook connectivity checks. Owner-only real LINE reply/push testing requires the same explicit provider approval gates as any real LINE activation. See [Personal LINE pilot runbook](PERSONAL_LINE_PILOT_RUNBOOK.md) and [LINE local tunnel setup](LINE_LOCAL_TUNNEL_SETUP.md).
+
 ## Email gateway requirements
 
 - Support sandbox mode for development.

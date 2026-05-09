@@ -58,6 +58,14 @@ http://localhost:3000/chart-preview?mode=live
 
 Live mode calls `POST {ASTRO_CALC_SERVICE_URL}/v1/charts/natal` with the Thai almanac golden validation input. If the URL is missing, the service is down, the response is not sanitized, or the response does not report `engine=swisseph` with the Thai almanac Lahiri mean-node profile, the page shows a clear unavailable status. It must not fall back to Mock MVP.
 
+To validate the current beta user's saved birth profile, complete onboarding and open:
+
+```text
+http://localhost:3000/chart-preview?mode=user
+```
+
+User Birth Profile mode sends the saved local birth datetime, timezone, and local validation coordinates to the same live astro-calc endpoint. For a Bangkok profile using `1971-03-11 08:17 Asia/Bangkok`, operators should verify that the page shows `1971-03-11T01:17:00Z` as the UTC instant returned by astro-calc. If the live service URL is missing or the service response does not match the requested profile metadata, user mode shows unavailable and does not fall back to Mock MVP.
+
 The live preview request has a short server-side timeout so local or staging misconfiguration returns an unavailable status instead of hanging the page.
 
 Golden mode remains the reference for visual validation. Mock MVP mode is diagnostic only and must show the `MOCK DATA - not valid for Thai astrology calculation verification` banner.

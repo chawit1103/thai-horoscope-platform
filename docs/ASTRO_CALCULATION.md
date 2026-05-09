@@ -696,6 +696,7 @@ Production guard:
 
 - Golden Fixture Reference is the default mode and uses the approved Thai almanac reference case for `1971-03-11 08:17 Asia/Bangkok`.
 - Live Swisseph Calculation is selected with `/chart-preview?mode=live` and requires `ASTRO_CALC_SERVICE_URL`.
+- User Birth Profile is selected with `/chart-preview?mode=user` and posts the current beta user's saved birth profile to the same live astro-calc service contract.
 - Mock MVP is diagnostic only. It must never be presented as Thai calculation validation and must show a mock warning.
 
 Live mode posts the golden reference input to:
@@ -718,6 +719,8 @@ Expected request body:
 ```
 
 The response must be a sanitized chart snapshot from `engine=swisseph` with `zodiac_type=sidereal`, `ayanamsa_code=LAHIRI`, and `node_type=mean_node`. If the service URL is missing, the service returns an error, or the response metadata does not match the Thai almanac profile, the web page shows Live mode as unavailable. It must not silently fall back to Mock MVP.
+
+User Birth Profile mode uses the same endpoint, but builds the request from the current user's saved birth date, birth time or local-noon unknown-time fallback, timezone, and local validation coordinates for the saved birth place. For the Bangkok regression example, `1971-03-11T08:17:00` in `Asia/Bangkok` must be echoed by the service as `1971-03-11T01:17:00Z`. If `birth_time_unknown=true`, the response must carry unknown-time warnings and unreliable houses/Ascendant metadata instead of presenting house-specific values as certain.
 
 Live mode displays the same validation sections as Golden mode: UTC used, timezone, Lahiri ayanamsa, calculation profile, ephemeris fingerprint, calculation hash, planet table, astronomical Ascendant, Thai Lagna if available, MC, South Node, Thai Ketu ๙ if available, houses, warnings, and expandable raw JSON. Raw service errors, local ephemeris paths, secrets, provider payloads, and channel identifiers must not be displayed.
 

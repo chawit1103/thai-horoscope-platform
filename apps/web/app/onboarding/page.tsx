@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { saveOnboardingAction } from "../actions";
 import { redirect } from "next/navigation";
 import { canAccessBetaOnlyFlow } from "../../src/mvp/beta-launch";
@@ -49,6 +50,10 @@ export default async function OnboardingPage() {
         </label>
         <button type="submit">บันทึกและสร้าง mock horoscope</button>
       </form>
+      <div className="actions">
+        <Link href="/chart-preview?mode=user">ดูผังดวง / ตรวจตำแหน่งดาว</Link>
+        <Link href="/chart-preview?mode=golden">ดู Golden Fixture Reference</Link>
+      </div>
       <p className="disclaimer">{ENTERTAINMENT_DISCLAIMER}</p>
     </section>
   );

@@ -9,7 +9,20 @@ import {
 } from "./zodiac";
 
 export type ChartPreviewDataSource = "golden_fixture_reference" | "live_swisseph_service" | "mock_mvp_snapshot";
-export type ChartPreviewMode = "golden" | "live" | "mock";
+export type ChartPreviewMode = "golden" | "live" | "mock" | "user";
+
+export interface LiveChartPreviewRequest {
+  calculation_profile_code:string;
+  datetime_local:string;
+  timezone:string;
+  latitude:number;
+  longitude:number;
+  birth_time_unknown:boolean;
+}
+
+export interface ExpectedLiveChartPreviewRequest extends LiveChartPreviewRequest {
+  expected_datetime_utc?:string;
+}
 
 export interface ChartPreviewModeStatus {
   mode:ChartPreviewMode;
@@ -92,14 +105,16 @@ export interface ChartPreviewModel {
 const AYANAMSA_DEG = 23.4546517;
 export const LIVE_CHART_PREVIEW_PROFILE = "TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1";
 export const LIVE_SWISSEPH_UNAVAILABLE_REASON = "Live Swisseph Calculation is unavailable because ASTRO_CALC_SERVICE_URL is not configured. Golden Fixture Reference remains the default validation reference; live mode never falls back to Mock MVP data.";
-export const LIVE_CHART_PREVIEW_REQUEST = {
+export const USER_CHART_PREVIEW_UNAVAILABLE_REASON = "User Birth Profile live chart preview is unavailable because ASTRO_CALC_SERVICE_URL is not configured. The page does not fall back to Mock MVP data for user chart validation.";
+const LIVE_CHART_PREVIEW_EXPECTED_UTC = "1971-03-11T01:17:00Z";
+export const LIVE_CHART_PREVIEW_REQUEST:LiveChartPreviewRequest = {
   calculation_profile_code:LIVE_CHART_PREVIEW_PROFILE,
   datetime_local:"1971-03-11T08:17:00",
   timezone:"Asia/Bangkok",
   latitude:13.759,
   longitude:100.535,
   birth_time_unknown:false,
-} as const;
+};
 
 const PLANET_LABELS:Record<string,{th:string;code:string}> = {
   sun:{ th:"อาทิตย์", code:"SU" },
@@ -127,7 +142,7 @@ export function buildChartPreviewModel(input?:{ state:MockMvpState; userId:strin
 
 export function normalizeChartPreviewMode(value:unknown):ChartPreviewMode {
   const raw = Array.isArray(value) ? value[0] : value;
-  if (raw === "live" || raw === "mock" || raw === "golden") return raw;
+  if (raw === "live" || raw === "mock" || raw === "golden" || raw === "user") return raw;
   return "golden";
 }
 
@@ -135,6 +150,7 @@ export function buildChartPreviewModeStatuses(
   selectedMode:ChartPreviewMode,
   mockAvailable:boolean,
   liveStatus:LiveChartPreviewStatus = { available:false, status:LIVE_SWISSEPH_UNAVAILABLE_REASON },
+  userStatus:LiveChartPreviewStatus = { available:false, status:USER_CHART_PREVIEW_UNAVAILABLE_REASON },
 ):ChartPreviewModeStatus[] {
   return [
     {
@@ -154,6 +170,14 @@ export function buildChartPreviewModeStatuses(
       href:"/chart-preview?mode=live",
     },
     {
+      mode:"user",
+      label:"User Birth Profile",
+      selected:selectedMode === "user",
+      available:userStatus.available,
+      status:userStatus.status,
+      href:"/chart-preview?mode=user",
+    },
+    {
       mode:"mock",
       label:"Mock MVP",
       selected:selectedMode === "mock",
@@ -170,14 +194,21 @@ export async function fetchLiveChartPreviewModel(input?:{
   env?:Record<string, string|undefined>;
   fetcher?:typeof fetch;
   timeoutMs?:number;
+  request?:ExpectedLiveChartPreviewRequest;
+  referenceNotice?:string;
+  profile?:BirthProfile|null;
 }):Promise<LiveChartPreviewLoadResult> {
   const env = input?.env ?? process.env;
   const fetcher = input?.fetcher ?? fetch;
   const timeoutMs = input?.timeoutMs ?? 5000;
+  const request = input?.request ?? {
+    ...LIVE_CHART_PREVIEW_REQUEST,
+    expected_datetime_utc:LIVE_CHART_PREVIEW_EXPECTED_UTC,
+  };
   const serviceUrl = normalizeServiceUrl(env.ASTRO_CALC_SERVICE_URL);
 
   if (!serviceUrl) {
-    return liveUnavailable(LIVE_SWISSEPH_UNAVAILABLE_REASON);
+    return liveUnavailable(input?.request ? USER_CHART_PREVIEW_UNAVAILABLE_REASON : LIVE_SWISSEPH_UNAVAILABLE_REASON);
   }
 
   try {
@@ -187,7 +218,7 @@ export async function fetchLiveChartPreviewModel(input?:{
     const response = await fetcher(endpoint, {
         method:"POST",
         headers:{ "content-type":"application/json" },
-        body:JSON.stringify(LIVE_CHART_PREVIEW_REQUEST),
+        body:JSON.stringify(requestBodyFromExpectedRequest(request)),
         cache:"no-store",
         signal:controller.signal,
       })
@@ -198,7 +229,11 @@ export async function fetchLiveChartPreviewModel(input?:{
     }
 
     const snapshot = await response.json();
-    const model = buildLiveSwissephChartPreviewModel(snapshot);
+    const model = buildLiveSwissephChartPreviewModel(snapshot, {
+      expectedRequest:request,
+      referenceNotice:input?.referenceNotice,
+      profile:input?.profile ?? null,
+    });
     assertChartPreviewSafe(model);
     return { model, unavailableReason:null };
   } catch {
@@ -206,38 +241,104 @@ export async function fetchLiveChartPreviewModel(input?:{
   }
 }
 
-export function buildLiveSwissephChartPreviewModel(snapshot:unknown):ChartPreviewModel {
+export async function fetchUserChartPreviewModel(input:{
+  profile?:BirthProfile;
+  env?:Record<string, string|undefined>;
+  fetcher?:typeof fetch;
+  timeoutMs?:number;
+}):Promise<LiveChartPreviewLoadResult> {
+  if (!input.profile) {
+    return liveUnavailable("User Birth Profile live chart preview unavailable: no active birth profile exists for the current session. Create or update onboarding first; no Mock MVP fallback was used.");
+  }
+
+  let request:ExpectedLiveChartPreviewRequest;
+  try {
+    request = buildLiveChartPreviewRequestFromBirthProfile(input.profile);
+  } catch {
+    return liveUnavailable("User Birth Profile live chart preview unavailable: birth profile data could not be converted into a sanitized astro-calc request. No Mock MVP fallback was used.");
+  }
+
+  return await fetchLiveChartPreviewModel({
+    env:input.env,
+    fetcher:input.fetcher,
+    timeoutMs:input.timeoutMs,
+    request,
+    profile:input.profile,
+    referenceNotice:"User Birth Profile live service mode: values are returned by the configured astro-calc service for the current user's birth profile. This mode never falls back to Mock MVP data.",
+  });
+}
+
+export function selectUserBirthProfileForChartPreview(input:{
+  state:MockMvpState;
+  userId:string;
+  birthProfileId?:string;
+}):BirthProfile|undefined {
+  const profiles = input.state.birthProfiles.filter((profile)=>profile.userId === input.userId);
+  if (input.birthProfileId) return profiles.find((profile)=>profile.id === input.birthProfileId);
+  return [...profiles].reverse()[0];
+}
+
+export function buildLiveChartPreviewRequestFromBirthProfile(profile:BirthProfile):ExpectedLiveChartPreviewRequest {
+  const localTime = profile.birthTimeUnknown ? "12:00" : profile.birthTime;
+  if (!localTime || !/^\d{2}:\d{2}$/.test(localTime)) throw new Error("USER_CHART_PREVIEW_INVALID_BIRTH_TIME");
+  const datetimeLocal = `${profile.birthDate}T${localTime}:00`;
+  const location = localValidationCoordinatesForBirthPlace(profile.birthPlaceText);
+  if (!location) throw new Error("USER_CHART_PREVIEW_UNRESOLVED_BIRTH_PLACE");
+  return {
+    calculation_profile_code:LIVE_CHART_PREVIEW_PROFILE,
+    datetime_local:datetimeLocal,
+    timezone:profile.timezone,
+    latitude:location.latitude,
+    longitude:location.longitude,
+    birth_time_unknown:profile.birthTimeUnknown,
+    expected_datetime_utc:localDateTimeToUtcIso(datetimeLocal, profile.timezone),
+  };
+}
+
+export function buildLiveSwissephChartPreviewModel(snapshot:unknown, input?:{
+  expectedRequest?:ExpectedLiveChartPreviewRequest;
+  referenceNotice?:string;
+  profile?:BirthProfile|null;
+}):ChartPreviewModel {
   const root = asRecord(snapshot);
   if (!root) throw new Error("LIVE_CHART_PREVIEW_INVALID_PAYLOAD");
 
+  const expectedRequest = input?.expectedRequest ?? {
+    ...LIVE_CHART_PREVIEW_REQUEST,
+    expected_datetime_utc:LIVE_CHART_PREVIEW_EXPECTED_UTC,
+  };
   const metadata = liveMetadataFromSnapshot(root);
-  validateLiveChartMetadata(metadata);
-  const displayMetadata = sanitizeLiveChartPreviewMetadata(metadata);
-  const planets = planetsFromLiveSnapshot(root, displayMetadata);
-  if (!planets.length) throw new Error("LIVE_CHART_PREVIEW_EMPTY_PLANET_TABLE");
-
+  validateLiveChartMetadata(metadata, expectedRequest);
+  const displayMetadata = metadataWithForcedUnknownBirthTimeWarnings(
+    sanitizeLiveChartPreviewMetadata(metadata),
+    expectedRequest,
+  );
   const houses = asRecord(root.houses);
   const angles = asRecord(root.angles);
-  const houseCusps = numberArray(houses?.cusps_deg).map((cusp, index)=>({ house:index+1, cusp_deg:cusp }));
-  const housesReliable = booleanValue(houses?.reliable) ?? booleanValue(angles?.reliable) ?? true;
+  const housesReliableFromService = booleanValue(houses?.reliable) ?? booleanValue(angles?.reliable) ?? true;
+  const housesReliable = expectedRequest.birth_time_unknown ? false : housesReliableFromService;
+  const anglesReliable = housesReliable && !expectedRequest.birth_time_unknown;
+  const houseCusps = housesReliable ? numberArray(houses?.cusps_deg).map((cusp, index)=>({ house:index+1, cusp_deg:cusp })) : [];
+  const planets = planetsFromLiveSnapshot(root, displayMetadata, housesReliable, anglesReliable);
+  if (!planets.length) throw new Error("LIVE_CHART_PREVIEW_EMPTY_PLANET_TABLE");
   const chart = sanitizeLiveChartPreviewValue(root);
 
   const model:ChartPreviewModel = {
-    profile:null,
+    profile:input?.profile ?? null,
     chart,
     dataSource:"live_swisseph_service",
     warningBanner:null,
-    referenceNotice:"Live Swisseph service mode: values are returned by the configured astro-calc service for the Thai almanac golden validation input. This mode never falls back to Mock MVP data.",
+    referenceNotice:input?.referenceNotice ?? "Live Swisseph service mode: values are returned by the configured astro-calc service for the Thai almanac golden validation input. This mode never falls back to Mock MVP data.",
     metadata:displayMetadata,
     planets,
     zodiacLayout:buildCounterclockwiseZodiacLayout(),
     housesReliable,
     angles:{
-      ascendant_deg:displayMetadata.astronomical_ascendant_deg,
-      lagna_deg:displayMetadata.thai_lagna_deg,
-      mc_deg:numberValue(angles?.mc_deg),
-      descendant_deg:numberValue(angles?.descendant_deg),
-      ic_deg:numberValue(angles?.ic_deg),
+      ascendant_deg:anglesReliable ? displayMetadata.astronomical_ascendant_deg : null,
+      lagna_deg:anglesReliable ? displayMetadata.thai_lagna_deg : null,
+      mc_deg:anglesReliable ? numberValue(angles?.mc_deg) : null,
+      descendant_deg:anglesReliable ? numberValue(angles?.descendant_deg) : null,
+      ic_deg:anglesReliable ? numberValue(angles?.ic_deg) : null,
     },
     houseCusps,
     chartSnapshotJson:chart,
@@ -473,35 +574,35 @@ function liveMetadataFromSnapshot(root:Record<string, unknown>):ChartPreviewMeta
   };
 }
 
-function validateLiveChartMetadata(metadata:ChartPreviewMetadata):void {
+function validateLiveChartMetadata(metadata:ChartPreviewMetadata, expectedRequest:ExpectedLiveChartPreviewRequest):void {
   if (metadata.engine !== "swisseph") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_ENGINE");
   if (metadata.calculation_profile_code !== LIVE_CHART_PREVIEW_PROFILE) throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_PROFILE");
   if (metadata.zodiac_type !== "sidereal") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_ZODIAC");
   if (metadata.ayanamsa_code.toUpperCase() !== "LAHIRI") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_AYANAMSA");
   if (metadata.node_type !== "mean_node") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_NODE_TYPE");
   if (!metadata.ephemeris_fingerprint.trim()) throw new Error("LIVE_CHART_PREVIEW_MISSING_EPHEMERIS_FINGERPRINT");
-  validateLiveChartRequestEcho(metadata);
+  validateLiveChartRequestEcho(metadata, expectedRequest);
 }
 
-function validateLiveChartRequestEcho(metadata:ChartPreviewMetadata):void {
-  if (metadata.birth_datetime_local !== LIVE_CHART_PREVIEW_REQUEST.datetime_local) {
+function validateLiveChartRequestEcho(metadata:ChartPreviewMetadata, expectedRequest:ExpectedLiveChartPreviewRequest):void {
+  if (metadata.birth_datetime_local !== expectedRequest.datetime_local) {
     throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_LOCAL_DATETIME");
   }
-  if (metadata.timezone !== LIVE_CHART_PREVIEW_REQUEST.timezone) {
+  if (metadata.timezone !== expectedRequest.timezone) {
     throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_TIMEZONE");
   }
-  if (utcMillis(metadata.birth_datetime_utc) !== utcMillis("1971-03-11T01:17:00Z")) {
+  if (expectedRequest.expected_datetime_utc && utcMillis(metadata.birth_datetime_utc) !== utcMillis(expectedRequest.expected_datetime_utc)) {
     throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_UTC_DATETIME");
   }
-  if (!numbersNearlyEqual(metadata.latitude, LIVE_CHART_PREVIEW_REQUEST.latitude, 0.000001)) {
+  if (!numbersNearlyEqual(metadata.latitude, expectedRequest.latitude, 0.000001)) {
     throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_LATITUDE");
   }
-  if (!numbersNearlyEqual(metadata.longitude, LIVE_CHART_PREVIEW_REQUEST.longitude, 0.000001)) {
+  if (!numbersNearlyEqual(metadata.longitude, expectedRequest.longitude, 0.000001)) {
     throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_LONGITUDE");
   }
 }
 
-function planetsFromLiveSnapshot(root:Record<string, unknown>, metadata:ChartPreviewMetadata):ChartPreviewPlanet[] {
+function planetsFromLiveSnapshot(root:Record<string, unknown>, metadata:ChartPreviewMetadata, housesReliable:boolean, anglesReliable = housesReliable):ChartPreviewPlanet[] {
   const planetSource = asRecord(root.planets) ?? {};
   const derivedPoints = asRecord(root.derived_points) ?? {};
   const angles = asRecord(root.angles) ?? {};
@@ -510,29 +611,29 @@ function planetsFromLiveSnapshot(root:Record<string, unknown>, metadata:ChartPre
 
   for (const key of planetOrder) {
     const rawPoint = planetSource[key] ?? derivedPoints[key];
-    if (rawPoint) planets.push(livePointFromRaw(key, rawPoint, metadata, true));
+    if (rawPoint) planets.push(livePointFromRaw(key, rawPoint, metadata, housesReliable));
   }
 
   const ascendant = derivedPoints.astronomical_ascendant ?? derivedPoints.ascendant;
-  if (ascendant) {
-    planets.push(livePointFromRaw("astronomical_ascendant", ascendant, metadata, true));
-  } else if (typeof metadata.astronomical_ascendant_deg === "number") {
-    planets.push(anglePoint("astronomical_ascendant", metadata.astronomical_ascendant_deg, metadata, 1));
+  if (ascendant && anglesReliable) {
+    planets.push(livePointFromRaw("astronomical_ascendant", ascendant, metadata, housesReliable));
+  } else if (typeof metadata.astronomical_ascendant_deg === "number" && anglesReliable) {
+    planets.push(anglePoint("astronomical_ascendant", metadata.astronomical_ascendant_deg, metadata, housesReliable ? 1 : null));
   }
 
   const thaiLagna = derivedPoints.thai_lagna ?? derivedPoints.lagna;
-  if (thaiLagna) {
-    planets.push(livePointFromRaw("thai_lagna", thaiLagna, metadata, true));
-  } else if (typeof metadata.thai_lagna_deg === "number") {
-    planets.push(anglePoint("thai_lagna", metadata.thai_lagna_deg, metadata, 1));
+  if (thaiLagna && anglesReliable) {
+    planets.push(livePointFromRaw("thai_lagna", thaiLagna, metadata, housesReliable));
+  } else if (typeof metadata.thai_lagna_deg === "number" && anglesReliable) {
+    planets.push(anglePoint("thai_lagna", metadata.thai_lagna_deg, metadata, housesReliable ? 1 : null));
   }
 
   const mc = derivedPoints.mc;
   const mcDeg = numberValue(angles.mc_deg);
-  if (mc) {
-    planets.push(livePointFromRaw("mc", mc, metadata, true));
-  } else if (typeof mcDeg === "number") {
-    planets.push(anglePoint("mc", mcDeg, metadata, 10));
+  if (mc && anglesReliable) {
+    planets.push(livePointFromRaw("mc", mc, metadata, housesReliable));
+  } else if (typeof mcDeg === "number" && anglesReliable) {
+    planets.push(anglePoint("mc", mcDeg, metadata, housesReliable ? 10 : null));
   }
 
   return planets;
@@ -608,6 +709,22 @@ function sanitizeLiveChartPreviewMetadata(metadata:ChartPreviewMetadata):ChartPr
   };
 }
 
+function metadataWithForcedUnknownBirthTimeWarnings(
+  metadata:ChartPreviewMetadata,
+  expectedRequest:ExpectedLiveChartPreviewRequest,
+):ChartPreviewMetadata {
+  if (!expectedRequest.birth_time_unknown) return metadata;
+  const warnings = new Set(metadata.warnings);
+  warnings.add("UNKNOWN_BIRTH_TIME");
+  warnings.add("UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE");
+  return {
+    ...metadata,
+    astronomical_ascendant_deg:null,
+    thai_lagna_deg:null,
+    warnings:[...warnings],
+  };
+}
+
 function sanitizeLiveChartPreviewValue(value:unknown):unknown {
   if (Array.isArray(value)) return value.map(sanitizeLiveChartPreviewValue);
   if (value && typeof value === "object") {
@@ -653,6 +770,65 @@ function normalizeServiceUrl(value:string|undefined):URL|null {
 
 function liveChartPreviewEndpoint(serviceUrl:URL):string {
   return `${serviceUrl.toString().replace(/\/+$/, "")}/v1/charts/natal`;
+}
+
+function requestBodyFromExpectedRequest(request:ExpectedLiveChartPreviewRequest):LiveChartPreviewRequest {
+  return {
+    calculation_profile_code:request.calculation_profile_code,
+    datetime_local:request.datetime_local,
+    timezone:request.timezone,
+    latitude:request.latitude,
+    longitude:request.longitude,
+    birth_time_unknown:request.birth_time_unknown,
+  };
+}
+
+function localValidationCoordinatesForBirthPlace(birthPlaceText:string):{ latitude:number; longitude:number }|null {
+  const place = birthPlaceText.trim().toLowerCase();
+  if (place.includes("bangkok") || place.includes("krung thep") || place.includes("กรุงเทพ")) return { latitude:13.759, longitude:100.535 };
+  if (place.includes("chiang mai")) return { latitude:18.7883, longitude:98.9853 };
+  if (place.includes("phuket")) return { latitude:7.8804, longitude:98.3923 };
+  return null;
+}
+
+function localDateTimeToUtcIso(datetimeLocal:string, timezone:string):string {
+  const parsed = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/.exec(datetimeLocal);
+  if (!parsed) throw new Error("USER_CHART_PREVIEW_INVALID_LOCAL_DATETIME");
+  const [, year, month, day, hour, minute, second] = parsed;
+  const targetLocalMs = Date.UTC(Number(year), Number(month)-1, Number(day), Number(hour), Number(minute), Number(second));
+  let candidateUtcMs = targetLocalMs;
+  for (let attempt=0; attempt<6; attempt+=1) {
+    const renderedLocalMs = localPartsAsUtcMs(new Date(candidateUtcMs), timezone);
+    const deltaMs = targetLocalMs - renderedLocalMs;
+    if (deltaMs === 0) return new Date(candidateUtcMs).toISOString().replace(".000Z", "Z");
+    candidateUtcMs += deltaMs;
+  }
+  if (localPartsAsUtcMs(new Date(candidateUtcMs), timezone) !== targetLocalMs) {
+    throw new Error("USER_CHART_PREVIEW_UNRESOLVED_LOCAL_DATETIME");
+  }
+  return new Date(candidateUtcMs).toISOString().replace(".000Z", "Z");
+}
+
+function localPartsAsUtcMs(date:Date, timezone:string):number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone:timezone,
+    year:"numeric",
+    month:"2-digit",
+    day:"2-digit",
+    hour:"2-digit",
+    minute:"2-digit",
+    second:"2-digit",
+    hourCycle:"h23",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part)=>[part.type, part.value]));
+  return Date.UTC(
+    Number(values.year),
+    Number(values.month)-1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second),
+  );
 }
 
 function numbersNearlyEqual(left:number, right:number, tolerance:number):boolean {

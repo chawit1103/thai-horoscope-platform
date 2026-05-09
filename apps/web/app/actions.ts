@@ -106,7 +106,7 @@ export async function saveOnboardingAction(formData: FormData): Promise<void> {
   for (const periodType of ["daily", "weekly", "monthly", "yearly"] as PeriodType[]) {
     generateHoroscopeResult({ chartSnapshot, periodType, periodKey: getMockPeriodKey(periodType), sessionId });
   }
-  redirect("/chart-preview");
+  redirect("/chart-preview?mode=user");
 }
 
 export async function selectMockPlanAction(formData: FormData): Promise<void> {

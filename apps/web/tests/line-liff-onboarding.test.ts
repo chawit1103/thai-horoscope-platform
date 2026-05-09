@@ -30,11 +30,17 @@ describe("LINE LIFF onboarding helpers", () => {
     assert.equal(lineWebFormUrl({ env, path:"/line/settings" }), "https://liff.line.me/1234567890-AbCdEfGh?line_route=%2Fline%2Fsettings");
   });
 
-  it("renders first-time LINE onboarding without guessed birth time or preselected consent", () => {
+  it("renders first-time LINE onboarding without sample birth data or preselected consent", () => {
     const html = renderToStaticMarkup(LineOnboardingForm({ mode:"create" }));
 
+    assert.match(html, /name="birthDate"/);
     assert.match(html, /name="birthTime"/);
+    assert.match(html, /name="birthPlaceText"/);
+    assert.match(html, /name="timezone"/);
+    assert.doesNotMatch(html, /name="birthDate"[^>]*value="1992-08-15"/);
     assert.doesNotMatch(html, /name="birthTime"[^>]*value="07:30"/);
+    assert.doesNotMatch(html, /name="birthPlaceText"[^>]*value="Bangkok"/);
+    assert.doesNotMatch(html, /name="timezone"[^>]*value="Asia\/Bangkok"/);
     assert.doesNotMatch(html, /name="consentBirthData"[^>]*checked/);
   });
 
@@ -54,7 +60,10 @@ describe("LINE LIFF onboarding helpers", () => {
       },
     }));
 
+    assert.match(html, /name="birthDate"[^>]*value="1971-03-11"/);
     assert.match(html, /name="birthTime"[^>]*value="08:17"/);
+    assert.match(html, /name="birthPlaceText"[^>]*value="Bangkok"/);
+    assert.match(html, /name="timezone"[^>]*value="Asia\/Bangkok"/);
     assert.match(html, /name="consentBirthData"[^>]*checked/);
   });
 

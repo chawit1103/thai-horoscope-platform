@@ -4,7 +4,10 @@ import { ENTERTAINMENT_DISCLAIMER, UNKNOWN_BIRTH_TIME_WARNING } from "../../src/
 import { type BirthProfile } from "../../src/mvp/mock-flow";
 
 export function LineOnboardingForm({ mode, profile }:{ mode:"create"|"edit"; profile?:BirthProfile }) {
+  const birthDateDefault = mode === "edit" ? profile?.birthDate ?? "" : "";
   const birthTimeDefault = mode === "edit" && !profile?.birthTimeUnknown ? profile?.birthTime ?? "" : "";
+  const birthPlaceDefault = mode === "edit" ? profile?.birthPlaceText ?? "" : "";
+  const timezoneDefault = mode === "edit" ? profile?.timezone ?? "" : "";
   const consentDefault = mode === "edit" ? profile?.consentBirthData ?? false : false;
 
   return (
@@ -22,7 +25,7 @@ export function LineOnboardingForm({ mode, profile }:{ mode:"create"|"edit"; pro
         <input name="returnTo" type="hidden" value="/line/onboarding/saved" />
         <label>
           วันเกิด
-          <input name="birthDate" type="date" defaultValue={profile?.birthDate ?? "1992-08-15"} required />
+          <input name="birthDate" type="date" defaultValue={birthDateDefault} required />
         </label>
         <label>
           เวลาเกิด
@@ -35,11 +38,11 @@ export function LineOnboardingForm({ mode, profile }:{ mode:"create"|"edit"; pro
         </label>
         <label>
           เมือง/สถานที่เกิด
-          <input name="birthPlaceText" defaultValue={profile?.birthPlaceText ?? "Bangkok"} required />
+          <input name="birthPlaceText" defaultValue={birthPlaceDefault} placeholder="เช่น Bangkok, Chiang Mai, Khon Kaen" required />
         </label>
         <label>
           Timezone
-          <input name="timezone" defaultValue={profile?.timezone ?? "Asia/Bangkok"} required />
+          <input name="timezone" defaultValue={timezoneDefault} placeholder="Asia/Bangkok" required />
         </label>
         <div className="field-grid">
           <label>

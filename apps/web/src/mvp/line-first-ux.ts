@@ -1,9 +1,12 @@
 import { ENTERTAINMENT_DISCLAIMER } from "./beta-user-ux";
 import { renderLineHoroscopePreviewFlex, type LineChannelAccount, type LineInboundEventType, type LineMessage, type LinePushMessage, type LineTextMessage } from "./line-gateway";
 import { lineWebFormUrl } from "./line-liff-onboarding";
+import { buildLineRichMenuTemplate, type LineRichMenuTemplate } from "./line-rich-menu";
 import { type MockMvpState, type PeriodType } from "./mock-flow";
 import { buildPeriodHoroscopeView, type HoroscopeSourceMode, type PeriodHoroscopeView } from "./period-horoscope-view";
 import { type SubscriptionRecord } from "./subscription-lifecycle";
+
+export { buildLineRichMenuTemplate, type LineRichMenuTemplate };
 
 export type LineCommandIntent =
   | "follow"
@@ -30,12 +33,6 @@ export interface LineFirstReply {
     sourceMode?:HoroscopeSourceMode;
     contentProfileCode?:string;
   };
-}
-
-export interface LineRichMenuTemplate {
-  name:string;
-  chatBarText:string;
-  actions:Array<{ label:string; type:"message"|"uri"; text?:string; uri?:string }>;
 }
 
 const LINE_FIRST_DISCLAIMER = "เพื่อความบันเทิงและการสะท้อนตนเอง โปรดใช้วิจารณญาณ ไม่ใช่คำแนะนำทางการแพทย์ การเงิน หรือกฎหมาย";
@@ -140,22 +137,6 @@ export async function buildLineFirstReply(input:{
       sourceMode:view.sourceMode,
       contentProfileCode:view.contentProfileCode,
     },
-  };
-}
-
-export function buildLineRichMenuTemplate(baseUrl = "https://example.test", env?:Record<string, string|undefined>):LineRichMenuTemplate {
-  const links = lineLinks(env, safeBaseUrl(baseUrl));
-  return {
-    name:"Thai Horoscope Beta LINE Rich Menu",
-    chatBarText:"เมนูดูดวง",
-    actions:[
-      { label:"วันนี้", type:"message", text:"ดวงวันนี้" },
-      { label:"สัปดาห์", type:"message", text:"ดวงสัปดาห์" },
-      { label:"เดือน", type:"message", text:"ดวงเดือน" },
-      { label:"ปี", type:"message", text:"ดวงปี" },
-      { label:"กรอกข้อมูลเกิด", type:"uri", uri:links.onboarding },
-      { label:"ตั้งค่า", type:"uri", uri:links.settings },
-    ],
   };
 }
 

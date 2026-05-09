@@ -60,7 +60,7 @@ Recommended Rich Menu links:
 
 ```text
 กรอกข้อมูลเกิด -> /line/onboarding
-ตั้งค่า -> /line/settings
+ตั้งค่าแจ้งเตือน -> /line/settings
 ```
 
 Profile edit links from LINE messages should use:
@@ -68,6 +68,8 @@ Profile edit links from LINE messages should use:
 ```text
 /line/profile
 ```
+
+The PR51 Rich Menu template builds these links through the same safe URL helper as LINE command replies. If `LINE_LIFF_URL` is configured, the Rich Menu uses the HTTPS LIFF URL plus the allowlisted `line_route` query parameter. Rich Menu creation and upload remain manual operator actions.
 
 ## Test guarantee
 

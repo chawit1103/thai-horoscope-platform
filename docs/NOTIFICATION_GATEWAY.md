@@ -326,6 +326,11 @@ preserve the full LIFF app URL and carry the requested form route in a safe
 not create a real LIFF app, activate real LINE sends, or put raw LINE user IDs in
 query strings.
 
+PR51 adds a local-safe Rich Menu config/template for LINE navigation. The menu
+maps message buttons to the same command-router phrases and URI buttons to the
+LINE web/LIFF onboarding/settings routes. It does not call the LINE Rich Menu
+API, upload assets, activate real LINE sends, or embed provider credentials.
+
 Mock MVP diagnostic content must not be silently presented as real Thai
 horoscope output in LINE. When live chart content is unavailable, LINE replies
 should show a clear unavailable/onboarding/settings path instead of sending

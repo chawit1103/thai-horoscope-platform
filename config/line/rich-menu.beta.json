@@ -1,0 +1,59 @@
+{
+  "name": "Thai Horoscope Beta LINE Rich Menu",
+  "uploadMode": "manual_operator_controlled",
+  "notes": [
+    "Template only. Do not upload automatically from tests or application startup.",
+    "Build final LIFF/web URLs at runtime with the safe rich menu helper.",
+    "Do not place provider credentials, raw LINE user IDs, payment IDs, or birth profile IDs in this file."
+  ],
+  "size": {
+    "width": 2500,
+    "height": 1686
+  },
+  "chatBarText": "เมนูดูดวง",
+  "selected": true,
+  "actions": [
+    {
+      "key": "today",
+      "label": "ดวงวันนี้",
+      "intent": "today",
+      "type": "message",
+      "text": "ดวงวันนี้"
+    },
+    {
+      "key": "weekly",
+      "label": "ดวงสัปดาห์",
+      "intent": "weekly",
+      "type": "message",
+      "text": "ดวงสัปดาห์"
+    },
+    {
+      "key": "monthly",
+      "label": "ดวงเดือน",
+      "intent": "monthly",
+      "type": "message",
+      "text": "ดวงเดือน"
+    },
+    {
+      "key": "onboarding",
+      "label": "กรอกข้อมูลเกิด",
+      "intent": "onboarding",
+      "type": "uri",
+      "route": "/line/onboarding"
+    },
+    {
+      "key": "notification_settings",
+      "label": "ตั้งค่าแจ้งเตือน",
+      "intent": "notification_settings",
+      "type": "uri",
+      "route": "/line/settings"
+    },
+    {
+      "key": "subscription",
+      "label": "บัญชี / แพ็กเกจ",
+      "intent": "subscription",
+      "type": "message",
+      "text": "แพ็กเกจของฉัน"
+    }
+  ]
+}

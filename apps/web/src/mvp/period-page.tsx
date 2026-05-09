@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { canAccessBetaOnlyFlow } from "./beta-launch";
-import { buildSafeHoroscopeView, buildSubscriptionSummary, getLatestUserSubscription } from "./beta-user-ux";
+import { buildSubscriptionSummary, getLatestUserSubscription } from "./beta-user-ux";
 import { getMockMvpState, type PeriodType } from "./mock-flow";
+import { buildPeriodHoroscopeView } from "./period-horoscope-view";
 
 export async function HoroscopePage({ periodType }: { periodType: PeriodType }) {
   const cookieStore = await cookies();
@@ -37,7 +38,7 @@ export async function HoroscopePage({ periodType }: { periodType: PeriodType }) 
   const subscription = getLatestUserSubscription(userId);
   const now = new Date();
   const currentPlan = buildSubscriptionSummary({ state, userId, subscription, now }).planCode;
-  const view = buildSafeHoroscopeView({ state, userId, periodType, subscription, now });
+  const view = await buildPeriodHoroscopeView({ state, userId, periodType, subscription, now });
 
   if (!view.allowed) {
     return (
@@ -65,14 +66,38 @@ export async function HoroscopePage({ periodType }: { periodType: PeriodType }) 
       ))}
       <section className="meta-grid">
         <div className="panel"><span className="muted">Plan</span><strong>{currentPlan}</strong></div>
-        <div className="panel"><span className="muted">Calculation</span><strong>sanitized mock</strong></div>
+        <div className="panel"><span className="muted">Source mode</span><strong>{view.sourceMode}</strong></div>
+        <div className="panel"><span className="muted">Period key</span><strong>{view.periodKey}</strong></div>
+        <div className="panel"><span className="muted">Content profile</span><strong>{view.contentProfileCode}</strong></div>
+        <div className="panel"><span className="muted">Calculation hash</span><strong style={{ overflowWrap:"anywhere" }}>{view.calculationHash}</strong></div>
         <div className="panel"><span className="muted">Confidence</span><strong>{view.warnings.length ? "ประมาณบางส่วน" : "พร้อมอ่าน"}</strong></div>
         <div className="panel"><span className="muted">Beta status</span><strong>ทดลอง</strong></div>
+      </section>
+      <section className={view.sourceMode === "live_chart_based" ? "guard" : "guard warning"}>
+        {view.sourceStatus}
       </section>
       <section className="grid">
         {view.sections.map((section) => (
           <article className="panel" key={section.heading}><h2>{section.heading}</h2><p>{section.body}</p></article>
         ))}
+      </section>
+      <section className="panel">
+        <h2>Rule hits</h2>
+        {view.ruleHits.length ? (
+          <ul>
+            {view.ruleHits.map((hit) => (
+              <li key={hit.rule_id}>
+                <strong>{hit.rule_id}</strong> · {hit.category} · weight {hit.weight}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">ยังไม่มี rule hits สำหรับช่วงนี้</p>
+        )}
+      </section>
+      <section className="panel">
+        <h2>Safety flags</h2>
+        <p>{view.safetyFlags.length ? view.safetyFlags.join(", ") : "none"}</p>
       </section>
       <p className="disclaimer">{view.disclaimer}</p>
     </article>

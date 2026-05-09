@@ -124,6 +124,9 @@ describe("chart preview", () => {
         ephemeris_path:"/Users/chawit/private/ephemeris",
         mounted_file:"/opt/swisseph/sepl_18.se1",
         provider_secret:"sk_live_abc123",
+        license_key:"swisseph-commercial-license-secret",
+        private_key:"-----BEGIN PRIVATE KEY-----abc123",
+        credential:"sk_live_extra_credential",
         token:"abc123",
         line_user:"UrawLineUserId123456",
         contact:"beta@example.test",
@@ -134,7 +137,7 @@ describe("chart preview", () => {
 
     assert.doesNotThrow(() => assertChartPreviewSafe(model));
     assert.equal(model.metadata.ephemeris_source, "[redacted-path]");
-    for (const blocked of ["/Users/chawit", "/opt/swisseph", "sk_live_abc123", "abc123", "UrawLineUserId123456", "beta@example.test"]) {
+    for (const blocked of ["/Users/chawit", "/opt/swisseph", "sk_live_abc123", "swisseph-commercial-license-secret", "PRIVATE KEY", "sk_live_extra_credential", "abc123", "UrawLineUserId123456", "beta@example.test"]) {
       assert.equal(serialized.includes(blocked), false);
     }
   });

@@ -236,7 +236,7 @@ describe("LINE-first UX", () => {
 
   it("builds the recommended LINE rich menu template", () => {
     const menu = buildLineRichMenuTemplate(baseUrl);
-    assert.deepEqual(menu.actions.map((action)=>action.label), ["วันนี้", "สัปดาห์", "เดือน", "ปี", "กรอกข้อมูลเกิด", "ตั้งค่า"]);
+    assert.deepEqual(menu.actions.map((action)=>action.label), ["ดวงวันนี้", "ดวงสัปดาห์", "ดวงเดือน", "กรอกข้อมูลเกิด", "ตั้งค่าแจ้งเตือน", "บัญชี / แพ็กเกจ"]);
     assert.equal(menu.actions.some((action)=>action.type === "uri" && action.uri?.includes("/onboarding")), true);
     assert.equal(menu.actions.some((action)=>action.type === "uri" && action.uri?.includes("/line/onboarding")), true);
     assert.equal(menu.actions.some((action)=>action.type === "uri" && action.uri?.includes("/line/settings")), true);

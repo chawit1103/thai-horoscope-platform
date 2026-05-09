@@ -119,3 +119,18 @@ Structured birth profile entry uses web routes opened from LINE:
 ```
 
 If `LINE_LIFF_URL` is configured, it must be HTTPS; LINE command links preserve the full LIFF app URL and pass the target form path through the allowlisted `line_route` query parameter. If it is not configured, local/dev links fall back to `NEXT_PUBLIC_APP_BASE_URL` or the configured base URL used by tests. Plain HTTP is accepted only for local hosts such as `localhost`; links must never include raw LINE user IDs, payment IDs, secrets, or internal audit IDs.
+
+## PR51 Rich Menu configuration
+
+The Rich Menu template lives in `apps/web/src/mvp/line-rich-menu.ts` with a local operator reference at `config/line/rich-menu.beta.json`. The recommended six buttons are:
+
+```text
+ดวงวันนี้
+ดวงสัปดาห์
+ดวงเดือน
+กรอกข้อมูลเกิด
+ตั้งค่าแจ้งเตือน
+บัญชี / แพ็กเกจ
+```
+
+Message actions use the same Thai phrases recognized by the command router. URI actions use the safe `/line/onboarding` and `/line/settings` web/LIFF builders. PR51 does not upload a Rich Menu, call the LINE API, include a Rich Menu image asset, or activate real LINE sends.

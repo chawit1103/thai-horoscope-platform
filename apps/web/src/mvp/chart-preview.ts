@@ -251,19 +251,21 @@ export async function fetchUserChartPreviewModel(input:{
     return liveUnavailable("User Birth Profile live chart preview unavailable: no active birth profile exists for the current session. Create or update onboarding first; no Mock MVP fallback was used.");
   }
 
+  let request:ExpectedLiveChartPreviewRequest;
   try {
-    const request = buildLiveChartPreviewRequestFromBirthProfile(input.profile);
-    return await fetchLiveChartPreviewModel({
-      env:input.env,
-      fetcher:input.fetcher,
-      timeoutMs:input.timeoutMs,
-      request,
-      profile:input.profile,
-      referenceNotice:"User Birth Profile live service mode: values are returned by the configured astro-calc service for the current user's birth profile. This mode never falls back to Mock MVP data.",
-    });
+    request = buildLiveChartPreviewRequestFromBirthProfile(input.profile);
   } catch {
     return liveUnavailable("User Birth Profile live chart preview unavailable: birth profile data could not be converted into a sanitized astro-calc request. No Mock MVP fallback was used.");
   }
+
+  return await fetchLiveChartPreviewModel({
+    env:input.env,
+    fetcher:input.fetcher,
+    timeoutMs:input.timeoutMs,
+    request,
+    profile:input.profile,
+    referenceNotice:"User Birth Profile live service mode: values are returned by the configured astro-calc service for the current user's birth profile. This mode never falls back to Mock MVP data.",
+  });
 }
 
 export function selectUserBirthProfileForChartPreview(input:{
@@ -281,6 +283,7 @@ export function buildLiveChartPreviewRequestFromBirthProfile(profile:BirthProfil
   if (!localTime || !/^\d{2}:\d{2}$/.test(localTime)) throw new Error("USER_CHART_PREVIEW_INVALID_BIRTH_TIME");
   const datetimeLocal = `${profile.birthDate}T${localTime}:00`;
   const location = localValidationCoordinatesForBirthPlace(profile.birthPlaceText);
+  if (!location) throw new Error("USER_CHART_PREVIEW_UNRESOLVED_BIRTH_PLACE");
   return {
     calculation_profile_code:LIVE_CHART_PREVIEW_PROFILE,
     datetime_local:datetimeLocal,
@@ -314,8 +317,9 @@ export function buildLiveSwissephChartPreviewModel(snapshot:unknown, input?:{
   const angles = asRecord(root.angles);
   const housesReliableFromService = booleanValue(houses?.reliable) ?? booleanValue(angles?.reliable) ?? true;
   const housesReliable = expectedRequest.birth_time_unknown ? false : housesReliableFromService;
+  const anglesReliable = housesReliable && !expectedRequest.birth_time_unknown;
   const houseCusps = housesReliable ? numberArray(houses?.cusps_deg).map((cusp, index)=>({ house:index+1, cusp_deg:cusp })) : [];
-  const planets = planetsFromLiveSnapshot(root, displayMetadata, housesReliable);
+  const planets = planetsFromLiveSnapshot(root, displayMetadata, housesReliable, anglesReliable);
   if (!planets.length) throw new Error("LIVE_CHART_PREVIEW_EMPTY_PLANET_TABLE");
   const chart = sanitizeLiveChartPreviewValue(root);
 
@@ -330,11 +334,11 @@ export function buildLiveSwissephChartPreviewModel(snapshot:unknown, input?:{
     zodiacLayout:buildCounterclockwiseZodiacLayout(),
     housesReliable,
     angles:{
-      ascendant_deg:displayMetadata.astronomical_ascendant_deg,
-      lagna_deg:displayMetadata.thai_lagna_deg,
-      mc_deg:numberValue(angles?.mc_deg),
-      descendant_deg:numberValue(angles?.descendant_deg),
-      ic_deg:numberValue(angles?.ic_deg),
+      ascendant_deg:anglesReliable ? displayMetadata.astronomical_ascendant_deg : null,
+      lagna_deg:anglesReliable ? displayMetadata.thai_lagna_deg : null,
+      mc_deg:anglesReliable ? numberValue(angles?.mc_deg) : null,
+      descendant_deg:anglesReliable ? numberValue(angles?.descendant_deg) : null,
+      ic_deg:anglesReliable ? numberValue(angles?.ic_deg) : null,
     },
     houseCusps,
     chartSnapshotJson:chart,
@@ -598,7 +602,7 @@ function validateLiveChartRequestEcho(metadata:ChartPreviewMetadata, expectedReq
   }
 }
 
-function planetsFromLiveSnapshot(root:Record<string, unknown>, metadata:ChartPreviewMetadata, housesReliable:boolean):ChartPreviewPlanet[] {
+function planetsFromLiveSnapshot(root:Record<string, unknown>, metadata:ChartPreviewMetadata, housesReliable:boolean, anglesReliable = housesReliable):ChartPreviewPlanet[] {
   const planetSource = asRecord(root.planets) ?? {};
   const derivedPoints = asRecord(root.derived_points) ?? {};
   const angles = asRecord(root.angles) ?? {};
@@ -611,24 +615,24 @@ function planetsFromLiveSnapshot(root:Record<string, unknown>, metadata:ChartPre
   }
 
   const ascendant = derivedPoints.astronomical_ascendant ?? derivedPoints.ascendant;
-  if (ascendant) {
+  if (ascendant && anglesReliable) {
     planets.push(livePointFromRaw("astronomical_ascendant", ascendant, metadata, housesReliable));
-  } else if (typeof metadata.astronomical_ascendant_deg === "number") {
+  } else if (typeof metadata.astronomical_ascendant_deg === "number" && anglesReliable) {
     planets.push(anglePoint("astronomical_ascendant", metadata.astronomical_ascendant_deg, metadata, housesReliable ? 1 : null));
   }
 
   const thaiLagna = derivedPoints.thai_lagna ?? derivedPoints.lagna;
-  if (thaiLagna) {
+  if (thaiLagna && anglesReliable) {
     planets.push(livePointFromRaw("thai_lagna", thaiLagna, metadata, housesReliable));
-  } else if (typeof metadata.thai_lagna_deg === "number") {
+  } else if (typeof metadata.thai_lagna_deg === "number" && anglesReliable) {
     planets.push(anglePoint("thai_lagna", metadata.thai_lagna_deg, metadata, housesReliable ? 1 : null));
   }
 
   const mc = derivedPoints.mc;
   const mcDeg = numberValue(angles.mc_deg);
-  if (mc) {
+  if (mc && anglesReliable) {
     planets.push(livePointFromRaw("mc", mc, metadata, housesReliable));
-  } else if (typeof mcDeg === "number") {
+  } else if (typeof mcDeg === "number" && anglesReliable) {
     planets.push(anglePoint("mc", mcDeg, metadata, housesReliable ? 10 : null));
   }
 
@@ -713,7 +717,12 @@ function metadataWithForcedUnknownBirthTimeWarnings(
   const warnings = new Set(metadata.warnings);
   warnings.add("UNKNOWN_BIRTH_TIME");
   warnings.add("UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE");
-  return { ...metadata, warnings:[...warnings] };
+  return {
+    ...metadata,
+    astronomical_ascendant_deg:null,
+    thai_lagna_deg:null,
+    warnings:[...warnings],
+  };
 }
 
 function sanitizeLiveChartPreviewValue(value:unknown):unknown {
@@ -774,23 +783,33 @@ function requestBodyFromExpectedRequest(request:ExpectedLiveChartPreviewRequest)
   };
 }
 
-function localValidationCoordinatesForBirthPlace(birthPlaceText:string):{ latitude:number; longitude:number } {
+function localValidationCoordinatesForBirthPlace(birthPlaceText:string):{ latitude:number; longitude:number }|null {
   const place = birthPlaceText.trim().toLowerCase();
+  if (place.includes("bangkok") || place.includes("krung thep") || place.includes("กรุงเทพ")) return { latitude:13.759, longitude:100.535 };
   if (place.includes("chiang mai")) return { latitude:18.7883, longitude:98.9853 };
   if (place.includes("phuket")) return { latitude:7.8804, longitude:98.3923 };
-  return { latitude:13.759, longitude:100.535 };
+  return null;
 }
 
 function localDateTimeToUtcIso(datetimeLocal:string, timezone:string):string {
   const parsed = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/.exec(datetimeLocal);
   if (!parsed) throw new Error("USER_CHART_PREVIEW_INVALID_LOCAL_DATETIME");
   const [, year, month, day, hour, minute, second] = parsed;
-  const assumedUtcMs = Date.UTC(Number(year), Number(month)-1, Number(day), Number(hour), Number(minute), Number(second));
-  const offsetMinutes = timeZoneOffsetMinutes(new Date(assumedUtcMs), timezone);
-  return new Date(assumedUtcMs - offsetMinutes * 60_000).toISOString().replace(".000Z", "Z");
+  const targetLocalMs = Date.UTC(Number(year), Number(month)-1, Number(day), Number(hour), Number(minute), Number(second));
+  let candidateUtcMs = targetLocalMs;
+  for (let attempt=0; attempt<6; attempt+=1) {
+    const renderedLocalMs = localPartsAsUtcMs(new Date(candidateUtcMs), timezone);
+    const deltaMs = targetLocalMs - renderedLocalMs;
+    if (deltaMs === 0) return new Date(candidateUtcMs).toISOString().replace(".000Z", "Z");
+    candidateUtcMs += deltaMs;
+  }
+  if (localPartsAsUtcMs(new Date(candidateUtcMs), timezone) !== targetLocalMs) {
+    throw new Error("USER_CHART_PREVIEW_UNRESOLVED_LOCAL_DATETIME");
+  }
+  return new Date(candidateUtcMs).toISOString().replace(".000Z", "Z");
 }
 
-function timeZoneOffsetMinutes(date:Date, timezone:string):number {
+function localPartsAsUtcMs(date:Date, timezone:string):number {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone:timezone,
     year:"numeric",
@@ -802,7 +821,7 @@ function timeZoneOffsetMinutes(date:Date, timezone:string):number {
     hourCycle:"h23",
   }).formatToParts(date);
   const values = Object.fromEntries(parts.map((part)=>[part.type, part.value]));
-  const asUtcMs = Date.UTC(
+  return Date.UTC(
     Number(values.year),
     Number(values.month)-1,
     Number(values.day),
@@ -810,7 +829,6 @@ function timeZoneOffsetMinutes(date:Date, timezone:string):number {
     Number(values.minute),
     Number(values.second),
   );
-  return (asUtcMs - date.getTime()) / 60_000;
 }
 
 function numbersNearlyEqual(left:number, right:number, tolerance:number):boolean {

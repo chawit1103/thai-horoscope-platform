@@ -166,6 +166,51 @@ describe("chart preview", () => {
     });
   });
 
+  it("builds user birth-profile UTC using timezone-aware DST conversion", () => {
+    const profile = saveBirthProfile({
+      birthDate:"2024-03-10",
+      birthTime:"03:30",
+      birthTimeUnknown:false,
+      birthPlaceText:"Bangkok",
+      timezone:"America/New_York",
+      consentBirthData:true,
+    }, { sessionId, userId });
+
+    const request = buildLiveChartPreviewRequestFromBirthProfile(profile);
+
+    assert.equal(request.datetime_local, "2024-03-10T03:30:00");
+    assert.equal(request.timezone, "America/New_York");
+    assert.equal(request.expected_datetime_utc, "2024-03-10T07:30:00Z");
+  });
+
+  it("does not default unresolved user birthplaces to Bangkok coordinates", async () => {
+    const profile = saveBirthProfile({
+      birthDate:"1971-03-11",
+      birthTime:"08:17",
+      birthTimeUnknown:false,
+      birthPlaceText:"Khon Kaen",
+      timezone:"Asia/Bangkok",
+      consentBirthData:true,
+    }, { sessionId, userId });
+    let fetchCalled = false;
+
+    assert.throws(() => buildLiveChartPreviewRequestFromBirthProfile(profile), /USER_CHART_PREVIEW_UNRESOLVED_BIRTH_PLACE/);
+
+    const result = await fetchUserChartPreviewModel({
+      profile,
+      env:{ ASTRO_CALC_SERVICE_URL:"https://example.test/astro-calc" },
+      fetcher:async () => {
+        fetchCalled = true;
+        return new Response("{}");
+      },
+    });
+
+    assert.equal(fetchCalled, false);
+    assert.equal(result.model, undefined);
+    assert.match(result.unavailableReason ?? "", /could not be converted/);
+    assert.match(result.unavailableReason ?? "", /No Mock MVP fallback/);
+  });
+
   it("selects only the current user's birth profile for user chart preview", () => {
     const currentProfile = saveBirthProfile({
       birthDate:"1971-03-11",
@@ -295,6 +340,11 @@ describe("chart preview", () => {
     assert.equal(result.model.housesReliable, false);
     assert.equal(result.model.metadata.birth_datetime_utc, "1971-03-11T05:00:00Z");
     assert.equal(result.model.metadata.warnings.includes("UNKNOWN_BIRTH_TIME"), true);
+    assert.equal(result.model.metadata.astronomical_ascendant_deg, null);
+    assert.equal(result.model.metadata.thai_lagna_deg, null);
+    assert.equal(result.model.angles.ascendant_deg, null);
+    assert.equal(result.model.angles.lagna_deg, null);
+    assert.equal(result.model.angles.mc_deg, null);
     assert.equal(result.model.planets.every((planet)=>planet.house_number === null), true);
   });
 
@@ -330,7 +380,18 @@ describe("chart preview", () => {
     assert.deepEqual(result.model.houseCusps, []);
     assert.equal(result.model.metadata.warnings.includes("UNKNOWN_BIRTH_TIME"), true);
     assert.equal(result.model.metadata.warnings.includes("UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE"), true);
+    assert.equal(result.model.metadata.astronomical_ascendant_deg, null);
+    assert.equal(result.model.metadata.thai_lagna_deg, null);
+    assert.equal(result.model.angles.ascendant_deg, null);
+    assert.equal(result.model.angles.lagna_deg, null);
+    assert.equal(result.model.angles.mc_deg, null);
     assert.equal(result.model.planets.every((planet)=>planet.house_number === null), true);
+    assert.deepEqual(
+      result.model.planets
+        .filter((planet)=>["astronomical_ascendant", "thai_lagna", "mc"].includes(planet.planet_key))
+        .map((planet)=>planet.planet_key),
+      [],
+    );
   });
 
   it("redacts sensitive values from live raw JSON output", () => {

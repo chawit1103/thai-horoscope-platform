@@ -58,16 +58,21 @@ async def request_validation_exception_handler(_request: Request, _exc: RequestV
     return sanitized_error_response("INVALID_NATAL_CHART_REQUEST", status_code=422)
 
 
-@app.get("/health")
-async def get_health() -> dict[str, str]:
-    return health()
+@app.get("/health", response_model=None)
+async def get_health() -> dict[str, str] | JSONResponse:
+    report = health()
+    if report.get("status") == "error":
+        return JSONResponse(status_code=503, content=report)
+    return report
 
 
 @app.post("/calculate/natal", response_model=None)
 @app.post("/v1/charts/natal", response_model=None)
 async def calculate_natal(request: NatalCalculationRequest) -> dict[str, object] | JSONResponse:
     try:
-        snapshot = create_service().calculate_natal_chart(request.to_chart_request())
+        chart_request = request.to_chart_request()
+        validate_requested_profile_for_runtime(chart_request.calculation_profile_code)
+        snapshot = create_service().calculate_natal_chart(chart_request)
     except (PermissionError, ValueError, FileNotFoundError, RuntimeError) as error:
         return sanitized_error_response(safe_error_code(error), status_code=400)
     return snapshot.to_json_dict()
@@ -117,6 +122,18 @@ def validate_swisseph_health(config: AstroRuntimeConfig) -> None:
 
 def health_value(value: str, allowed: set[str]) -> str:
     return value if value in allowed else "invalid"
+
+
+def validate_requested_profile_for_runtime(profile_code: str) -> None:
+    config = AstroRuntimeConfig.from_env()
+    config.validate()
+    if config.engine == "swisseph" and config.require_pinned_ephemeris:
+        fingerprint_ephemeris_path(
+            config.ephemeris_path,
+            manifest_path=config.ephemeris_manifest_path,
+            require_pinned=True,
+            active_profile=profile_code,
+        )
 
 
 def safe_error_code(error: BaseException, fallback: str = "ASTRO_CALCULATION_FAILED") -> str:

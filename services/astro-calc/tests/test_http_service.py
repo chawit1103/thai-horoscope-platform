@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import cast
 
 from fastapi.testclient import TestClient
 from httpx import Response
 from pytest import MonkeyPatch
 
+from app.engines.swisseph import build_ephemeris_file_manifest
 from app.main import app
 
 client = TestClient(app)
@@ -28,6 +30,20 @@ def test_health_returns_sanitized_status(monkeypatch: MonkeyPatch) -> None:
     assert "/Users/chawit" not in serialized
     assert "private/ephemeris" not in serialized
     assert "manifest.json" not in serialized
+
+
+def test_unhealthy_health_check_returns_non_2xx_status(monkeypatch: MonkeyPatch) -> None:
+    configure_mock_env(monkeypatch)
+    monkeypatch.setenv("APP_ENV", "production")
+
+    response = client.get("/health")
+    payload = response_json(response)
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert response.status_code == 503
+    assert payload["status"] == "error"
+    assert payload["error_code"] == "ASTRO_MOCK_ENGINE_PRODUCTION_FORBIDDEN"
+    assert "production" not in serialized
 
 
 def test_calculate_natal_works_in_mock_mode(monkeypatch: MonkeyPatch) -> None:
@@ -104,6 +120,26 @@ def test_calculate_natal_errors_do_not_leak_raw_request_or_secrets(monkeypatch: 
         assert blocked not in serialized
 
 
+def test_calculate_natal_validates_requested_profile_against_pinned_manifest(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    configure_pinned_swisseph_env(monkeypatch, tmp_path, approved_profiles=["TH_NIRAYANA_SWISSEPH_V1"])
+    raw_payload = {
+        **mock_natal_request(),
+        "calculation_profile_code": "TH_NIRAYANA_LAHIRI_MEAN_NODE_SWISSEPH_V1",
+    }
+
+    response = client.post("/calculate/natal", json=raw_payload)
+    payload = response_json(response)
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert response.status_code == 400
+    assert payload == {"status": "error", "error_code": "EPHEMERIS_PROFILE_NOT_APPROVED"}
+    assert str(tmp_path) not in serialized
+    assert "sepl_18.se1" not in serialized
+    assert "1971-03-11" not in serialized
+
+
 def configure_mock_env(monkeypatch: MonkeyPatch) -> None:
     for key in [
         "ASTRO_EPHEMERIS_PATH",
@@ -116,6 +152,28 @@ def configure_mock_env(monkeypatch: MonkeyPatch) -> None:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("ASTRO_ENGINE", "mock")
+
+
+def configure_pinned_swisseph_env(monkeypatch: MonkeyPatch, tmp_path: Path, *, approved_profiles: list[str]) -> None:
+    configure_mock_env(monkeypatch)
+    ephemeris_file = tmp_path / "sepl_18.se1"
+    ephemeris_file.write_bytes(b"fixture")
+    manifest = {
+        **build_ephemeris_file_manifest(str(tmp_path)),
+        "license_mode": "professional",
+        "approved_by": "astro-ops",
+        "approval_date": "2026-05-09",
+        "calculation_profiles": approved_profiles,
+    }
+    manifest_path = tmp_path / "ephemeris-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("ASTRO_ENGINE", "swisseph")
+    monkeypatch.setenv("ASTRO_CALCULATION_PROFILE", approved_profiles[0])
+    monkeypatch.setenv("SWISSEPH_LICENSE_MODE", "professional")
+    monkeypatch.setenv("ASTRO_EPHEMERIS_PATH", str(tmp_path))
+    monkeypatch.setenv("ASTRO_EPHEMERIS_MANIFEST_PATH", str(manifest_path))
+    monkeypatch.setenv("ASTRO_REQUIRE_PINNED_EPHEMERIS", "true")
 
 
 def mock_natal_request() -> dict[str, object]:

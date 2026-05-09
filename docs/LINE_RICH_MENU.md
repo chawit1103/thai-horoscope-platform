@@ -56,4 +56,4 @@ Links must use the configured beta/staging base URL. Do not embed production sec
 
 The `buildLineRichMenuTemplate()` helper returns a template containing the recommended labels and actions. Tests validate the labels and links without calling the LINE API.
 
-When `LINE_LIFF_URL` is configured, Rich Menu links should preserve the full LIFF app URL and pass `/line/*` targets through the allowlisted `line_route` query parameter. Without LIFF config, local/dev Rich Menu links can point to the regular web app base URL.
+When `LINE_LIFF_URL` is configured, Rich Menu links should preserve the full HTTPS LIFF app URL and pass `/line/*` targets through the allowlisted `line_route` query parameter. Without LIFF config, local/dev Rich Menu links can point to the regular web app base URL; non-local HTTP URLs should be treated as invalid.

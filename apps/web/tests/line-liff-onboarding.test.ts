@@ -30,6 +30,15 @@ describe("LINE LIFF onboarding helpers", () => {
     assert.equal(lineWebFormUrl({ env, path:"/line/settings" }), "https://liff.line.me/1234567890-AbCdEfGh?line_route=%2Fline%2Fsettings");
   });
 
+  it("rejects plaintext configured LIFF URLs while keeping local dev fallback links allowed", () => {
+    const insecureLiffEnv = { LINE_LIFF_URL:"http://liff.line.me/1234567890-AbCdEfGh", NEXT_PUBLIC_APP_BASE_URL:"https://app.example.test" };
+    const insecureAppEnv = { NEXT_PUBLIC_APP_BASE_URL:"http://app.example.test" };
+
+    assert.equal(lineWebFormUrl({ env:insecureLiffEnv, path:"/line/onboarding" }), "https://app.example.test/line/onboarding");
+    assert.equal(lineWebFormUrl({ env:insecureAppEnv, path:"/line/profile" }), "https://example.test/line/profile");
+    assert.equal(lineWebFormUrl({ path:"/line/settings", fallbackBaseUrl:"http://localhost:3000" }), "http://localhost:3000/line/settings");
+  });
+
   it("renders first-time LINE onboarding without sample birth data or preselected consent", () => {
     const html = renderToStaticMarkup(LineOnboardingForm({ mode:"create" }));
 

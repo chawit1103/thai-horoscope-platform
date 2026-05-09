@@ -35,7 +35,8 @@ NEXT_PUBLIC_APP_BASE_URL=http://localhost:3000
 Local/dev behavior:
 
 - If `LINE_LIFF_URL` is not configured, LINE command links use the local web route under `NEXT_PUBLIC_APP_BASE_URL` or the provided fallback base URL.
-- If `LINE_LIFF_URL` is configured, links preserve the full LIFF app URL, such as `https://liff.line.me/{liffId}`, and pass the requested web form path in a safe `line_route` query parameter.
+- If `LINE_LIFF_URL` is configured, it must be HTTPS. Links preserve the full LIFF app URL, such as `https://liff.line.me/{liffId}`, and pass the requested web form path in a safe `line_route` query parameter.
+- Non-local web base URLs must also be HTTPS. Plain HTTP is only accepted for local development hosts such as `http://localhost:3000`.
 - If the LIFF app reads `line_route`, it should route only to the allowlisted paths documented above.
 - `LINE_LIFF_ID` is optional until real LIFF activation.
 

@@ -118,4 +118,4 @@ Structured birth profile entry uses web routes opened from LINE:
 /line/onboarding/saved
 ```
 
-If `LINE_LIFF_URL` is configured, LINE command links preserve the full LIFF app URL and pass the target form path through the allowlisted `line_route` query parameter. If it is not configured, local/dev links fall back to `NEXT_PUBLIC_APP_BASE_URL` or the configured base URL used by tests. Links must never include raw LINE user IDs, payment IDs, secrets, or internal audit IDs.
+If `LINE_LIFF_URL` is configured, it must be HTTPS; LINE command links preserve the full LIFF app URL and pass the target form path through the allowlisted `line_route` query parameter. If it is not configured, local/dev links fall back to `NEXT_PUBLIC_APP_BASE_URL` or the configured base URL used by tests. Plain HTTP is accepted only for local hosts such as `localhost`; links must never include raw LINE user IDs, payment IDs, secrets, or internal audit IDs.

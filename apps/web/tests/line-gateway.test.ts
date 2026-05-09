@@ -96,6 +96,7 @@ describe("line gateway", () => {
     assert.deepEqual(normalized.map((event)=>event.type), ["follow", "message", "postback", "unfollow"]);
     assert.equal(normalized[0]?.providerEventId, "evt_follow");
     assert.equal(normalized[1]?.messageType, "text");
+    assert.equal(normalized[1]?.messageText, "hi");
     assert.equal(normalized[2]?.postbackData, "period=daily");
     assert.equal(JSON.stringify(normalized).includes(testLineUserId), false);
   });

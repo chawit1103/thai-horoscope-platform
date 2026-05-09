@@ -296,6 +296,34 @@ deactivated account suppression, unsubscribe suppression, duplicate dispatch
 prevention, no raw private data in delivery content/metadata, unsafe content
 blocking, and no real provider or network calls.
 
+## PR49 LINE-first user experience
+
+PR49 adds a LINE-first command router and safe reply builder for common beta
+user intents:
+
+```text
+ดวงวันนี้
+ดวงสัปดาห์
+ดวงเดือน
+ดวงปี
+กรอกข้อมูลเกิด
+สมัครสมาชิก
+ตั้งค่า
+ข้อมูลส่วนตัว
+ช่วยเหลือ
+```
+
+The router is a pure helper and does not call the LINE API. It can produce
+welcome/help text, onboarding links, subscription/privacy/settings links, and
+horoscope Flex preview payloads. Horoscope previews still rely on existing
+entitlement checks, birth-profile availability, unsubscribe/deactivation
+suppression, content safety wording, and provider guardrails.
+
+Mock MVP diagnostic content must not be silently presented as real Thai
+horoscope output in LINE. When live chart content is unavailable, LINE replies
+should show a clear unavailable/onboarding/settings path instead of sending
+mock horoscope content.
+
 ## Observability
 
 Track:

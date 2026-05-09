@@ -149,6 +149,10 @@ describe("chart preview", () => {
         license_key:"swisseph-commercial-license-secret",
         private_key:"-----BEGIN PRIVATE KEY-----abc123",
         credential:"sk_live_extra_credential",
+        password:"local-wrapper-password",
+        authorization:"Basic dXNlcjpwYXNz",
+        auth_header:"Bearer astro-wrapper-token",
+        session_id:"session-secret-value",
         token:"abc123",
         line_user:"UrawLineUserId123456",
         contact:"beta@example.test",
@@ -159,7 +163,7 @@ describe("chart preview", () => {
 
     assert.doesNotThrow(() => assertChartPreviewSafe(model));
     assert.equal(model.metadata.ephemeris_source, "[redacted-path]");
-    for (const blocked of ["/Users/chawit", "/opt/swisseph", "sk_live_abc123", "swisseph-commercial-license-secret", "PRIVATE KEY", "sk_live_extra_credential", "abc123", "UrawLineUserId123456", "beta@example.test"]) {
+    for (const blocked of ["/Users/chawit", "/opt/swisseph", "sk_live_abc123", "swisseph-commercial-license-secret", "PRIVATE KEY", "sk_live_extra_credential", "local-wrapper-password", "Basic dXNlcjpwYXNz", "astro-wrapper-token", "session-secret-value", "abc123", "UrawLineUserId123456", "beta@example.test"]) {
       assert.equal(serialized.includes(blocked), false);
     }
   });

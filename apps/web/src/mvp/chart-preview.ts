@@ -626,13 +626,13 @@ function sanitizeLiveChartPreviewValue(value:unknown):unknown {
 function sanitizeLiveChartPreviewString(value:string):string {
   if (/@[a-z0-9.-]+/i.test(value)) return "[redacted-email]";
   if (/\bU[a-z0-9]{8,}\b/i.test(value)) return "[redacted-line-id]";
-  if (/secret|token|api[_-]?key|credential|private[_-]?key|license[_-]?(key|secret|data|file|path|payload)|bearer\s+|sk_(live|test)_/i.test(value)) return "[redacted-secret]";
+  if (/secret|token|api[_-]?key|credential|private[_-]?key|license[_-]?(key|secret|data|file|path|payload)|password|passphrase|authorization|auth[_-]?(header|value|key|secret)|session[_-]?(id|key|secret|token)|basic\s+[a-z0-9+/=:_-]+|bearer\s+|sk_(live|test)_/i.test(value)) return "[redacted-secret]";
   if (/(^|\s)\/[A-Za-z0-9._/-]+|[A-Za-z]:\\/i.test(value)) return "[redacted-path]";
   return value;
 }
 
 function sanitizeLiveChartPreviewKey(key:string):string {
-  if (/secret|token|api[_-]?key|webhook|payment|provider|line_user|credential|private[_-]?key|license[_-]?(key|secret|data|file|path|payload)/i.test(key)) return "[redacted-key]";
+  if (/secret|token|api[_-]?key|webhook|payment|provider|line_user|credential|private[_-]?key|license[_-]?(key|secret|data|file|path|payload)|password|passphrase|authorization|auth[_-]?(header|value|key|secret)|session[_-]?(id|key|secret|token)/i.test(key)) return "[redacted-key]";
   if (key === "ephemeris_path") return "[redacted-key]";
   return key;
 }
@@ -739,6 +739,12 @@ export function assertChartPreviewSafe(model:ChartPreviewModel):void {
     /credential/i,
     /private[_-]?key/i,
     /license[_-]?(key|secret|data|file|path|payload)/i,
+    /password/i,
+    /passphrase/i,
+    /authorization/i,
+    /auth[_-]?(header|value|key|secret)/i,
+    /session[_-]?(id|key|secret|token)/i,
+    /basic\s+[a-z0-9+/=:_-]+/i,
     /bearer\s+/i,
     /sk_(live|test)_/i,
     /card/i,

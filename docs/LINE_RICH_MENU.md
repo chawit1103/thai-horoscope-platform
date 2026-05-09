@@ -100,3 +100,7 @@ PR52 validates Rich Menu behavior through the LINE beta pilot dry-run helper. Th
 ```
 
 The dry run must keep LINE API calls at zero and must not expose raw LINE user IDs, birth data, tokens, payment identifiers, or provider payloads. See [LINE beta pilot dry run](LINE_BETA_PILOT_DRY_RUN.md).
+
+## Personal owner pilot
+
+For a one-person owner pilot, keep Rich Menu creation manual and operator-controlled. Verify the local template first, then use [Personal LINE pilot runbook](PERSONAL_LINE_PILOT_RUNBOOK.md) and [LINE local tunnel setup](LINE_LOCAL_TUNNEL_SETUP.md) before touching the LINE dashboard. If a manually published Rich Menu routes to the wrong host or unsafe path, unlink or replace it in the LINE dashboard and record the rollback in [Personal LINE pilot checklist](PERSONAL_LINE_PILOT_CHECKLIST.md).

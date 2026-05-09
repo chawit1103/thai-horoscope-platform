@@ -140,3 +140,7 @@ Message actions use the same Thai phrases recognized by the command router. URI 
 PR52 adds a mock/dry-run helper for the LINE beta pilot journey. It covers follow/welcome, Rich Menu onboarding, no-profile onboarding prompts, birth profile save, today horoscope preview, weekly/monthly/yearly entitlement boundaries, notification settings, privacy/help, unknown command help, unsubscribe suppression, and deactivated account suppression.
 
 The dry run uses `LINE_PROVIDER_MODE=sandbox`, mocked astro-calc responses, and `ENABLE_REAL_LINE_SENDS=false`. It must report zero real LINE API calls and must not expose raw LINE user IDs, birth date/time/place, payment IDs, provider payloads, secrets, or internal audit IDs. See [LINE beta pilot dry run](LINE_BETA_PILOT_DRY_RUN.md).
+
+## PR53 personal LINE pilot
+
+The project owner can rehearse the full LINE journey alone before inviting other users. The PR53 docs separate dry-run/mock proof, local tunnel webhook checks, and any owner-only real LINE OA test that requires explicit human action. Use [Personal LINE pilot runbook](PERSONAL_LINE_PILOT_RUNBOOK.md), [Personal LINE pilot checklist](PERSONAL_LINE_PILOT_CHECKLIST.md), [LINE local tunnel setup](LINE_LOCAL_TUNNEL_SETUP.md), and [LINE pilot troubleshooting](LINE_PILOT_TROUBLESHOOTING.md).

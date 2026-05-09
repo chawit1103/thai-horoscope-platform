@@ -24,8 +24,8 @@ Recommended actions:
 สัปดาห์ -> message: ดวงสัปดาห์
 เดือน -> message: ดวงเดือน
 ปี -> message: ดวงปี
-กรอกข้อมูลเกิด -> uri: /onboarding
-ตั้งค่า -> uri: /settings/notifications
+กรอกข้อมูลเกิด -> uri: /line/onboarding
+ตั้งค่า -> uri: /line/settings
 ```
 
 ## Web and LIFF links
@@ -33,7 +33,9 @@ Recommended actions:
 Use web or LIFF links for flows that need structured input:
 
 ```text
-/onboarding
+/line/onboarding
+/line/profile
+/line/settings
 /account
 /settings/notifications
 /settings/privacy
@@ -54,3 +56,4 @@ Links must use the configured beta/staging base URL. Do not embed production sec
 
 The `buildLineRichMenuTemplate()` helper returns a template containing the recommended labels and actions. Tests validate the labels and links without calling the LINE API.
 
+When `LINE_LIFF_URL` is configured, use the same LIFF/web origin for the `/line/*` routes. Without LIFF config, local/dev Rich Menu links can point to the regular web app base URL.

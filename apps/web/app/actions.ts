@@ -8,6 +8,7 @@ import { BETA_INVITE_SCOPE_ID, canAccessBetaOnlyFlow, enrollBetaUser, ensureLoca
 import { buildBetaMockSubscriptionWindow, validateOnboardingFields } from "../src/mvp/beta-user-ux";
 import { CONTENT_PREVIEW_APPROVAL_SESSION_ID } from "../src/mvp/content-preview-approval";
 import { readDeploymentEnvironment } from "../src/mvp/environment-validation";
+import { safeLineReturnPath } from "../src/mvp/line-liff-onboarding";
 import { callMockAstroCalc, deleteBirthProfile, exportUserData, generateHoroscopeResult, getMockMvpState, getMockPeriodKey, recordAdminAudit, requestAccountDeletion, saveBirthProfile, setMockUserPlan, setNotificationPreference, storeChartSnapshot, unsubscribeNotifications, type PeriodType, type PlanCode } from "../src/mvp/mock-flow";
 import { processMockSubscriptionWebhook } from "../src/mvp/subscription-lifecycle";
 
@@ -95,6 +96,8 @@ export async function saveOnboardingAction(formData: FormData): Promise<void> {
     birthTimeUnknown:formData.get("birthTimeUnknown"),
     birthPlaceText:formData.get("birthPlaceText"),
     timezone:formData.get("timezone"),
+    latitude:formData.get("latitude"),
+    longitude:formData.get("longitude"),
     consentBirthData:formData.get("consentBirthData"),
   });
   if (!validation.ok) throw new Error(validation.errors.map((error)=>error.message).join(", "));
@@ -106,7 +109,7 @@ export async function saveOnboardingAction(formData: FormData): Promise<void> {
   for (const periodType of ["daily", "weekly", "monthly", "yearly"] as PeriodType[]) {
     generateHoroscopeResult({ chartSnapshot, periodType, periodKey: getMockPeriodKey(periodType), sessionId });
   }
-  redirect("/chart-preview?mode=user");
+  redirect(safeLineReturnPath(formData.get("returnTo")) ?? "/chart-preview?mode=user");
 }
 
 export async function selectMockPlanAction(formData: FormData): Promise<void> {

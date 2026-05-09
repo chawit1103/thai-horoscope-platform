@@ -46,7 +46,7 @@ Unknown messages return a safe help response instead of attempting free-form int
 
 1. User follows the LINE Official Account.
 2. Bot replies with a Thai welcome message and available actions.
-3. If the user requests horoscope content without a birth profile, the bot sends the onboarding web/LIFF link.
+3. If the user requests horoscope content without a birth profile, the bot sends the LINE web/LIFF onboarding link.
 4. If the user has a birth profile and entitlement, the bot can send a LINE Flex Message preview.
 5. If the user lacks entitlement, the bot explains the plan limitation and links to subscription status.
 6. If the user is unsubscribed, deactivated, deleted, blocked, or unfollowed, horoscope content is suppressed.
@@ -107,3 +107,15 @@ REQUIRE_PROVIDER_ACTIVATION_APPROVAL=true
 
 No test should call the LINE Messaging API.
 
+## PR50 LINE web onboarding
+
+Structured birth profile entry uses web routes opened from LINE:
+
+```text
+/line/onboarding
+/line/profile
+/line/settings
+/line/onboarding/saved
+```
+
+If `LINE_LIFF_URL` is configured, LINE command links use that LIFF/web origin. If it is not configured, local/dev links fall back to `NEXT_PUBLIC_APP_BASE_URL` or the configured base URL used by tests. Links must never include raw LINE user IDs, payment IDs, secrets, or internal audit IDs.

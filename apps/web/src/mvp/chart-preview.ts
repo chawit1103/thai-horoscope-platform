@@ -282,7 +282,7 @@ export function buildLiveChartPreviewRequestFromBirthProfile(profile:BirthProfil
   const localTime = profile.birthTimeUnknown ? "12:00" : profile.birthTime;
   if (!localTime || !/^\d{2}:\d{2}$/.test(localTime)) throw new Error("USER_CHART_PREVIEW_INVALID_BIRTH_TIME");
   const datetimeLocal = `${profile.birthDate}T${localTime}:00`;
-  const location = localValidationCoordinatesForBirthPlace(profile.birthPlaceText);
+  const location = coordinatesFromBirthProfile(profile) ?? localValidationCoordinatesForBirthPlace(profile.birthPlaceText);
   if (!location) throw new Error("USER_CHART_PREVIEW_UNRESOLVED_BIRTH_PLACE");
   return {
     calculation_profile_code:LIVE_CHART_PREVIEW_PROFILE,
@@ -789,6 +789,13 @@ function localValidationCoordinatesForBirthPlace(birthPlaceText:string):{ latitu
   if (place.includes("chiang mai")) return { latitude:18.7883, longitude:98.9853 };
   if (place.includes("phuket")) return { latitude:7.8804, longitude:98.3923 };
   return null;
+}
+
+function coordinatesFromBirthProfile(profile:BirthProfile):{ latitude:number; longitude:number }|null {
+  if (profile.latitude === undefined || profile.longitude === undefined) return null;
+  if (!Number.isFinite(profile.latitude) || !Number.isFinite(profile.longitude)) return null;
+  if (profile.latitude < -90 || profile.latitude > 90 || profile.longitude < -180 || profile.longitude > 180) return null;
+  return { latitude:profile.latitude, longitude:profile.longitude };
 }
 
 function localDateTimeToUtcIso(datetimeLocal:string, timezone:string):string {

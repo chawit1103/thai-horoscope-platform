@@ -55,8 +55,20 @@ describe("LINE-first UX", () => {
 
     assert.equal(reply.suppressed, false);
     assert.equal(reply.messages[0]?.type, "text");
-    assert.match(JSON.stringify(reply.messages), /onboarding/);
+    assert.match(JSON.stringify(reply.messages), /\/line\/onboarding/);
     assert.doesNotMatch(JSON.stringify(reply.messages), /flex/i);
+  });
+
+  it("uses optional LIFF web form links for onboarding profile and settings commands", async () => {
+    const env = { LINE_LIFF_URL:"https://liff.example.test/line/onboarding", NEXT_PUBLIC_APP_BASE_URL:"https://app.example.test" };
+    const onboarding = await buildLineFirstReply({ intent:"onboarding", state:getMockMvpState(sessionId), userId, baseUrl, env });
+    const profile = await buildLineFirstReply({ intent:"profile", state:getMockMvpState(sessionId), userId, baseUrl, env });
+    const settings = await buildLineFirstReply({ intent:"notification_settings", state:getMockMvpState(sessionId), userId, baseUrl, env });
+
+    assert.match(JSON.stringify(onboarding.messages), /https:\/\/liff\.example\.test\/line\/onboarding/);
+    assert.match(JSON.stringify(profile.messages), /https:\/\/liff\.example\.test\/line\/profile/);
+    assert.match(JSON.stringify(settings.messages), /https:\/\/liff\.example\.test\/line\/settings/);
+    assert.doesNotMatch(JSON.stringify({ onboarding, profile, settings }), /U1234567890abcdef|secret|token|payment_/i);
   });
 
   it("sends an entitled user's live chart horoscope as a safe Flex payload", async () => {
@@ -215,7 +227,8 @@ describe("LINE-first UX", () => {
     const menu = buildLineRichMenuTemplate(baseUrl);
     assert.deepEqual(menu.actions.map((action)=>action.label), ["วันนี้", "สัปดาห์", "เดือน", "ปี", "กรอกข้อมูลเกิด", "ตั้งค่า"]);
     assert.equal(menu.actions.some((action)=>action.type === "uri" && action.uri?.includes("/onboarding")), true);
-    assert.equal(menu.actions.some((action)=>action.type === "uri" && action.uri?.includes("/settings/notifications")), true);
+    assert.equal(menu.actions.some((action)=>action.type === "uri" && action.uri?.includes("/line/onboarding")), true);
+    assert.equal(menu.actions.some((action)=>action.type === "uri" && action.uri?.includes("/line/settings")), true);
   });
 });
 

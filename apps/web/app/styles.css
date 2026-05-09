@@ -155,6 +155,20 @@ h2 {
   margin-top: 24px;
 }
 
+.line-webview {
+  max-width: 760px;
+}
+
+.line-form {
+  margin-top: 18px;
+}
+
+.field-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
 label {
   display: grid;
   font-weight: 700;

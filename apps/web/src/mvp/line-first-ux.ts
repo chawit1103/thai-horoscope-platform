@@ -1,5 +1,6 @@
 import { ENTERTAINMENT_DISCLAIMER } from "./beta-user-ux";
 import { renderLineHoroscopePreviewFlex, type LineChannelAccount, type LineInboundEventType, type LineMessage, type LinePushMessage, type LineTextMessage } from "./line-gateway";
+import { lineWebFormUrl } from "./line-liff-onboarding";
 import { type MockMvpState, type PeriodType } from "./mock-flow";
 import { buildPeriodHoroscopeView, type HoroscopeSourceMode, type PeriodHoroscopeView } from "./period-horoscope-view";
 import { type SubscriptionRecord } from "./subscription-lifecycle";
@@ -84,24 +85,25 @@ export async function buildLineFirstReply(input:{
   baseUrl?:string;
 }):Promise<LineFirstReply> {
   const baseUrl = safeBaseUrl(input.baseUrl);
+  const links = lineLinks(input.env, baseUrl);
   const now = input.now ?? new Date();
   if (isLineAccountSuppressed(input.lineAccount)) return suppressedReply(input.intent, "line_account_inactive");
   if (isUserDeactivated(input.state, input.userId)) return suppressedReply(input.intent, "user_deactivated");
-  if (input.intent === "follow") return textReply(input.intent, welcomeText(baseUrl));
-  if (input.intent === "help" || input.intent === "unknown") return textReply(input.intent, helpText(baseUrl));
-  if (input.intent === "onboarding") return textReply(input.intent, onboardingText(baseUrl));
-  if (input.intent === "profile") return textReply(input.intent, profileText(baseUrl));
+  if (input.intent === "follow") return textReply(input.intent, welcomeText(links));
+  if (input.intent === "help" || input.intent === "unknown") return textReply(input.intent, helpText(links));
+  if (input.intent === "onboarding") return textReply(input.intent, onboardingText(links));
+  if (input.intent === "profile") return textReply(input.intent, profileText(links));
   if (input.intent === "subscription") return textReply(input.intent, subscriptionText(baseUrl));
-  if (input.intent === "notification_settings") return textReply(input.intent, notificationSettingsText(baseUrl));
-  if (input.intent === "privacy") return textReply(input.intent, privacyText(baseUrl));
+  if (input.intent === "notification_settings") return textReply(input.intent, notificationSettingsText(links));
+  if (input.intent === "privacy") return textReply(input.intent, privacyText(links));
 
   const periodType = periodByIntent[input.intent];
-  if (!periodType) return textReply("unknown", helpText(baseUrl));
+  if (!periodType) return textReply("unknown", helpText(links));
   if (isNotificationSuppressed(input.state, input.userId, periodText[periodType].topicCode)) {
     return suppressedReply(input.intent, "notification_unsubscribed", { periodType });
   }
   if (!hasActiveBirthProfile(input.state, input.userId)) {
-    return textReply(input.intent, `ยังไม่มีข้อมูลเกิดสำหรับอ่านดวง${periodText[periodType].label}แบบปรับตามโปรไฟล์\n\nกรอกข้อมูลเกิดได้ที่ ${urlFor(baseUrl, "/onboarding")}\n${LINE_FIRST_DISCLAIMER}`, {
+    return textReply(input.intent, `ยังไม่มีข้อมูลเกิดสำหรับอ่านดวง${periodText[periodType].label}แบบปรับตามโปรไฟล์\n\nกรอกข้อมูลเกิดได้ที่ ${links.onboarding}\n${LINE_FIRST_DISCLAIMER}`, {
       metadata:{ periodType },
     });
   }
@@ -131,7 +133,7 @@ export async function buildLineFirstReply(input:{
   return {
     intent:input.intent,
     suppressed:false,
-    messages:[renderLineHoroscopePreviewFlex(lineMessageFromView(view, baseUrl))],
+    messages:[renderLineHoroscopePreviewFlex(lineMessageFromView(view, baseUrl, links))],
     metadata:{
       periodType,
       periodKey:view.periodKey,
@@ -142,7 +144,7 @@ export async function buildLineFirstReply(input:{
 }
 
 export function buildLineRichMenuTemplate(baseUrl = "https://example.test"):LineRichMenuTemplate {
-  const root = safeBaseUrl(baseUrl);
+  const links = lineLinks(undefined, safeBaseUrl(baseUrl));
   return {
     name:"Thai Horoscope Beta LINE Rich Menu",
     chatBarText:"เมนูดูดวง",
@@ -151,13 +153,13 @@ export function buildLineRichMenuTemplate(baseUrl = "https://example.test"):Line
       { label:"สัปดาห์", type:"message", text:"ดวงสัปดาห์" },
       { label:"เดือน", type:"message", text:"ดวงเดือน" },
       { label:"ปี", type:"message", text:"ดวงปี" },
-      { label:"กรอกข้อมูลเกิด", type:"uri", uri:urlFor(root, "/onboarding") },
-      { label:"ตั้งค่า", type:"uri", uri:urlFor(root, "/settings/notifications") },
+      { label:"กรอกข้อมูลเกิด", type:"uri", uri:links.onboarding },
+      { label:"ตั้งค่า", type:"uri", uri:links.settings },
     ],
   };
 }
 
-function lineMessageFromView(view:PeriodHoroscopeView, baseUrl:string):LineMessage {
+function lineMessageFromView(view:PeriodHoroscopeView, baseUrl:string, links:LineLinks):LineMessage {
   const period = periodText[view.periodType];
   return {
     topicCode:period.topicCode,
@@ -174,8 +176,8 @@ function lineMessageFromView(view:PeriodHoroscopeView, baseUrl:string):LineMessa
     ],
     actions:[
       { label:"ดูรายละเอียด", uri:urlFor(baseUrl, period.path), style:"primary" },
-      { label:"แก้ข้อมูลเกิด", uri:urlFor(baseUrl, "/onboarding"), style:"secondary" },
-      { label:"ตั้งค่าแจ้งเตือน", uri:urlFor(baseUrl, "/settings/notifications"), style:"secondary" },
+      { label:"แก้ข้อมูลเกิด", uri:links.profile, style:"secondary" },
+      { label:"ตั้งค่าแจ้งเตือน", uri:links.settings, style:"secondary" },
     ],
     disclaimer:view.disclaimer || ENTERTAINMENT_DISCLAIMER || LINE_FIRST_DISCLAIMER,
     metadata:{
@@ -205,41 +207,57 @@ function suppressedReply(intent:LineCommandIntent, reason:string, metadata?:Line
   };
 }
 
-function welcomeText(baseUrl:string):string {
+interface LineLinks {
+  onboarding:string;
+  profile:string;
+  settings:string;
+  privacy:string;
+}
+
+function lineLinks(env:Record<string, string|undefined>|undefined, fallbackBaseUrl:string):LineLinks {
+  return {
+    onboarding:lineWebFormUrl({ env, path:"/line/onboarding", fallbackBaseUrl }),
+    profile:lineWebFormUrl({ env, path:"/line/profile", fallbackBaseUrl }),
+    settings:lineWebFormUrl({ env, path:"/line/settings", fallbackBaseUrl }),
+    privacy:lineWebFormUrl({ env, path:"/settings/privacy", fallbackBaseUrl }),
+  };
+}
+
+function welcomeText(links:LineLinks):string {
   return [
     "ยินดีต้อนรับสู่ Thai Horoscope Beta",
     "เลือกเมนูได้เลย: ดูดวงวันนี้, ดวงสัปดาห์, ดวงเดือน, ดวงปี, กรอกข้อมูลเกิด, แพ็กเกจของฉัน, ตั้งค่าการแจ้งเตือน, ความเป็นส่วนตัว",
-    `เริ่มกรอกข้อมูลเกิด: ${urlFor(baseUrl, "/onboarding")}`,
+    `เริ่มกรอกข้อมูลเกิด: ${links.onboarding}`,
     LINE_FIRST_DISCLAIMER,
   ].join("\n\n");
 }
 
-function helpText(baseUrl:string):string {
+function helpText(links:LineLinks):string {
   return [
     "พิมพ์คำสั่งได้ เช่น ดวงวันนี้, ดวงสัปดาห์, ดวงเดือน, ดวงปี, สมัครสมาชิก, ตั้งค่า, แก้ข้อมูลเกิด, ข้อมูลส่วนตัว",
-    `กรอกหรือแก้ข้อมูลเกิด: ${urlFor(baseUrl, "/onboarding")}`,
+    `กรอกหรือแก้ข้อมูลเกิด: ${links.onboarding}`,
     LINE_FIRST_DISCLAIMER,
   ].join("\n\n");
 }
 
-function onboardingText(baseUrl:string):string {
-  return `กรอกข้อมูลเกิดเพื่อให้ระบบสร้างผังดวงสำหรับ beta ได้ที่ ${urlFor(baseUrl, "/onboarding")}\n\nหากไม่ทราบเวลาเกิด ผลบางส่วนจะเป็นค่าประมาณ\n${LINE_FIRST_DISCLAIMER}`;
+function onboardingText(links:LineLinks):string {
+  return `กรอกข้อมูลเกิดเพื่อให้ระบบสร้างผังดวงสำหรับ beta ได้ที่ ${links.onboarding}\n\nหากไม่ทราบเวลาเกิด ผลบางส่วนจะเป็นค่าประมาณ\n${LINE_FIRST_DISCLAIMER}`;
 }
 
-function profileText(baseUrl:string):string {
-  return `แก้ข้อมูลเกิดหรือเปิดดูผังดวงได้ที่ ${urlFor(baseUrl, "/account")}\n\nข้อมูลนี้ใช้เพื่อคำนวณดวงตามโปรไฟล์เท่านั้น`;
+function profileText(links:LineLinks):string {
+  return `แก้ข้อมูลเกิดหรือเปิดดูผังดวงได้ที่ ${links.profile}\n\nข้อมูลนี้ใช้เพื่อคำนวณดวงตามโปรไฟล์เท่านั้น`;
 }
 
 function subscriptionText(baseUrl:string):string {
   return `ดูแพ็กเกจ สิทธิ์การอ่าน และสถานะสมาชิกได้ที่ ${urlFor(baseUrl, "/subscribe")}\n\nระบบ beta ยังไม่รับประกันผลลัพธ์ใด ๆ และไม่ใช่คำแนะนำทางการเงิน`;
 }
 
-function notificationSettingsText(baseUrl:string):string {
-  return `ตั้งค่าหัวข้อและช่องทางแจ้งเตือนได้ที่ ${urlFor(baseUrl, "/settings/notifications")}`;
+function notificationSettingsText(links:LineLinks):string {
+  return `ตั้งค่าหัวข้อและช่องทางแจ้งเตือนได้ที่ ${links.settings}`;
 }
 
-function privacyText(baseUrl:string):string {
-  return `จัดการความเป็นส่วนตัว ส่งออกข้อมูล ลบข้อมูลเกิด หรือขอลบบัญชีได้ที่ ${urlFor(baseUrl, "/settings/privacy")}`;
+function privacyText(links:LineLinks):string {
+  return `จัดการความเป็นส่วนตัว ส่งออกข้อมูล ลบข้อมูลเกิด หรือขอลบบัญชีได้ที่ ${links.privacy}`;
 }
 
 function intentFromPostback(data:string|undefined):LineCommandIntent|undefined {

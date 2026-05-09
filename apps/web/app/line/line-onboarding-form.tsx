@@ -4,6 +4,9 @@ import { ENTERTAINMENT_DISCLAIMER, UNKNOWN_BIRTH_TIME_WARNING } from "../../src/
 import { type BirthProfile } from "../../src/mvp/mock-flow";
 
 export function LineOnboardingForm({ mode, profile }:{ mode:"create"|"edit"; profile?:BirthProfile }) {
+  const birthTimeDefault = mode === "edit" && !profile?.birthTimeUnknown ? profile?.birthTime ?? "" : "";
+  const consentDefault = mode === "edit" ? profile?.consentBirthData ?? false : false;
+
   return (
     <section className="page line-webview">
       <p className="eyebrow">LINE web onboarding</p>
@@ -23,7 +26,7 @@ export function LineOnboardingForm({ mode, profile }:{ mode:"create"|"edit"; pro
         </label>
         <label>
           เวลาเกิด
-          <input name="birthTime" type="time" defaultValue={profile?.birthTimeUnknown ? "" : profile?.birthTime ?? "07:30"} aria-describedby="line-birth-time-help" />
+          <input name="birthTime" type="time" defaultValue={birthTimeDefault} aria-describedby="line-birth-time-help" />
           <span id="line-birth-time-help" className="muted">ถ้าไม่แน่ใจ ให้เลือก “ไม่ทราบเวลาเกิด” แทนการเดา</span>
         </label>
         <label className="check-row">
@@ -49,7 +52,7 @@ export function LineOnboardingForm({ mode, profile }:{ mode:"create"|"edit"; pro
           </label>
         </div>
         <label className="check-row">
-          <input name="consentBirthData" type="checkbox" defaultChecked required />
+          <input name="consentBirthData" type="checkbox" defaultChecked={consentDefault} required />
           ยินยอมให้ใช้ข้อมูลเกิดเพื่อคำนวณดวงและตรวจผังดวงในระบบ beta
         </label>
         <button type="submit">บันทึกข้อมูลเกิด</button>

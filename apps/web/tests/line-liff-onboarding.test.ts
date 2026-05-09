@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import { LineOnboardingForm } from "../app/line/line-onboarding-form";
 import { buildLiveChartPreviewRequestFromBirthProfile, fetchUserChartPreviewModel } from "../src/mvp/chart-preview";
 import { validateOnboardingFields } from "../src/mvp/beta-user-ux";
 import { lineWebFormUrl, safeLineReturnPath } from "../src/mvp/line-liff-onboarding";
@@ -26,6 +28,34 @@ describe("LINE LIFF onboarding helpers", () => {
     assert.equal(lineWebFormUrl({ env, path:"/line/onboarding" }), "https://liff.example.test/line/onboarding");
     assert.equal(lineWebFormUrl({ env, path:"/line/profile" }), "https://liff.example.test/line/profile");
     assert.equal(lineWebFormUrl({ env, path:"/line/settings" }), "https://liff.example.test/line/settings");
+  });
+
+  it("renders first-time LINE onboarding without guessed birth time or preselected consent", () => {
+    const html = renderToStaticMarkup(LineOnboardingForm({ mode:"create" }));
+
+    assert.match(html, /name="birthTime"/);
+    assert.doesNotMatch(html, /name="birthTime"[^>]*value="07:30"/);
+    assert.doesNotMatch(html, /name="consentBirthData"[^>]*checked/);
+  });
+
+  it("renders edit LINE onboarding with saved birth time and saved consent state", () => {
+    const html = renderToStaticMarkup(LineOnboardingForm({
+      mode:"edit",
+      profile:{
+        id:"birth_profile_test",
+        userId,
+        birthDate:"1971-03-11",
+        birthTime:"08:17",
+        birthTimeUnknown:false,
+        birthPlaceText:"Bangkok",
+        timezone:"Asia/Bangkok",
+        consentBirthData:true,
+        createdAt:"2026-05-09T00:00:00Z",
+      },
+    }));
+
+    assert.match(html, /name="birthTime"[^>]*value="08:17"/);
+    assert.match(html, /name="consentBirthData"[^>]*checked/);
   });
 
   it("validates LINE onboarding birth profile fields including optional coordinates", () => {

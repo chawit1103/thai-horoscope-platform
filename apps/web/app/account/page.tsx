@@ -51,7 +51,8 @@ export default async function AccountPage() {
       </section>
       <div className="actions">
         <Link href="/onboarding">แก้ไขโปรไฟล์เกิด</Link>
-        <Link href="/chart-preview">ตรวจสอบค่าคำนวณ</Link>
+        <Link href="/chart-preview?mode=user">ดูผังดวง / ตรวจตำแหน่งดาว</Link>
+        <Link href="/chart-preview?mode=golden">Golden validation chart</Link>
         <Link href="/subscribe">จัดการแพ็กเกจ</Link>
         <Link href="/settings/notifications">ตั้งค่าแจ้งเตือน</Link>
         <Link href="/settings/privacy">Privacy controls</Link>

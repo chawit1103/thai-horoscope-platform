@@ -1,32 +1,40 @@
 import Link from "next/link";
 import {
   LIVE_SWISSEPH_UNAVAILABLE_REASON,
+  USER_CHART_PREVIEW_UNAVAILABLE_REASON,
   assertChartPreviewSafe,
   buildChartPreviewModeStatuses,
   buildChartPreviewModel,
   fetchLiveChartPreviewModel,
+  fetchUserChartPreviewModel,
   normalizeChartPreviewMode,
+  selectUserBirthProfileForChartPreview,
   type LiveChartPreviewLoadResult,
   type ChartPreviewMode,
   type ChartPreviewModel,
 } from "../../src/mvp/chart-preview";
-import { getMockMvpState } from "../../src/mvp/mock-flow";
+import { getMockMvpState, type BirthProfile, type MockMvpState } from "../../src/mvp/mock-flow";
 import { degreeWithinSign, thaiSignNameFromLongitude } from "../../src/mvp/zodiac";
 import { getOptionalMockSession } from "../user-session";
 
 interface ChartPreviewPageProps {
-  searchParams?:Promise<{ mode?:string|string[] }>;
+  searchParams?:Promise<{ mode?:string|string[]; birthProfileId?:string|string[] }>;
 }
 
 export default async function ChartPreviewPage({ searchParams }:ChartPreviewPageProps) {
   const params = await searchParams;
   const mode = normalizeChartPreviewMode(params?.mode);
-  const mockModel = await loadMockChartPreviewModel();
+  const session = await getOptionalMockSession();
+  const state = session ? getMockMvpState(session.sessionId) : undefined;
+  const birthProfileId = paramValue(params?.birthProfileId);
+  const mockModel = loadMockChartPreviewModel(session, state);
+  const userProfile = session && state ? selectUserBirthProfileForChartPreview({ state, userId:session.userId, birthProfileId }) : undefined;
   const liveResult = mode === "live" ? await fetchLiveChartPreviewModel() : undefined;
-  const model = selectChartPreviewModel(mode, mockModel, liveResult?.model);
+  const userResult = mode === "user" ? await fetchUserChartPreviewModel({ profile:userProfile }) : undefined;
+  const model = selectChartPreviewModel(mode, mockModel, liveResult?.model, userResult?.model);
   if (model) assertChartPreviewSafe(model);
-  const modeStatuses = buildChartPreviewModeStatuses(mode, Boolean(mockModel), liveStatusFromResult(liveResult));
-  const unavailableReason = unavailableReasonForMode(mode, model, liveResult);
+  const modeStatuses = buildChartPreviewModeStatuses(mode, Boolean(mockModel), liveStatusFromResult(liveResult), userStatusFromResult(userResult, userProfile));
+  const unavailableReason = unavailableReasonForMode(mode, model, liveResult, userResult);
 
   return (
     <section className="page">
@@ -69,19 +77,24 @@ export default async function ChartPreviewPage({ searchParams }:ChartPreviewPage
   );
 }
 
-async function loadMockChartPreviewModel():Promise<ChartPreviewModel|undefined> {
-  const session = await getOptionalMockSession();
+function loadMockChartPreviewModel(
+  session:{ sessionId:string; userId:string }|undefined,
+  state:MockMvpState|undefined,
+):ChartPreviewModel|undefined {
   if (!session) return undefined;
-  return buildChartPreviewModel({ state:getMockMvpState(session.sessionId), userId:session.userId });
+  if (!state) return undefined;
+  return buildChartPreviewModel({ state, userId:session.userId });
 }
 
 function selectChartPreviewModel(
   mode:ChartPreviewMode,
   mockModel:ChartPreviewModel|undefined,
   liveModel:ChartPreviewModel|undefined,
+  userModel:ChartPreviewModel|undefined,
 ):ChartPreviewModel|undefined {
   if (mode === "golden") return buildChartPreviewModel();
   if (mode === "mock") return mockModel;
+  if (mode === "user") return userModel;
   return liveModel;
 }
 
@@ -89,9 +102,11 @@ function unavailableReasonForMode(
   mode:ChartPreviewMode,
   model:ChartPreviewModel|undefined,
   liveResult:LiveChartPreviewLoadResult|undefined,
+  userResult:LiveChartPreviewLoadResult|undefined,
 ):string {
   if (model) return "";
   if (mode === "live") return liveResult?.unavailableReason ?? LIVE_SWISSEPH_UNAVAILABLE_REASON;
+  if (mode === "user") return userResult?.unavailableReason ?? USER_CHART_PREVIEW_UNAVAILABLE_REASON;
   if (mode === "mock") return "Mock MVP mode is unavailable because this browser session does not have a mock MVP chart snapshot. This mode is diagnostic only and is never treated as Thai calculation validation.";
   return "Chart preview mode is unavailable.";
 }
@@ -106,13 +121,32 @@ function liveStatusFromResult(liveResult:LiveChartPreviewLoadResult|undefined) {
   return { available:false, status:liveResult.unavailableReason ?? LIVE_SWISSEPH_UNAVAILABLE_REASON };
 }
 
+function userStatusFromResult(liveResult:LiveChartPreviewLoadResult|undefined, profile:BirthProfile|undefined) {
+  if (!profile) {
+    return { available:false, status:"User Birth Profile mode unavailable: no active birth profile exists for this session." };
+  }
+  if (!liveResult) {
+    return { available:false, status:USER_CHART_PREVIEW_UNAVAILABLE_REASON };
+  }
+  if (liveResult.model) {
+    return { available:true, status:"Live astro-calc service returned a sanitized chart snapshot for the current birth profile." };
+  }
+  return { available:false, status:liveResult.unavailableReason ?? USER_CHART_PREVIEW_UNAVAILABLE_REASON };
+}
+
+function paramValue(value:string|string[]|undefined):string|undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw?.trim() || undefined;
+}
+
 function UnavailablePreview({ mode, reason }:{ mode:ChartPreviewMode; reason:string }) {
   return (
     <section className="guard">
-      <strong>{mode === "live" ? "Live Swisseph Calculation unavailable" : "Chart preview unavailable"}</strong>
+      <strong>{mode === "live" ? "Live Swisseph Calculation unavailable" : mode === "user" ? "User Birth Profile chart unavailable" : "Chart preview unavailable"}</strong>
       <p>{reason}</p>
       <div className="actions">
         <Link href="/chart-preview?mode=golden">Open Golden Fixture Reference</Link>
+        <Link href="/chart-preview?mode=user">Open User Birth Profile</Link>
         <Link href="/onboarding">Create mock MVP data</Link>
       </div>
     </section>

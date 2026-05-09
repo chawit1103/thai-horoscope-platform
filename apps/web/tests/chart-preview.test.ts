@@ -6,11 +6,15 @@ import {
   buildChartPreviewModeStatuses,
   buildChartPreviewModel,
   buildLiveSwissephChartPreviewModel,
+  buildLiveChartPreviewRequestFromBirthProfile,
   buildThaiAlmanacGoldenChartPreviewModel,
   fetchLiveChartPreviewModel,
+  fetchUserChartPreviewModel,
   LIVE_CHART_PREVIEW_PROFILE,
   LIVE_CHART_PREVIEW_REQUEST,
   normalizeChartPreviewMode,
+  selectUserBirthProfileForChartPreview,
+  USER_CHART_PREVIEW_UNAVAILABLE_REASON,
 } from "../src/mvp/chart-preview";
 import { callMockAstroCalc, getMockMvpState, resetMockMvpState, saveBirthProfile, storeChartSnapshot } from "../src/mvp/mock-flow";
 import { buildCounterclockwiseZodiacLayout, degreeWithinSign, thaiSignNameFromLongitude, zodiacSignIndex } from "../src/mvp/zodiac";
@@ -43,16 +47,18 @@ describe("chart preview", () => {
   it("exposes a clear chart preview mode selector status model", () => {
     assert.equal(normalizeChartPreviewMode(undefined), "golden");
     assert.equal(normalizeChartPreviewMode("live"), "live");
+    assert.equal(normalizeChartPreviewMode("user"), "user");
     assert.equal(normalizeChartPreviewMode(["mock"]), "mock");
     assert.equal(normalizeChartPreviewMode("surprise"), "golden");
 
     const statuses = buildChartPreviewModeStatuses("live", false);
 
-    assert.deepEqual(statuses.map((status)=>status.label), ["Golden Fixture Reference", "Live Swisseph Calculation", "Mock MVP"]);
+    assert.deepEqual(statuses.map((status)=>status.label), ["Golden Fixture Reference", "Live Swisseph Calculation", "User Birth Profile", "Mock MVP"]);
     assert.equal(statuses.find((status)=>status.mode === "golden")?.available, true);
     assert.equal(statuses.find((status)=>status.mode === "live")?.available, false);
     assert.equal(statuses.find((status)=>status.mode === "live")?.selected, true);
     assert.equal(statuses.find((status)=>status.mode === "live")?.status, LIVE_SWISSEPH_UNAVAILABLE_REASON);
+    assert.equal(statuses.find((status)=>status.mode === "user")?.status, USER_CHART_PREVIEW_UNAVAILABLE_REASON);
     assert.match(statuses.find((status)=>status.mode === "mock")?.status ?? "", /not valid for Thai astrology calculation verification|diagnostic/);
   });
 
@@ -135,6 +141,161 @@ describe("chart preview", () => {
     assert.equal(result.model.planets.find((planet)=>planet.planet_key === "thai_lagna")?.thai_zodiac_sign, "มีน");
     assert.equal(result.model.planets.find((planet)=>planet.planet_key === "mc")?.thai_zodiac_sign, "ธนู");
     assert.doesNotThrow(() => assertChartPreviewSafe(result.model!));
+  });
+
+  it("builds a user birth-profile live request with Bangkok local time converted to UTC", () => {
+    const profile = saveBirthProfile({
+      birthDate:"1971-03-11",
+      birthTime:"08:17",
+      birthTimeUnknown:false,
+      birthPlaceText:"Bangkok",
+      timezone:"Asia/Bangkok",
+      consentBirthData:true,
+    }, { sessionId, userId });
+
+    const request = buildLiveChartPreviewRequestFromBirthProfile(profile);
+
+    assert.deepEqual(request, {
+      calculation_profile_code:LIVE_CHART_PREVIEW_PROFILE,
+      datetime_local:"1971-03-11T08:17:00",
+      timezone:"Asia/Bangkok",
+      latitude:13.759,
+      longitude:100.535,
+      birth_time_unknown:false,
+      expected_datetime_utc:"1971-03-11T01:17:00Z",
+    });
+  });
+
+  it("selects only the current user's birth profile for user chart preview", () => {
+    const currentProfile = saveBirthProfile({
+      birthDate:"1971-03-11",
+      birthTime:"08:17",
+      birthTimeUnknown:false,
+      birthPlaceText:"Bangkok",
+      timezone:"Asia/Bangkok",
+      consentBirthData:true,
+    }, { sessionId, userId });
+    const otherProfile = saveBirthProfile({
+      birthDate:"1980-01-01",
+      birthTime:"09:00",
+      birthTimeUnknown:false,
+      birthPlaceText:"Bangkok",
+      timezone:"Asia/Bangkok",
+      consentBirthData:true,
+    }, { sessionId, userId:"other_user" });
+    const state = getMockMvpState(sessionId);
+
+    assert.equal(selectUserBirthProfileForChartPreview({ state, userId, birthProfileId:currentProfile.id })?.id, currentProfile.id);
+    assert.equal(selectUserBirthProfileForChartPreview({ state, userId, birthProfileId:otherProfile.id }), undefined);
+  });
+
+  it("renders user birth-profile mode from a mocked live astro-calc response", async () => {
+    const profile = saveBirthProfile({
+      birthDate:"1971-03-11",
+      birthTime:"08:17",
+      birthTimeUnknown:false,
+      birthPlaceText:"Bangkok",
+      timezone:"Asia/Bangkok",
+      consentBirthData:true,
+    }, { sessionId, userId });
+    let requestedBody:unknown;
+
+    const result = await fetchUserChartPreviewModel({
+      profile,
+      env:{ ASTRO_CALC_SERVICE_URL:"https://example.test/astro-calc" },
+      fetcher:async (_url, init) => {
+        requestedBody = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify(liveServiceSnapshot()), { status:200 });
+      },
+    });
+
+    assert.deepEqual(requestedBody, LIVE_CHART_PREVIEW_REQUEST);
+    assert.ok(result.model);
+    assert.equal(result.model.profile?.id, profile.id);
+    assert.equal(result.model.dataSource, "live_swisseph_service");
+    assert.equal(result.model.metadata.birth_datetime_local, "1971-03-11T08:17:00");
+    assert.equal(result.model.metadata.birth_datetime_utc, "1971-03-11T01:17:00Z");
+    assert.match(result.model.referenceNotice ?? "", /current user's birth profile/);
+    assert.equal(result.model.metadata.engine, "swisseph");
+    assert.equal(result.model.planets.find((planet)=>planet.planet_key === "sun")?.thai_zodiac_sign, "กุมภ์");
+    assert.doesNotThrow(() => assertChartPreviewSafe(result.model!));
+  });
+
+  it("keeps user birth-profile mode unavailable without a live service URL and never returns mock data", async () => {
+    const chart = createStoredChart({ birthTimeUnknown:false });
+    const profile = getMockMvpState(sessionId).birthProfiles.find((item)=>item.id === chart.birthProfileId);
+    let fetchCalled = false;
+
+    const result = await fetchUserChartPreviewModel({
+      profile,
+      env:{},
+      fetcher:async () => {
+        fetchCalled = true;
+        return new Response("{}");
+      },
+    });
+
+    assert.equal(fetchCalled, false);
+    assert.equal(result.model, undefined);
+    assert.match(result.unavailableReason ?? "", /ASTRO_CALC_SERVICE_URL/);
+    assert.match(result.unavailableReason ?? "", /does not fall back to Mock MVP/);
+  });
+
+  it("renders unknown birth time warnings in user live mode and withholds reliable house assignments", async () => {
+    const profile = saveBirthProfile({
+      birthDate:"1971-03-11",
+      birthTime:"",
+      birthTimeUnknown:true,
+      birthPlaceText:"Bangkok",
+      timezone:"Asia/Bangkok",
+      consentBirthData:true,
+    }, { sessionId, userId });
+    let requestedBody:Record<string, unknown>|undefined;
+
+    const result = await fetchUserChartPreviewModel({
+      profile,
+      env:{ ASTRO_CALC_SERVICE_URL:"https://example.test/astro-calc" },
+      fetcher:async (_url, init) => {
+        requestedBody = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify(liveServiceSnapshot({
+          override:{
+            datetime:{
+              local:"1971-03-11T12:00:00",
+              utc:"1971-03-11T05:00:00Z",
+              timezone:"Asia/Bangkok",
+              julian_day_ut:2441021.7083333335,
+            },
+            datetime_local:"1971-03-11T12:00:00",
+            datetime_utc:"1971-03-11T05:00:00Z",
+            houses:{
+              system:"whole_sign",
+              ascendant_deg:null,
+              mc_deg:null,
+              cusps_deg:[],
+              reliable:false,
+            },
+            angles:{
+              ascendant_deg:null,
+              lagna_deg:null,
+              mc_deg:null,
+              ic_deg:null,
+              descendant_deg:null,
+              reliable:false,
+            },
+            derived_points:{},
+            warnings:[{ code:"UNKNOWN_BIRTH_TIME" }, { code:"UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE" }],
+          },
+        })), { status:200 });
+      },
+    });
+
+    assert.equal(requestedBody?.datetime_local, "1971-03-11T12:00:00");
+    assert.equal(requestedBody?.birth_time_unknown, true);
+    assert.ok(result.model);
+    assert.equal(result.model.housesReliable, false);
+    assert.equal(result.model.metadata.birth_datetime_utc, "1971-03-11T05:00:00Z");
+    assert.equal(result.model.metadata.warnings.includes("UNKNOWN_BIRTH_TIME"), true);
+    assert.equal(result.model.planets.every((planet)=>planet.house_number === null), true);
   });
 
   it("redacts sensitive values from live raw JSON output", () => {

@@ -37,6 +37,7 @@ export default async function PrivacySettingsPage() {
               <h2>Birth profile</h2>
               <p>{summary.birthDateLabel} · {summary.birthTimeLabel} · {summary.birthPlaceLabel}</p>
               {summary.warnings.map((warning)=><p className="guard" key={warning}>{warning}</p>)}
+              <p><Link href={`/chart-preview?mode=user&birthProfileId=${encodeURIComponent(profile.id)}`}>ดูผังดวง / ตรวจตำแหน่งดาว</Link></p>
               <form action={deleteSelectedBirthProfile}>
                 <button type="submit">Delete birth profile</button>
               </form>

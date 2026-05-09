@@ -185,8 +185,8 @@ export function maskEmail(email:string):string {
 
 export function buildSafeHoroscopeView(input:{ state:MockMvpState; userId:string; periodType:PeriodType; subscription?:SubscriptionRecord; now?:Date }):SafeHoroscopeView {
   const subscription = buildSubscriptionSummary(input);
-  const result = input.state.horoscopeResults.find((item)=>item.userId===input.userId && item.periodType===input.periodType);
-  const profile = result ? input.state.birthProfiles.find((item)=>item.id===result.birthProfileId && item.userId===input.userId) : input.state.birthProfiles.find((item)=>item.userId===input.userId);
+  const profile = latestActiveBirthProfile(input.state, input.userId);
+  const result = profile ? latestResultForProfile(input.state, input.userId, input.periodType, profile.id) : undefined;
   const warnings = buildBirthProfileSummary(profile).warnings;
   if (!subscription.periodAccess[input.periodType]) {
     return {
@@ -212,6 +212,18 @@ export function buildSafeHoroscopeView(input:{ state:MockMvpState; userId:string
     warnings,
     disclaimer:result?.content_json.disclaimer ?? ENTERTAINMENT_DISCLAIMER,
   };
+}
+
+function latestActiveBirthProfile(state:MockMvpState, userId:string) {
+  return state.birthProfiles.filter((profile)=>profile.userId === userId && !state.deletedBirthProfileIds[profile.id]).at(-1);
+}
+
+function latestResultForProfile(state:MockMvpState, userId:string, periodType:PeriodType, birthProfileId:string) {
+  return [...state.horoscopeResults].reverse().find((result)=>{
+    if (result.userId !== userId || result.periodType !== periodType || result.birthProfileId !== birthProfileId) return false;
+    if (state.deletedBirthProfileIds[result.birthProfileId]) return false;
+    return state.chartSnapshots.some((snapshot)=>snapshot.id === result.chartSnapshotId && snapshot.userId === userId && snapshot.birthProfileId === birthProfileId);
+  });
 }
 
 export function buildBetaMockSubscriptionWindow(now=new Date()):BetaMockSubscriptionWindow {

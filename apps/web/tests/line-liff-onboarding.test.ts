@@ -3,9 +3,9 @@ import { beforeEach, describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LineOnboardingForm } from "../app/line/line-onboarding-form";
 import { buildLiveChartPreviewRequestFromBirthProfile, fetchUserChartPreviewModel } from "../src/mvp/chart-preview";
-import { validateOnboardingFields } from "../src/mvp/beta-user-ux";
+import { buildSafeHoroscopeView, validateOnboardingFields } from "../src/mvp/beta-user-ux";
 import { lineWebFormUrl, safeLineReturnPath } from "../src/mvp/line-liff-onboarding";
-import { getMockMvpState, resetMockMvpState, saveBirthProfile, setMockUserPlan } from "../src/mvp/mock-flow";
+import { callMockAstroCalc, generateHoroscopeResult, getMockMvpState, getMockPeriodKey, resetMockMvpState, saveBirthProfile, setMockUserPlan, storeChartSnapshot } from "../src/mvp/mock-flow";
 
 const sessionId = "line_liff_onboarding_test";
 const userId = "line_liff_user";
@@ -119,6 +119,62 @@ describe("LINE LIFF onboarding helpers", () => {
     assert.equal(result.model?.metadata.latitude, 16.4419);
     assert.equal(result.model?.metadata.longitude, 102.8359);
     assert.equal(JSON.stringify(result.model).includes("UrawLineUserIdShouldNotRender"), false);
+  });
+
+  it("uses explicit LINE-entered coordinates in generated mock chart snapshots and hashes", () => {
+    const baseInput = {
+      birthDate:"1971-03-11",
+      birthTime:"08:17",
+      birthTimeUnknown:false,
+      birthPlaceText:"Khon Kaen",
+      timezone:"Asia/Bangkok",
+      consentBirthData:true,
+    };
+    const profileA = saveBirthProfile({ ...baseInput, latitude:16.4419, longitude:102.8359 }, { sessionId, userId });
+    const profileB = saveBirthProfile({ ...baseInput, latitude:13.759, longitude:100.535 }, { sessionId, userId });
+    const chartA = callMockAstroCalc(profileA);
+    const chartB = callMockAstroCalc(profileB);
+
+    assert.equal(chartA.latitude, 16.4419);
+    assert.equal(chartA.longitude, 102.8359);
+    assert.equal(chartB.latitude, 13.759);
+    assert.equal(chartB.longitude, 100.535);
+    assert.notEqual(chartA.calculation_hash, chartB.calculation_hash);
+  });
+
+  it("uses the replacement active profile result for safe horoscope views", () => {
+    setMockUserPlan(userId, "free", sessionId);
+    const oldProfile = saveBirthProfile({
+      birthDate:"1971-03-11",
+      birthTime:"08:17",
+      birthTimeUnknown:false,
+      birthPlaceText:"Bangkok",
+      timezone:"Asia/Bangkok",
+      consentBirthData:true,
+    }, { sessionId, userId });
+    const oldChart = storeChartSnapshot(callMockAstroCalc(oldProfile), sessionId);
+    const oldResult = generateHoroscopeResult({ chartSnapshot:oldChart, periodType:"daily", periodKey:getMockPeriodKey("daily"), sessionId });
+    oldResult.content_json.summary = "OLD STALE PROFILE CONTENT";
+    const replacementProfile = saveBirthProfile({
+      birthDate:"1971-03-11",
+      birthTime:"",
+      birthTimeUnknown:true,
+      birthPlaceText:"Khon Kaen",
+      timezone:"Asia/Bangkok",
+      latitude:16.4419,
+      longitude:102.8359,
+      consentBirthData:true,
+    }, { sessionId, userId });
+    const replacementChart = storeChartSnapshot(callMockAstroCalc(replacementProfile), sessionId);
+    const replacementResult = generateHoroscopeResult({ chartSnapshot:replacementChart, periodType:"daily", periodKey:getMockPeriodKey("daily"), sessionId });
+    replacementResult.content_json.summary = "REPLACEMENT ACTIVE PROFILE CONTENT";
+
+    const view = buildSafeHoroscopeView({ state:getMockMvpState(sessionId), userId, periodType:"daily" });
+
+    assert.equal(view.title, replacementResult.content_json.title);
+    assert.equal(view.summary, "REPLACEMENT ACTIVE PROFILE CONTENT");
+    assert.equal(view.warnings.some((warning)=>warning.includes("กรณีไม่ทราบเวลาเกิด")), true);
+    assert.equal(view.summary.includes("OLD STALE"), false);
   });
 
   it("surfaces unknown birth time warnings and keeps return paths fail-closed", () => {

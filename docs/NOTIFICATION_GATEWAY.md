@@ -331,6 +331,12 @@ maps message buttons to the same command-router phrases and URI buttons to the
 LINE web/LIFF onboarding/settings routes. It does not call the LINE Rich Menu
 API, upload assets, activate real LINE sends, or embed provider credentials.
 
+PR52 adds a mock/dry-run LINE beta pilot helper that exercises follow/welcome,
+Rich Menu onboarding, birth profile save, horoscope commands, entitlement
+limits, settings/privacy/help, and suppression scenarios. It uses sandbox LINE
+mode and mocked astro-calc responses only; no real LINE reply/push, Email,
+Payment, or provider network calls are allowed in tests.
+
 Mock MVP diagnostic content must not be silently presented as real Thai
 horoscope output in LINE. When live chart content is unavailable, LINE replies
 should show a clear unavailable/onboarding/settings path instead of sending

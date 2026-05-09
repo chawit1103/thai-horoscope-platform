@@ -85,3 +85,18 @@ After human approval for real LINE configuration:
 ```
 
 Rollback is manual: unlink or replace the Rich Menu in the LINE dashboard, then restore the previous approved menu. Tests and local templates must never perform this operation automatically.
+
+## Pilot dry run
+
+PR52 validates Rich Menu behavior through the LINE beta pilot dry-run helper. The dry run checks that:
+
+```text
+ดวงวันนี้ -> today intent
+ดวงสัปดาห์ -> weekly intent
+ดวงเดือน -> monthly intent
+กรอกข้อมูลเกิด -> onboarding link
+ตั้งค่าแจ้งเตือน -> settings link
+บัญชี / แพ็กเกจ -> subscription intent
+```
+
+The dry run must keep LINE API calls at zero and must not expose raw LINE user IDs, birth data, tokens, payment identifiers, or provider payloads. See [LINE beta pilot dry run](LINE_BETA_PILOT_DRY_RUN.md).

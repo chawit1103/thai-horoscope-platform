@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { buildPeriodHoroscopeView } from "../src/mvp/period-horoscope-view";
+import { buildPeriodHoroscopeView, safeChartReference } from "../src/mvp/period-horoscope-view";
 import { callMockAstroCalc, generateHoroscopeResult, getMockMvpState, getMockPeriodKey, resetMockMvpState, saveBirthProfile, setMockUserPlan, storeChartSnapshot, type PeriodType } from "../src/mvp/mock-flow";
 import { resetMockSubscriptionState, type SubscriptionRecord } from "../src/mvp/subscription-lifecycle";
 
@@ -30,7 +30,9 @@ describe("period horoscope live user chart view", () => {
     assert.match(view.sourceStatus, /Live chart available/);
     assert.doesNotMatch(view.summary, /mock rule hits/i);
     assert.equal(view.periodKey, "2026-05-09");
-    assert.equal(view.calculationHash, liveCalculationHash);
+    assert.equal(view.calculationReference, safeChartReference(liveCalculationHash));
+    assert.doesNotMatch(JSON.stringify(view), new RegExp(liveCalculationHash));
+    assert.doesNotMatch(JSON.stringify(view), /[a-f0-9]{32,}/i);
     assert.equal(view.contentProfileCode, "TH_SAFE_REFLECTION_V1");
     assert.equal(view.ruleHits.some((hit)=>hit.rule_id.includes("DAILY")), true);
   });
@@ -74,7 +76,7 @@ describe("period horoscope live user chart view", () => {
     assert.equal(view.sourceMode, "mock_rules");
     assert.match(view.sourceStatus, /Live chart unavailable/);
     assert.match(view.sourceStatus, /ASTRO_CALC_SERVICE_URL/);
-    assert.equal(view.calculationHash, "[mock-diagnostic-calculation-hash-redacted]");
+    assert.equal(view.calculationReference, "mock-diagnostic-chart-reference-redacted");
     assert.equal(view.contentProfileCode, "MOCK_MVP_DIAGNOSTIC");
     assert.doesNotMatch(view.summary, /สร้างจาก 6 mock rule hits/);
   });

@@ -69,7 +69,7 @@ export async function HoroscopePage({ periodType }: { periodType: PeriodType }) 
         <div className="panel"><span className="muted">Source mode</span><strong>{view.sourceMode}</strong></div>
         <div className="panel"><span className="muted">Period key</span><strong>{view.periodKey}</strong></div>
         <div className="panel"><span className="muted">Content profile</span><strong>{view.contentProfileCode}</strong></div>
-        <div className="panel"><span className="muted">Calculation hash</span><strong style={{ overflowWrap:"anywhere" }}>{view.calculationHash}</strong></div>
+        <div className="panel"><span className="muted">Chart reference</span><strong>{view.calculationReference}</strong></div>
         <div className="panel"><span className="muted">Confidence</span><strong>{view.warnings.length ? "ประมาณบางส่วน" : "พร้อมอ่าน"}</strong></div>
         <div className="panel"><span className="muted">Beta status</span><strong>ทดลอง</strong></div>
       </section>

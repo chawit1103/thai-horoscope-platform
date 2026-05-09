@@ -19,7 +19,7 @@ export interface PeriodHoroscopeView extends SafeHoroscopeView {
   sourceMode:HoroscopeSourceMode;
   sourceStatus:string;
   periodKey:string;
-  calculationHash:string;
+  calculationReference:string;
   contentProfileCode:string;
   ruleHits:DisplayHoroscopeRuleHit[];
   safetyFlags:HoroscopeSafetyFlag[];
@@ -139,7 +139,7 @@ function buildLiveChartBasedView(input:{
     sourceMode:"live_chart_based",
     sourceStatus:"Live chart available; period horoscope rules are still prototype.",
     periodKey:content.period_key,
-    calculationHash:content.calculation_hash,
+    calculationReference:safeChartReference(content.calculation_hash),
     contentProfileCode:content.content_profile_code,
     ruleHits:content.rule_hits,
     safetyFlags:content.safety_flags,
@@ -169,7 +169,7 @@ function buildMockDiagnosticFallbackView(input:{
     sourceMode:"mock_rules",
     sourceStatus,
     periodKey:input.periodKey,
-    calculationHash:"[mock-diagnostic-calculation-hash-redacted]",
+    calculationReference:"mock-diagnostic-chart-reference-redacted",
     contentProfileCode:"MOCK_MVP_DIAGNOSTIC",
     ruleHits:(result?.rule_hits_json ?? []).map((hit)=>({
       rule_id:hit.rule_id,
@@ -192,7 +192,7 @@ function decorateUnavailableView(
     sourceMode:input.sourceMode,
     sourceStatus:input.sourceStatus,
     periodKey:input.periodKey,
-    calculationHash:"[not-generated]",
+    calculationReference:"not-generated",
     contentProfileCode:"[not-generated]",
     ruleHits:[],
     safetyFlags:[],
@@ -266,4 +266,10 @@ function isoWeekKey(date:Date):string {
 
 function dedupeStrings(values:string[]):string[] {
   return [...new Set(values.filter((value)=>value.trim()))];
+}
+
+export function safeChartReference(calculationHash:string):string {
+  const normalized = calculationHash.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalized)) return "chart-reference-unavailable";
+  return `chart-ref-${normalized.slice(0, 12)}`;
 }

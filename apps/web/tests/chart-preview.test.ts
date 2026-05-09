@@ -85,6 +85,28 @@ describe("chart preview", () => {
     assert.doesNotMatch(result.unavailableReason ?? "", /Users|ASTRO_EPHEMERIS_PATH|api_key|secret-token/);
   });
 
+  it("times out live astro-calc preview fetches and returns sanitized unavailable state", async () => {
+    let sawSignal = false;
+    const startedAt = Date.now();
+    const result = await fetchLiveChartPreviewModel({
+      env:{ ASTRO_CALC_SERVICE_URL:"http://localhost:8000" },
+      timeoutMs:5,
+      fetcher:async (_url, init) => {
+        const signal = init?.signal;
+        sawSignal = signal instanceof AbortSignal;
+        return await new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("aborted /opt/swisseph license_key=secret")));
+        });
+      },
+    });
+
+    assert.equal(sawSignal, true);
+    assert.equal(result.model, undefined);
+    assert.match(result.unavailableReason ?? "", /sanitized Thai almanac chart snapshot/);
+    assert.doesNotMatch(result.unavailableReason ?? "", /opt|license_key|secret/);
+    assert.equal(Date.now() - startedAt < 1000, true);
+  });
+
   it("renders live mode from a mocked astro-calc service response", async () => {
     let requestedUrl = "";
     let requestedBody:unknown;

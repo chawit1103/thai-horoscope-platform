@@ -169,9 +169,11 @@ export function buildChartPreviewModeStatuses(
 export async function fetchLiveChartPreviewModel(input?:{
   env?:Record<string, string|undefined>;
   fetcher?:typeof fetch;
+  timeoutMs?:number;
 }):Promise<LiveChartPreviewLoadResult> {
   const env = input?.env ?? process.env;
   const fetcher = input?.fetcher ?? fetch;
+  const timeoutMs = input?.timeoutMs ?? 5000;
   const serviceUrl = normalizeServiceUrl(env.ASTRO_CALC_SERVICE_URL);
 
   if (!serviceUrl) {
@@ -180,12 +182,16 @@ export async function fetchLiveChartPreviewModel(input?:{
 
   try {
     const endpoint = liveChartPreviewEndpoint(serviceUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), timeoutMs);
     const response = await fetcher(endpoint, {
-      method:"POST",
-      headers:{ "content-type":"application/json" },
-      body:JSON.stringify(LIVE_CHART_PREVIEW_REQUEST),
-      cache:"no-store",
-    });
+        method:"POST",
+        headers:{ "content-type":"application/json" },
+        body:JSON.stringify(LIVE_CHART_PREVIEW_REQUEST),
+        cache:"no-store",
+        signal:controller.signal,
+      })
+      .finally(()=>clearTimeout(timeout));
 
     if (!response.ok) {
       return liveUnavailable(`Live Swisseph Calculation unavailable: astro-calc service returned HTTP ${response.status}. Golden Fixture Reference remains available and no mock fallback was used.`);

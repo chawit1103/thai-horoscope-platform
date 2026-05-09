@@ -4,7 +4,7 @@ export interface LineWebFormEnv {
   NEXT_PUBLIC_APP_BASE_URL?:string;
 }
 
-export type LineWebFormPath = "/line/onboarding" | "/line/profile" | "/line/settings" | "/settings/privacy";
+export type LineWebFormPath = "/line/onboarding" | "/line/profile" | "/line/settings";
 
 export function lineWebFormUrl(input:{ env?:LineWebFormEnv; path:LineWebFormPath; fallbackBaseUrl?:string }):string {
   const liffUrl = normalizeBase(input.env?.LINE_LIFF_URL);

@@ -71,6 +71,17 @@ describe("LINE-first UX", () => {
     assert.doesNotMatch(JSON.stringify({ onboarding, profile, settings }), /U1234567890abcdef|secret|token|payment_/i);
   });
 
+  it("routes privacy and rich menu links through allowlisted LIFF web form paths", async () => {
+    const env = { LINE_LIFF_URL:"https://liff.line.me/1234567890-AbCdEfGh", NEXT_PUBLIC_APP_BASE_URL:"https://app.example.test" };
+    const privacy = await buildLineFirstReply({ intent:"privacy", state:getMockMvpState(sessionId), userId, baseUrl, env });
+    const menu = buildLineRichMenuTemplate(baseUrl, env);
+    const serialized = JSON.stringify({ privacy, menu });
+
+    assert.match(serialized, /https:\/\/liff\.line\.me\/1234567890-AbCdEfGh\?line_route=%2Fline%2Fsettings/);
+    assert.doesNotMatch(serialized, /line_route=%2Fsettings%2Fprivacy/);
+    assert.doesNotMatch(serialized, /https:\/\/beta\.example\.test\/line\/settings/);
+  });
+
   it("sends an entitled user's live chart horoscope as a safe Flex payload", async () => {
     createBirthProfile({ planCode:"premium" });
     const reply = await buildLineFirstReply({

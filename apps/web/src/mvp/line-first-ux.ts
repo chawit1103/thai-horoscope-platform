@@ -143,8 +143,8 @@ export async function buildLineFirstReply(input:{
   };
 }
 
-export function buildLineRichMenuTemplate(baseUrl = "https://example.test"):LineRichMenuTemplate {
-  const links = lineLinks(undefined, safeBaseUrl(baseUrl));
+export function buildLineRichMenuTemplate(baseUrl = "https://example.test", env?:Record<string, string|undefined>):LineRichMenuTemplate {
+  const links = lineLinks(env, safeBaseUrl(baseUrl));
   return {
     name:"Thai Horoscope Beta LINE Rich Menu",
     chatBarText:"เมนูดูดวง",
@@ -219,7 +219,7 @@ function lineLinks(env:Record<string, string|undefined>|undefined, fallbackBaseU
     onboarding:lineWebFormUrl({ env, path:"/line/onboarding", fallbackBaseUrl }),
     profile:lineWebFormUrl({ env, path:"/line/profile", fallbackBaseUrl }),
     settings:lineWebFormUrl({ env, path:"/line/settings", fallbackBaseUrl }),
-    privacy:lineWebFormUrl({ env, path:"/settings/privacy", fallbackBaseUrl }),
+    privacy:lineWebFormUrl({ env, path:"/line/settings", fallbackBaseUrl }),
   };
 }
 

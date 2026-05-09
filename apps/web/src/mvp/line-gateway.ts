@@ -4,7 +4,9 @@ import type { EnvironmentInput } from "./environment-validation";
 
 export type LineInboundEventType = "follow"|"unfollow"|"message"|"postback";
 export type LineDeliveryStatus = "sent"|"failed"|"blocked";
-export type LineMessage = { topicCode:string; title:string; body:string; ctaUrl?:string; imageUrl?:string; periodKey?:string; idempotencyKey?:string; metadata?:Record<string,string>; };
+export interface LineMessageSection { label:string; text:string; }
+export interface LineMessageAction { label:string; uri:string; style?:"primary"|"secondary"; }
+export type LineMessage = { topicCode:string; title:string; body:string; ctaUrl?:string; imageUrl?:string; periodKey?:string; idempotencyKey?:string; sections?:LineMessageSection[]; actions?:LineMessageAction[]; disclaimer?:string; metadata?:Record<string,string>; };
 export type LinePushMessage = LineTextMessage | LineFlexMessage;
 export interface LineTextMessage { type:"text"; text:string; }
 export interface LineFlexMessage { type:"flex"; altText:string; contents:Record<string,unknown>; }
@@ -13,7 +15,7 @@ export interface LineProviderPushRequest { to:string; messages:LinePushMessage[]
 export interface LineProviderPushResult { providerMessageId?:string; raw?:unknown; }
 export interface LineProvider { push(request:LineProviderPushRequest):Promise<LineProviderPushResult>; verifyWebhook?(headers:Headers, body:string):Promise<boolean>; normalizeWebhook?(body:unknown):Promise<LineInboundEvent[]>; }
 export interface LineDeliveryResult { status:LineDeliveryStatus; providerMessageId?:string; errorCode?:string; raw?:unknown; }
-export interface LineInboundEvent { id:string; type:LineInboundEventType; lineUserIdHash:string; providerEventId?:string; messageType?:string; postbackData?:string; replyToken?:string; createdAt:string; }
+export interface LineInboundEvent { id:string; type:LineInboundEventType; lineUserIdHash:string; providerEventId?:string; messageType?:string; messageText?:string; postbackData?:string; replyToken?:string; createdAt:string; }
 export interface LineAuditLogEntry { action:string; targetId:string; metadata:Record<string,string>; createdAt:string; }
 export interface LineGatewayEnvironmentOptions { env?:EnvironmentInput; fetcher?:typeof fetch; auditLogs?:LineAuditLogEntry[]; pushEndpoint?:string; }
 
@@ -192,18 +194,33 @@ export function normalizeLineWebhook(body:unknown, userIdHashSecret:string, now=
 }
 
 export function renderLineHoroscopePreviewFlex(message:LineMessage):LineFlexMessage {
+  const sections = (message.sections ?? []).slice(0, 8).map((section)=>({
+    type:"box",
+    layout:"vertical",
+    margin:"md",
+    contents:[
+      { type:"text", text:safeLineText(section.label, 40), size:"sm", color:"#6b7280", wrap:true },
+      { type:"text", text:safeLineText(section.text, 220), size:"sm", wrap:true, margin:"xs" },
+    ],
+  }));
+  const disclaimer = message.disclaimer ? [{ type:"text", text:safeLineText(message.disclaimer, 220), size:"xs", color:"#6b7280", wrap:true, margin:"lg" }] : [];
+  const actions = message.actions?.length ? message.actions : [{ label:"ดูรายละเอียด", uri:message.ctaUrl ?? "https://example.test/horoscope", style:"primary" as const }];
   return {
     type:"flex",
-    altText:message.title,
+    altText:safeLineText(message.title, 120),
     contents:{
       type:"bubble",
       body:{ type:"box", layout:"vertical", contents:[
-        { type:"text", text:message.title, weight:"bold", wrap:true },
-        { type:"text", text:message.body, wrap:true, margin:"md" },
+        { type:"text", text:safeLineText(message.title, 80), weight:"bold", wrap:true },
+        { type:"text", text:safeLineText(message.body, 260), wrap:true, margin:"md" },
+        ...sections,
+        ...disclaimer,
       ] },
-      footer:{ type:"box", layout:"vertical", contents:[
-        { type:"button", style:"primary", action:{ type:"uri", label:"Read horoscope", uri:message.ctaUrl ?? "https://example.test/horoscope" } },
-      ] },
+      footer:{ type:"box", layout:"vertical", spacing:"sm", contents:actions.slice(0, 4).map((action, index)=>({
+        type:"button",
+        style:action.style === "secondary" || index > 0 ? "secondary" : "primary",
+        action:{ type:"uri", label:safeLineText(action.label, 20), uri:safeLineUri(action.uri) },
+      })) },
     },
   };
 }
@@ -214,7 +231,7 @@ export function sanitizeLineLogMetadata(metadata:Record<string,string>):Record<s
 
 function normalizeLineEvent(event:unknown, index:number, userIdHashSecret:string, now:Date):LineInboundEvent[] {
   if (!event || typeof event !== "object") return [];
-  const input = event as { type?:unknown; source?:{ userId?:unknown }; webhookEventId?:unknown; message?:{ type?:unknown }; postback?:{ data?:unknown }; replyToken?:unknown; timestamp?:unknown };
+  const input = event as { type?:unknown; source?:{ userId?:unknown }; webhookEventId?:unknown; message?:{ type?:unknown; text?:unknown }; postback?:{ data?:unknown }; replyToken?:unknown; timestamp?:unknown };
   if (input.type !== "follow" && input.type !== "unfollow" && input.type !== "message" && input.type !== "postback") return [];
   if (typeof input.source?.userId !== "string" || !input.source.userId.trim()) return [];
   return [{
@@ -223,10 +240,40 @@ function normalizeLineEvent(event:unknown, index:number, userIdHashSecret:string
     lineUserIdHash:stableLineTarget(input.source.userId, userIdHashSecret),
     providerEventId:typeof input.webhookEventId === "string" ? input.webhookEventId : undefined,
     messageType:typeof input.message?.type === "string" ? input.message.type : undefined,
+    messageText:input.message?.type === "text" && typeof input.message.text === "string" ? sanitizeInboundLineMessageText(input.message.text) : undefined,
     postbackData:typeof input.postback?.data === "string" ? input.postback.data : undefined,
     replyToken:typeof input.replyToken === "string" ? input.replyToken : undefined,
     createdAt:new Date(typeof input.timestamp === "number" ? input.timestamp : now.getTime()).toISOString(),
   }];
+}
+
+function safeLineText(value:string, maxLength:number):string {
+  return value
+    .replace(/\bU[A-Za-z0-9]{8,}\b/g, "[line-id-hidden]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email-hidden]")
+    .replace(/(?:secret|token|webhook|authorization|bearer)\S*/gi, "[hidden]")
+    .replace(/\bpayment_[A-Za-z0-9_]+\b/gi, "[payment-hidden]")
+    .slice(0, maxLength);
+}
+
+function safeLineUri(value:string):string {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" || url.protocol === "http:") return url.toString();
+  } catch {
+    // Invalid URLs fall back to the local-safe placeholder.
+  }
+  return "https://example.test/horoscope";
+}
+
+function sanitizeInboundLineMessageText(value:string):string {
+  const trimmed = value.trim().slice(0, 80);
+  if (!trimmed) return "";
+  if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(trimmed)) return "[redacted_command_text]";
+  if (/\bU[A-Za-z0-9]{8,}\b/.test(trimmed)) return "[redacted_command_text]";
+  if (/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}:\d{2}\b/.test(trimmed)) return "[redacted_command_text]";
+  if (/(secret|token|webhook|authorization|bearer|payment_)/i.test(trimmed)) return "[redacted_command_text]";
+  return trimmed;
 }
 
 function lineRetryKey(account:LineChannelAccount, message:LineMessage, hashSecret:string):string {

@@ -320,9 +320,11 @@ entitlement checks, birth-profile availability, unsubscribe/deactivation
 suppression, content safety wording, and provider guardrails.
 
 PR50 routes LINE onboarding/profile/settings links through `/line/onboarding`,
-`/line/profile`, and `/line/settings`, optionally using `LINE_LIFF_URL` as the
-base. These links are web form entry points only; they do not create a real LIFF
-app, activate real LINE sends, or put raw LINE user IDs in query strings.
+`/line/profile`, and `/line/settings`. If `LINE_LIFF_URL` is configured, links
+preserve the full LIFF app URL and carry the requested form route in a safe
+`line_route` query parameter. These links are web form entry points only; they do
+not create a real LIFF app, activate real LINE sends, or put raw LINE user IDs in
+query strings.
 
 Mock MVP diagnostic content must not be silently presented as real Thai
 horoscope output in LINE. When live chart content is unavailable, LINE replies

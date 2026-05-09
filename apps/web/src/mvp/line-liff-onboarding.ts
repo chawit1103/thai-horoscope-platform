@@ -7,10 +7,10 @@ export interface LineWebFormEnv {
 export type LineWebFormPath = "/line/onboarding" | "/line/profile" | "/line/settings" | "/settings/privacy";
 
 export function lineWebFormUrl(input:{ env?:LineWebFormEnv; path:LineWebFormPath; fallbackBaseUrl?:string }):string {
-  const configured = normalizeBase(input.env?.LINE_LIFF_URL) ?? normalizeBase(input.env?.NEXT_PUBLIC_APP_BASE_URL) ?? normalizeBase(input.fallbackBaseUrl) ?? "https://example.test";
+  const liffUrl = normalizeBase(input.env?.LINE_LIFF_URL);
+  if (liffUrl) return lineLiffAppUrl(liffUrl, input.path);
+  const configured = normalizeBase(input.env?.NEXT_PUBLIC_APP_BASE_URL) ?? normalizeBase(input.fallbackBaseUrl) ?? "https://example.test";
   const url = new URL(input.path, configured);
-  url.search = "";
-  url.hash = "";
   if (input.env?.LINE_LIFF_ID?.trim() && !input.env.LINE_LIFF_URL?.trim()) {
     url.searchParams.set("liff", "optional");
   }
@@ -34,4 +34,12 @@ function normalizeBase(value:string|undefined):string|null {
   } catch {
     return null;
   }
+}
+
+function lineLiffAppUrl(configured:string, path:LineWebFormPath):string {
+  const url = new URL(configured);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("line_route", path);
+  return url.toString();
 }

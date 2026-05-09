@@ -60,14 +60,14 @@ describe("LINE-first UX", () => {
   });
 
   it("uses optional LIFF web form links for onboarding profile and settings commands", async () => {
-    const env = { LINE_LIFF_URL:"https://liff.example.test/line/onboarding", NEXT_PUBLIC_APP_BASE_URL:"https://app.example.test" };
+    const env = { LINE_LIFF_URL:"https://liff.line.me/1234567890-AbCdEfGh", NEXT_PUBLIC_APP_BASE_URL:"https://app.example.test" };
     const onboarding = await buildLineFirstReply({ intent:"onboarding", state:getMockMvpState(sessionId), userId, baseUrl, env });
     const profile = await buildLineFirstReply({ intent:"profile", state:getMockMvpState(sessionId), userId, baseUrl, env });
     const settings = await buildLineFirstReply({ intent:"notification_settings", state:getMockMvpState(sessionId), userId, baseUrl, env });
 
-    assert.match(JSON.stringify(onboarding.messages), /https:\/\/liff\.example\.test\/line\/onboarding/);
-    assert.match(JSON.stringify(profile.messages), /https:\/\/liff\.example\.test\/line\/profile/);
-    assert.match(JSON.stringify(settings.messages), /https:\/\/liff\.example\.test\/line\/settings/);
+    assert.match(JSON.stringify(onboarding.messages), /https:\/\/liff\.line\.me\/1234567890-AbCdEfGh\?line_route=%2Fline%2Fonboarding/);
+    assert.match(JSON.stringify(profile.messages), /https:\/\/liff\.line\.me\/1234567890-AbCdEfGh\?line_route=%2Fline%2Fprofile/);
+    assert.match(JSON.stringify(settings.messages), /https:\/\/liff\.line\.me\/1234567890-AbCdEfGh\?line_route=%2Fline%2Fsettings/);
     assert.doesNotMatch(JSON.stringify({ onboarding, profile, settings }), /U1234567890abcdef|secret|token|payment_/i);
   });
 

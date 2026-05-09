@@ -22,12 +22,12 @@ describe("LINE LIFF onboarding helpers", () => {
     assert.doesNotMatch(url, /lineUserId|U1234567890|secret|token|payment_/i);
   });
 
-  it("uses configured LIFF URL for LINE onboarding profile and settings links", () => {
-    const env = { LINE_LIFF_URL:"https://liff.example.test/line/onboarding?raw=ignored#hash", NEXT_PUBLIC_APP_BASE_URL:"https://app.example.test" };
+  it("preserves configured LIFF app URL path while carrying the requested web form route", () => {
+    const env = { LINE_LIFF_URL:"https://liff.line.me/1234567890-AbCdEfGh?raw=ignored#hash", NEXT_PUBLIC_APP_BASE_URL:"https://app.example.test" };
 
-    assert.equal(lineWebFormUrl({ env, path:"/line/onboarding" }), "https://liff.example.test/line/onboarding");
-    assert.equal(lineWebFormUrl({ env, path:"/line/profile" }), "https://liff.example.test/line/profile");
-    assert.equal(lineWebFormUrl({ env, path:"/line/settings" }), "https://liff.example.test/line/settings");
+    assert.equal(lineWebFormUrl({ env, path:"/line/onboarding" }), "https://liff.line.me/1234567890-AbCdEfGh?line_route=%2Fline%2Fonboarding");
+    assert.equal(lineWebFormUrl({ env, path:"/line/profile" }), "https://liff.line.me/1234567890-AbCdEfGh?line_route=%2Fline%2Fprofile");
+    assert.equal(lineWebFormUrl({ env, path:"/line/settings" }), "https://liff.line.me/1234567890-AbCdEfGh?line_route=%2Fline%2Fsettings");
   });
 
   it("renders first-time LINE onboarding without guessed birth time or preselected consent", () => {

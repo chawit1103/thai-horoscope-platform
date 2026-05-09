@@ -35,7 +35,8 @@ NEXT_PUBLIC_APP_BASE_URL=http://localhost:3000
 Local/dev behavior:
 
 - If `LINE_LIFF_URL` is not configured, LINE command links use the local web route under `NEXT_PUBLIC_APP_BASE_URL` or the provided fallback base URL.
-- If `LINE_LIFF_URL` is configured, links use that origin for `/line/onboarding`, `/line/profile`, and `/line/settings`.
+- If `LINE_LIFF_URL` is configured, links preserve the full LIFF app URL, such as `https://liff.line.me/{liffId}`, and pass the requested web form path in a safe `line_route` query parameter.
+- If the LIFF app reads `line_route`, it should route only to the allowlisted paths documented above.
 - `LINE_LIFF_ID` is optional until real LIFF activation.
 
 PR50 does not create a real LIFF app through LINE APIs and does not activate real LINE sends.
@@ -70,4 +71,3 @@ Profile edit links from LINE messages should use:
 ## Test guarantee
 
 Tests use local helpers and mocked astro-calc responses. They must not send real LINE messages or call the LINE Messaging API.
-

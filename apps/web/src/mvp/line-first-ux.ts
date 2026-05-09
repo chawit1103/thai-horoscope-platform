@@ -85,6 +85,8 @@ export async function buildLineFirstReply(input:{
 }):Promise<LineFirstReply> {
   const baseUrl = safeBaseUrl(input.baseUrl);
   const now = input.now ?? new Date();
+  if (isLineAccountSuppressed(input.lineAccount)) return suppressedReply(input.intent, "line_account_inactive");
+  if (isUserDeactivated(input.state, input.userId)) return suppressedReply(input.intent, "user_deactivated");
   if (input.intent === "follow") return textReply(input.intent, welcomeText(baseUrl));
   if (input.intent === "help" || input.intent === "unknown") return textReply(input.intent, helpText(baseUrl));
   if (input.intent === "onboarding") return textReply(input.intent, onboardingText(baseUrl));
@@ -95,14 +97,8 @@ export async function buildLineFirstReply(input:{
 
   const periodType = periodByIntent[input.intent];
   if (!periodType) return textReply("unknown", helpText(baseUrl));
-  if (isLineAccountSuppressed(input.lineAccount)) return { intent:input.intent, suppressed:true, reason:"line_account_inactive", messages:[], metadata:{ periodType } };
-  if (isUserDeactivated(input.state, input.userId)) return { intent:input.intent, suppressed:true, reason:"user_deactivated", messages:[], metadata:{ periodType } };
   if (isNotificationSuppressed(input.state, input.userId, periodText[periodType].topicCode)) {
-    return textReply(input.intent, `คุณปิดรับการแจ้งเตือนหัวข้อนี้ไว้ จึงยังไม่ส่งเนื้อหาดวง${periodText[periodType].label}ทาง LINE\n\nปรับได้ที่ ${urlFor(baseUrl, "/settings/notifications")}`, {
-      suppressed:true,
-      reason:"notification_unsubscribed",
-      metadata:{ periodType },
-    });
+    return suppressedReply(input.intent, "notification_unsubscribed", { periodType });
   }
   if (!hasActiveBirthProfile(input.state, input.userId)) {
     return textReply(input.intent, `ยังไม่มีข้อมูลเกิดสำหรับอ่านดวง${periodText[periodType].label}แบบปรับตามโปรไฟล์\n\nกรอกข้อมูลเกิดได้ที่ ${urlFor(baseUrl, "/onboarding")}\n${LINE_FIRST_DISCLAIMER}`, {
@@ -196,6 +192,16 @@ function textReply(intent:LineCommandIntent, text:string, options:{ suppressed?:
     reason:options.reason,
     messages:[{ type:"text", text:sanitizeUserLineText(text) } satisfies LineTextMessage],
     metadata:options.metadata,
+  };
+}
+
+function suppressedReply(intent:LineCommandIntent, reason:string, metadata?:LineFirstReply["metadata"]):LineFirstReply {
+  return {
+    intent,
+    suppressed:true,
+    reason,
+    messages:[],
+    metadata,
   };
 }
 

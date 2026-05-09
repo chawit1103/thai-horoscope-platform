@@ -116,7 +116,7 @@ describe("LINE-first UX", () => {
       fetcher:mockLiveFetcher(liveServiceSnapshot()),
     });
     assert.equal(unsubscribed.reason, "notification_unsubscribed");
-    assert.doesNotMatch(JSON.stringify(unsubscribed.messages), /flex/i);
+    assert.equal(unsubscribed.messages.length, 0);
 
     resetMockMvpState("free");
     createBirthProfile({ planCode:"free" });
@@ -131,6 +131,17 @@ describe("LINE-first UX", () => {
     });
     assert.equal(deactivated.suppressed, true);
     assert.equal(deactivated.messages.length, 0);
+
+    const deactivatedHelp = await buildLineFirstReply({
+      intent:"help",
+      state:getMockMvpState(sessionId),
+      userId,
+      lineAccount:lineAccount(),
+      now,
+      baseUrl,
+    });
+    assert.equal(deactivatedHelp.reason, "user_deactivated");
+    assert.equal(deactivatedHelp.messages.length, 0);
 
     resetMockMvpState("free");
     setMockUserPlan(userId, "free", sessionId);

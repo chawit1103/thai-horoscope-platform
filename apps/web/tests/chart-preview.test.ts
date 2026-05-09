@@ -298,6 +298,41 @@ describe("chart preview", () => {
     assert.equal(result.model.planets.every((planet)=>planet.house_number === null), true);
   });
 
+  it("forces houses unreliable for user live mode when birth time is unknown even if the service omits the flag", async () => {
+    const profile = saveBirthProfile({
+      birthDate:"1971-03-11",
+      birthTime:"",
+      birthTimeUnknown:true,
+      birthPlaceText:"Bangkok",
+      timezone:"Asia/Bangkok",
+      consentBirthData:true,
+    }, { sessionId, userId });
+
+    const result = await fetchUserChartPreviewModel({
+      profile,
+      env:{ ASTRO_CALC_SERVICE_URL:"https://example.test/astro-calc" },
+      fetcher:async () => new Response(JSON.stringify(liveServiceSnapshot({
+        override:{
+          datetime:{
+            local:"1971-03-11T12:00:00",
+            utc:"1971-03-11T05:00:00Z",
+            timezone:"Asia/Bangkok",
+            julian_day_ut:2441021.7083333335,
+          },
+          datetime_local:"1971-03-11T12:00:00",
+          datetime_utc:"1971-03-11T05:00:00Z",
+        },
+      })), { status:200 }),
+    });
+
+    assert.ok(result.model);
+    assert.equal(result.model.housesReliable, false);
+    assert.deepEqual(result.model.houseCusps, []);
+    assert.equal(result.model.metadata.warnings.includes("UNKNOWN_BIRTH_TIME"), true);
+    assert.equal(result.model.metadata.warnings.includes("UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE"), true);
+    assert.equal(result.model.planets.every((planet)=>planet.house_number === null), true);
+  });
+
   it("redacts sensitive values from live raw JSON output", () => {
     const snapshot = liveServiceSnapshot({
       override:{

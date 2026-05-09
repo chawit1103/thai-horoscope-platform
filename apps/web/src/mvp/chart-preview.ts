@@ -300,16 +300,21 @@ export function buildLiveSwissephChartPreviewModel(snapshot:unknown, input?:{
   const root = asRecord(snapshot);
   if (!root) throw new Error("LIVE_CHART_PREVIEW_INVALID_PAYLOAD");
 
-  const metadata = liveMetadataFromSnapshot(root);
-  validateLiveChartMetadata(metadata, input?.expectedRequest ?? {
+  const expectedRequest = input?.expectedRequest ?? {
     ...LIVE_CHART_PREVIEW_REQUEST,
     expected_datetime_utc:LIVE_CHART_PREVIEW_EXPECTED_UTC,
-  });
-  const displayMetadata = sanitizeLiveChartPreviewMetadata(metadata);
+  };
+  const metadata = liveMetadataFromSnapshot(root);
+  validateLiveChartMetadata(metadata, expectedRequest);
+  const displayMetadata = metadataWithForcedUnknownBirthTimeWarnings(
+    sanitizeLiveChartPreviewMetadata(metadata),
+    expectedRequest,
+  );
   const houses = asRecord(root.houses);
   const angles = asRecord(root.angles);
-  const houseCusps = numberArray(houses?.cusps_deg).map((cusp, index)=>({ house:index+1, cusp_deg:cusp }));
-  const housesReliable = booleanValue(houses?.reliable) ?? booleanValue(angles?.reliable) ?? true;
+  const housesReliableFromService = booleanValue(houses?.reliable) ?? booleanValue(angles?.reliable) ?? true;
+  const housesReliable = expectedRequest.birth_time_unknown ? false : housesReliableFromService;
+  const houseCusps = housesReliable ? numberArray(houses?.cusps_deg).map((cusp, index)=>({ house:index+1, cusp_deg:cusp })) : [];
   const planets = planetsFromLiveSnapshot(root, displayMetadata, housesReliable);
   if (!planets.length) throw new Error("LIVE_CHART_PREVIEW_EMPTY_PLANET_TABLE");
   const chart = sanitizeLiveChartPreviewValue(root);
@@ -698,6 +703,17 @@ function sanitizeLiveChartPreviewMetadata(metadata:ChartPreviewMetadata):ChartPr
     calculation_hash:sanitizeLiveChartPreviewString(metadata.calculation_hash),
     warnings:metadata.warnings.map(sanitizeLiveChartPreviewString),
   };
+}
+
+function metadataWithForcedUnknownBirthTimeWarnings(
+  metadata:ChartPreviewMetadata,
+  expectedRequest:ExpectedLiveChartPreviewRequest,
+):ChartPreviewMetadata {
+  if (!expectedRequest.birth_time_unknown) return metadata;
+  const warnings = new Set(metadata.warnings);
+  warnings.add("UNKNOWN_BIRTH_TIME");
+  warnings.add("UNKNOWN_BIRTH_TIME_HOUSES_UNRELIABLE");
+  return { ...metadata, warnings:[...warnings] };
 }
 
 function sanitizeLiveChartPreviewValue(value:unknown):unknown {

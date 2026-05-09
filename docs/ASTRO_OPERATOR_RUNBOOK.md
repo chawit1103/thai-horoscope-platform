@@ -29,6 +29,39 @@ ASTRO_EPHEMERIS_PATH unset
 
 Mock mode must work without license mode, ephemeris path, ephemeris binaries, or network access.
 
+## Local chart preview live mode
+
+`/chart-preview` defaults to Golden Fixture Reference and is always safe for local validation.
+
+The repository does not currently ship a committed HTTP listener for `services/astro-calc`. Live mode therefore requires an approved local or staging astro-calc HTTP wrapper outside this PR that implements:
+
+```text
+POST /v1/charts/natal
+```
+
+The wrapper must call the Python astro-calc service logic, return a chart snapshot with the metadata documented in `docs/ASTRO_CALCULATION.md`, and follow all normal guardrails: no runtime ephemeris downloads, no committed ephemeris binaries, no secrets in responses, and no fallback to mock data when Swiss Ephemeris is unavailable.
+
+To test the web app against that running astro-calc HTTP wrapper, set:
+
+```text
+ASTRO_CALC_SERVICE_URL=http://localhost:8000
+ASTRO_ENGINE=swisseph
+ASTRO_CALCULATION_PROFILE=TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1
+SWISSEPH_LICENSE_MODE=free|professional
+```
+
+Then open:
+
+```text
+http://localhost:3000/chart-preview?mode=live
+```
+
+Live mode calls `POST {ASTRO_CALC_SERVICE_URL}/v1/charts/natal` with the Thai almanac golden validation input. If the URL is missing, the service is down, the response is not sanitized, or the response does not report `engine=swisseph` with the Thai almanac Lahiri mean-node profile, the page shows a clear unavailable status. It must not fall back to Mock MVP.
+
+The live preview request has a short server-side timeout so local or staging misconfiguration returns an unavailable status instead of hanging the page.
+
+Golden mode remains the reference for visual validation. Mock MVP mode is diagnostic only and must show the `MOCK DATA - not valid for Thai astrology calculation verification` banner.
+
 ## Swiss Ephemeris local/test validation
 
 Use only after confirming local license and file handling are appropriate for the test context.

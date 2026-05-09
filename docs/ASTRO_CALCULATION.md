@@ -667,6 +667,7 @@ The calculation engine does not generate horoscope interpretation text and does 
 Runtime configuration:
 
 ```text
+ASTRO_CALC_SERVICE_URL=
 ASTRO_ENGINE=mock|swisseph
 ASTRO_EPHEMERIS_PATH=
 ASTRO_EPHEMERIS_MANIFEST_PATH=
@@ -688,6 +689,37 @@ Production guard:
 - `ASTRO_ALLOW_MOSHIER_EPHEMERIS=true` is not a production mode and must not be used to bypass pinned ephemeris file approval.
 - If a manifest path is configured, supported ephemeris file names, sizes, hashes, and combined fingerprint must match before calculation starts.
 - Runtime ephemeris downloads are not supported.
+
+## Chart preview validation modes
+
+`/chart-preview` is a local/staging calculation validation page, not a horoscope interpretation page.
+
+- Golden Fixture Reference is the default mode and uses the approved Thai almanac reference case for `1971-03-11 08:17 Asia/Bangkok`.
+- Live Swisseph Calculation is selected with `/chart-preview?mode=live` and requires `ASTRO_CALC_SERVICE_URL`.
+- Mock MVP is diagnostic only. It must never be presented as Thai calculation validation and must show a mock warning.
+
+Live mode posts the golden reference input to:
+
+```text
+POST {ASTRO_CALC_SERVICE_URL}/v1/charts/natal
+```
+
+Expected request body:
+
+```json
+{
+  "calculation_profile_code": "TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1",
+  "datetime_local": "1971-03-11T08:17:00",
+  "timezone": "Asia/Bangkok",
+  "latitude": 13.759,
+  "longitude": 100.535,
+  "birth_time_unknown": false
+}
+```
+
+The response must be a sanitized chart snapshot from `engine=swisseph` with `zodiac_type=sidereal`, `ayanamsa_code=LAHIRI`, and `node_type=mean_node`. If the service URL is missing, the service returns an error, or the response metadata does not match the Thai almanac profile, the web page shows Live mode as unavailable. It must not silently fall back to Mock MVP.
+
+Live mode displays the same validation sections as Golden mode: UTC used, timezone, Lahiri ayanamsa, calculation profile, ephemeris fingerprint, calculation hash, planet table, astronomical Ascendant, Thai Lagna if available, MC, South Node, Thai Ketu ๙ if available, houses, warnings, and expandable raw JSON. Raw service errors, local ephemeris paths, secrets, provider payloads, and channel identifiers must not be displayed.
 
 ## Testing
 

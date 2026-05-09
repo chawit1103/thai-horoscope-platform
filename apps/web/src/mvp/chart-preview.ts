@@ -8,7 +8,7 @@ import {
   type ZodiacLayoutSign,
 } from "./zodiac";
 
-export type ChartPreviewDataSource = "golden_fixture_reference" | "mock_mvp_snapshot";
+export type ChartPreviewDataSource = "golden_fixture_reference" | "live_swisseph_service" | "mock_mvp_snapshot";
 export type ChartPreviewMode = "golden" | "live" | "mock";
 
 export interface ChartPreviewModeStatus {
@@ -18,6 +18,16 @@ export interface ChartPreviewModeStatus {
   available:boolean;
   status:string;
   href:string;
+}
+
+export interface LiveChartPreviewLoadResult {
+  model:ChartPreviewModel|undefined;
+  unavailableReason:string|null;
+}
+
+export interface LiveChartPreviewStatus {
+  available:boolean;
+  status:string;
 }
 
 export interface ChartPreviewMetadata {
@@ -80,7 +90,16 @@ export interface ChartPreviewModel {
 }
 
 const AYANAMSA_DEG = 23.4546517;
-export const LIVE_SWISSEPH_UNAVAILABLE_REASON = "Live Swisseph Calculation is unavailable in /chart-preview because the web app does not yet have a service-backed astro-calc HTTP integration for this page. Use Golden Fixture Reference for local validation until the live route is wired.";
+export const LIVE_CHART_PREVIEW_PROFILE = "TH_ALMANAC_LAHIRI_MEAN_NODE_SWISSEPH_V1";
+export const LIVE_SWISSEPH_UNAVAILABLE_REASON = "Live Swisseph Calculation is unavailable because ASTRO_CALC_SERVICE_URL is not configured. Golden Fixture Reference remains the default validation reference; live mode never falls back to Mock MVP data.";
+export const LIVE_CHART_PREVIEW_REQUEST = {
+  calculation_profile_code:LIVE_CHART_PREVIEW_PROFILE,
+  datetime_local:"1971-03-11T08:17:00",
+  timezone:"Asia/Bangkok",
+  latitude:13.759,
+  longitude:100.535,
+  birth_time_unknown:false,
+} as const;
 
 const PLANET_LABELS:Record<string,{th:string;code:string}> = {
   sun:{ th:"อาทิตย์", code:"SU" },
@@ -112,7 +131,11 @@ export function normalizeChartPreviewMode(value:unknown):ChartPreviewMode {
   return "golden";
 }
 
-export function buildChartPreviewModeStatuses(selectedMode:ChartPreviewMode, mockAvailable:boolean):ChartPreviewModeStatus[] {
+export function buildChartPreviewModeStatuses(
+  selectedMode:ChartPreviewMode,
+  mockAvailable:boolean,
+  liveStatus:LiveChartPreviewStatus = { available:false, status:LIVE_SWISSEPH_UNAVAILABLE_REASON },
+):ChartPreviewModeStatus[] {
   return [
     {
       mode:"golden",
@@ -126,8 +149,8 @@ export function buildChartPreviewModeStatuses(selectedMode:ChartPreviewMode, moc
       mode:"live",
       label:"Live Swisseph Calculation",
       selected:selectedMode === "live",
-      available:false,
-      status:LIVE_SWISSEPH_UNAVAILABLE_REASON,
+      available:liveStatus.available,
+      status:liveStatus.status,
       href:"/chart-preview?mode=live",
     },
     {
@@ -141,6 +164,88 @@ export function buildChartPreviewModeStatuses(selectedMode:ChartPreviewMode, moc
       href:"/chart-preview?mode=mock",
     },
   ];
+}
+
+export async function fetchLiveChartPreviewModel(input?:{
+  env?:Record<string, string|undefined>;
+  fetcher?:typeof fetch;
+  timeoutMs?:number;
+}):Promise<LiveChartPreviewLoadResult> {
+  const env = input?.env ?? process.env;
+  const fetcher = input?.fetcher ?? fetch;
+  const timeoutMs = input?.timeoutMs ?? 5000;
+  const serviceUrl = normalizeServiceUrl(env.ASTRO_CALC_SERVICE_URL);
+
+  if (!serviceUrl) {
+    return liveUnavailable(LIVE_SWISSEPH_UNAVAILABLE_REASON);
+  }
+
+  try {
+    const endpoint = liveChartPreviewEndpoint(serviceUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), timeoutMs);
+    const response = await fetcher(endpoint, {
+        method:"POST",
+        headers:{ "content-type":"application/json" },
+        body:JSON.stringify(LIVE_CHART_PREVIEW_REQUEST),
+        cache:"no-store",
+        signal:controller.signal,
+      })
+      .finally(()=>clearTimeout(timeout));
+
+    if (!response.ok) {
+      return liveUnavailable(`Live Swisseph Calculation unavailable: astro-calc service returned HTTP ${response.status}. Golden Fixture Reference remains available and no mock fallback was used.`);
+    }
+
+    const snapshot = await response.json();
+    const model = buildLiveSwissephChartPreviewModel(snapshot);
+    assertChartPreviewSafe(model);
+    return { model, unavailableReason:null };
+  } catch {
+    return liveUnavailable("Live Swisseph Calculation unavailable: astro-calc service could not return a sanitized Thai almanac chart snapshot. Golden Fixture Reference remains available and no mock fallback was used.");
+  }
+}
+
+export function buildLiveSwissephChartPreviewModel(snapshot:unknown):ChartPreviewModel {
+  const root = asRecord(snapshot);
+  if (!root) throw new Error("LIVE_CHART_PREVIEW_INVALID_PAYLOAD");
+
+  const metadata = liveMetadataFromSnapshot(root);
+  validateLiveChartMetadata(metadata);
+  const displayMetadata = sanitizeLiveChartPreviewMetadata(metadata);
+  const planets = planetsFromLiveSnapshot(root, displayMetadata);
+  if (!planets.length) throw new Error("LIVE_CHART_PREVIEW_EMPTY_PLANET_TABLE");
+
+  const houses = asRecord(root.houses);
+  const angles = asRecord(root.angles);
+  const houseCusps = numberArray(houses?.cusps_deg).map((cusp, index)=>({ house:index+1, cusp_deg:cusp }));
+  const housesReliable = booleanValue(houses?.reliable) ?? booleanValue(angles?.reliable) ?? true;
+  const chart = sanitizeLiveChartPreviewValue(root);
+
+  const model:ChartPreviewModel = {
+    profile:null,
+    chart,
+    dataSource:"live_swisseph_service",
+    warningBanner:null,
+    referenceNotice:"Live Swisseph service mode: values are returned by the configured astro-calc service for the Thai almanac golden validation input. This mode never falls back to Mock MVP data.",
+    metadata:displayMetadata,
+    planets,
+    zodiacLayout:buildCounterclockwiseZodiacLayout(),
+    housesReliable,
+    angles:{
+      ascendant_deg:displayMetadata.astronomical_ascendant_deg,
+      lagna_deg:displayMetadata.thai_lagna_deg,
+      mc_deg:numberValue(angles?.mc_deg),
+      descendant_deg:numberValue(angles?.descendant_deg),
+      ic_deg:numberValue(angles?.ic_deg),
+    },
+    houseCusps,
+    chartSnapshotJson:chart,
+    calculationMetadataJson:displayMetadata,
+  };
+
+  assertChartPreviewSafe(model);
+  return model;
 }
 
 export function buildThaiAlmanacGoldenChartPreviewModel():ChartPreviewModel {
@@ -329,6 +434,268 @@ function planetsFromMockChart(chart:ChartSnapshot):ChartPreviewPlanet[] {
   });
 }
 
+function liveMetadataFromSnapshot(root:Record<string, unknown>):ChartPreviewMetadata {
+  const engine = asRecord(root.engine);
+  const datetime = asRecord(root.datetime);
+  const location = asRecord(root.location);
+  const zodiac = asRecord(root.zodiac);
+  const ayanamsha = asRecord(root.ayanamsha);
+  const calculationProfile = asRecord(root.calculation_profile);
+  const metadata = asRecord(root.metadata) ?? {};
+  const angles = asRecord(root.angles);
+
+  return {
+    birth_datetime_local:stringValue(root.datetime_local) ?? stringValue(datetime?.local) ?? "",
+    birth_datetime_utc:stringValue(root.datetime_utc) ?? stringValue(datetime?.utc) ?? "",
+    timezone:stringValue(datetime?.timezone) ?? stringValue(root.timezone) ?? "",
+    latitude:numberValue(location?.latitude) ?? numberValue(root.latitude) ?? Number.NaN,
+    longitude:numberValue(location?.longitude) ?? numberValue(root.longitude) ?? Number.NaN,
+    calculation_profile_code:stringValue(root.calculation_profile_code) ?? stringValue(calculationProfile?.code) ?? "",
+    engine:stringValue(root.engine_name) ?? stringValue(engine?.name) ?? "",
+    engine_version:stringValue(root.engine_version) ?? stringValue(engine?.version) ?? "",
+    zodiac_type:stringValue(zodiac?.type) ?? stringValue(metadata.zodiac_type) ?? "",
+    ayanamsa_code:stringValue(zodiac?.ayanamsa_code) ?? stringValue(ayanamsha?.name) ?? stringValue(metadata.ayanamsa_code) ?? "",
+    ayanamsa_deg:numberValue(root.ayanamsa_deg) ?? numberValue(zodiac?.ayanamsa_deg) ?? numberValue(ayanamsha?.value_deg) ?? Number.NaN,
+    house_system:stringValue(calculationProfile?.house_system) ?? stringValue(metadata.house_system) ?? stringValue(asRecord(root.houses)?.system) ?? "",
+    node_type:stringValue(calculationProfile?.node_type) ?? stringValue(metadata.node_type) ?? "",
+    ketu_method:stringValue(metadata.ketu_method) ?? "south_node",
+    thai_ketu_9_method:stringValue(metadata.thai_ketu_9_method) ?? "not_enabled",
+    lagna_method:stringValue(metadata.lagna_method) ?? "astronomical_ascendant",
+    lagna_source:stringValue(metadata.lagna_source) ?? "astro_calc_service",
+    local_time_correction_minutes:numberValue(metadata.local_time_correction_minutes),
+    sunrise_local_time:stringValue(metadata.sunrise_local_time),
+    astronomical_ascendant_deg:numberValue(angles?.ascendant_deg),
+    thai_lagna_deg:numberValue(angles?.lagna_deg),
+    ephemeris_source:stringValue(root.ephemeris_source) ?? stringValue(metadata.ephemeris_source) ?? "",
+    ephemeris_fingerprint:stringValue(root.ephemeris_fingerprint) ?? stringValue(engine?.ephemeris_fingerprint) ?? "",
+    calculation_hash:stringValue(root.calculation_hash) ?? "",
+    warnings:warningsFromLiveSnapshot(root),
+  };
+}
+
+function validateLiveChartMetadata(metadata:ChartPreviewMetadata):void {
+  if (metadata.engine !== "swisseph") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_ENGINE");
+  if (metadata.calculation_profile_code !== LIVE_CHART_PREVIEW_PROFILE) throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_PROFILE");
+  if (metadata.zodiac_type !== "sidereal") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_ZODIAC");
+  if (metadata.ayanamsa_code.toUpperCase() !== "LAHIRI") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_AYANAMSA");
+  if (metadata.node_type !== "mean_node") throw new Error("LIVE_CHART_PREVIEW_UNSUPPORTED_NODE_TYPE");
+  if (!metadata.ephemeris_fingerprint.trim()) throw new Error("LIVE_CHART_PREVIEW_MISSING_EPHEMERIS_FINGERPRINT");
+  validateLiveChartRequestEcho(metadata);
+}
+
+function validateLiveChartRequestEcho(metadata:ChartPreviewMetadata):void {
+  if (metadata.birth_datetime_local !== LIVE_CHART_PREVIEW_REQUEST.datetime_local) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_LOCAL_DATETIME");
+  }
+  if (metadata.timezone !== LIVE_CHART_PREVIEW_REQUEST.timezone) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_TIMEZONE");
+  }
+  if (utcMillis(metadata.birth_datetime_utc) !== utcMillis("1971-03-11T01:17:00Z")) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_UTC_DATETIME");
+  }
+  if (!numbersNearlyEqual(metadata.latitude, LIVE_CHART_PREVIEW_REQUEST.latitude, 0.000001)) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_LATITUDE");
+  }
+  if (!numbersNearlyEqual(metadata.longitude, LIVE_CHART_PREVIEW_REQUEST.longitude, 0.000001)) {
+    throw new Error("LIVE_CHART_PREVIEW_UNEXPECTED_LONGITUDE");
+  }
+}
+
+function planetsFromLiveSnapshot(root:Record<string, unknown>, metadata:ChartPreviewMetadata):ChartPreviewPlanet[] {
+  const planetSource = asRecord(root.planets) ?? {};
+  const derivedPoints = asRecord(root.derived_points) ?? {};
+  const angles = asRecord(root.angles) ?? {};
+  const planets:ChartPreviewPlanet[] = [];
+  const planetOrder = ["sun","moon","mercury","venus","mars","jupiter","saturn","rahu","ketu","thai_ketu_9","uranus","neptune","pluto"];
+
+  for (const key of planetOrder) {
+    const rawPoint = planetSource[key] ?? derivedPoints[key];
+    if (rawPoint) planets.push(livePointFromRaw(key, rawPoint, metadata, true));
+  }
+
+  const ascendant = derivedPoints.astronomical_ascendant ?? derivedPoints.ascendant;
+  if (ascendant) {
+    planets.push(livePointFromRaw("astronomical_ascendant", ascendant, metadata, true));
+  } else if (typeof metadata.astronomical_ascendant_deg === "number") {
+    planets.push(anglePoint("astronomical_ascendant", metadata.astronomical_ascendant_deg, metadata, 1));
+  }
+
+  const thaiLagna = derivedPoints.thai_lagna ?? derivedPoints.lagna;
+  if (thaiLagna) {
+    planets.push(livePointFromRaw("thai_lagna", thaiLagna, metadata, true));
+  } else if (typeof metadata.thai_lagna_deg === "number") {
+    planets.push(anglePoint("thai_lagna", metadata.thai_lagna_deg, metadata, 1));
+  }
+
+  const mc = derivedPoints.mc;
+  const mcDeg = numberValue(angles.mc_deg);
+  if (mc) {
+    planets.push(livePointFromRaw("mc", mc, metadata, true));
+  } else if (typeof mcDeg === "number") {
+    planets.push(anglePoint("mc", mcDeg, metadata, 10));
+  }
+
+  return planets;
+}
+
+function livePointFromRaw(
+  planetKey:string,
+  rawPoint:unknown,
+  metadata:ChartPreviewMetadata,
+  housesReliable:boolean,
+):ChartPreviewPlanet {
+  const pointRecord = asRecord(rawPoint);
+  if (!pointRecord) throw new Error("LIVE_CHART_PREVIEW_INVALID_POINT");
+  const sidereal = numberValue(pointRecord.sidereal_longitude_deg) ?? numberValue(pointRecord.longitude_deg);
+  if (typeof sidereal !== "number") throw new Error("LIVE_CHART_PREVIEW_POINT_MISSING_SIDEREAL_LONGITUDE");
+  const tropical = numberValue(pointRecord.tropical_longitude_deg) ?? normalizeLongitudeDeg(sidereal + metadata.ayanamsa_deg);
+  return {
+    planet_key:planetKey,
+    planet_name_th:PLANET_LABELS[planetKey]?.th ?? planetKey,
+    planet_code:PLANET_LABELS[planetKey]?.code ?? planetKey.toUpperCase().slice(0, 2),
+    tropical_longitude_deg:normalizeLongitudeDeg(tropical),
+    ayanamsa_deg:metadata.ayanamsa_deg,
+    sidereal_longitude_deg:normalizeLongitudeDeg(sidereal),
+    thai_zodiac_sign:thaiSignNameFromLongitude(sidereal),
+    degree_within_sign:degreeWithinSign(sidereal),
+    retrograde:booleanValue(pointRecord.retrograde) ?? false,
+    speed_longitude_deg_per_day:numberValue(pointRecord.speed_longitude_deg_per_day),
+    house_number:housesReliable ? numberValue(pointRecord.house_number) : null,
+    source_note:stringValue(pointRecord.source_note) ?? undefined,
+  };
+}
+
+function anglePoint(planetKey:string, siderealLongitudeDeg:number, metadata:ChartPreviewMetadata, houseNumber:number|null):ChartPreviewPlanet {
+  const sidereal = normalizeLongitudeDeg(siderealLongitudeDeg);
+  return {
+    planet_key:planetKey,
+    planet_name_th:PLANET_LABELS[planetKey]?.th ?? planetKey,
+    planet_code:PLANET_LABELS[planetKey]?.code ?? planetKey.toUpperCase().slice(0, 2),
+    tropical_longitude_deg:normalizeLongitudeDeg(sidereal + metadata.ayanamsa_deg),
+    ayanamsa_deg:metadata.ayanamsa_deg,
+    sidereal_longitude_deg:sidereal,
+    thai_zodiac_sign:thaiSignNameFromLongitude(sidereal),
+    degree_within_sign:degreeWithinSign(sidereal),
+    retrograde:false,
+    speed_longitude_deg_per_day:null,
+    house_number:houseNumber,
+  };
+}
+
+function warningsFromLiveSnapshot(root:Record<string, unknown>):string[] {
+  const warnings = Array.isArray(root.warnings) ? root.warnings : [];
+  return warnings.map((warning)=>{
+    if (typeof warning === "string") return warning;
+    const record = asRecord(warning);
+    return stringValue(record?.code) ?? stringValue(record?.message) ?? "";
+  }).filter(Boolean);
+}
+
+function sanitizeLiveChartPreviewMetadata(metadata:ChartPreviewMetadata):ChartPreviewMetadata {
+  return {
+    ...metadata,
+    engine_version:sanitizeLiveChartPreviewString(metadata.engine_version),
+    house_system:sanitizeLiveChartPreviewString(metadata.house_system),
+    ketu_method:sanitizeLiveChartPreviewString(metadata.ketu_method),
+    thai_ketu_9_method:sanitizeLiveChartPreviewString(metadata.thai_ketu_9_method),
+    lagna_method:sanitizeLiveChartPreviewString(metadata.lagna_method),
+    lagna_source:sanitizeLiveChartPreviewString(metadata.lagna_source),
+    sunrise_local_time:metadata.sunrise_local_time === null ? null : sanitizeLiveChartPreviewString(metadata.sunrise_local_time),
+    ephemeris_source:sanitizeLiveChartPreviewString(metadata.ephemeris_source),
+    ephemeris_fingerprint:sanitizeLiveChartPreviewString(metadata.ephemeris_fingerprint),
+    calculation_hash:sanitizeLiveChartPreviewString(metadata.calculation_hash),
+    warnings:metadata.warnings.map(sanitizeLiveChartPreviewString),
+  };
+}
+
+function sanitizeLiveChartPreviewValue(value:unknown):unknown {
+  if (Array.isArray(value)) return value.map(sanitizeLiveChartPreviewValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nestedValue])=>{
+      const sanitizedKey = sanitizeLiveChartPreviewKey(key);
+      return [
+        sanitizedKey,
+        sanitizedKey === key ? sanitizeLiveChartPreviewValue(nestedValue) : "[redacted-sensitive-value]",
+      ];
+    }));
+  }
+  if (typeof value !== "string") return value;
+  return sanitizeLiveChartPreviewString(value);
+}
+
+function sanitizeLiveChartPreviewString(value:string):string {
+  if (/@[a-z0-9.-]+/i.test(value)) return "[redacted-email]";
+  if (/\bU[a-z0-9]{8,}\b/i.test(value)) return "[redacted-line-id]";
+  if (/secret|token|api[_-]?key|credential|private[_-]?key|license[_-]?(key|secret|data|file|path|payload)|password|passphrase|authorization|auth[_-]?(header|value|key|secret)|session[_-]?(id|key|secret|token)|basic\s+[a-z0-9+/=:_-]+|bearer\s+|sk_(live|test)_/i.test(value)) return "[redacted-secret]";
+  if (/(^|\s)\/[A-Za-z0-9._/-]+|[A-Za-z]:\\/i.test(value)) return "[redacted-path]";
+  return value;
+}
+
+function sanitizeLiveChartPreviewKey(key:string):string {
+  if (/secret|token|api[_-]?key|webhook|payment|provider|line_user|credential|private[_-]?key|license[_-]?(key|secret|data|file|path|payload)|password|passphrase|authorization|auth[_-]?(header|value|key|secret)|session[_-]?(id|key|secret|token)/i.test(key)) return "[redacted-key]";
+  if (key === "ephemeris_path") return "[redacted-key]";
+  return key;
+}
+
+function normalizeServiceUrl(value:string|undefined):URL|null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.username || url.password) return null;
+    url.search = "";
+    url.hash = "";
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function liveChartPreviewEndpoint(serviceUrl:URL):string {
+  return `${serviceUrl.toString().replace(/\/+$/, "")}/v1/charts/natal`;
+}
+
+function numbersNearlyEqual(left:number, right:number, tolerance:number):boolean {
+  return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) <= tolerance;
+}
+
+function utcMillis(value:string):number {
+  return Date.parse(value);
+}
+
+function liveUnavailable(reason:string):LiveChartPreviewLoadResult {
+  return { model:undefined, unavailableReason:reason };
+}
+
+function asRecord(value:unknown):Record<string, unknown>|null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringValue(value:unknown):string|null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function numberValue(value:unknown):number|null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function booleanValue(value:unknown):boolean|null {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return null;
+}
+
+function numberArray(value:unknown):number[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(numberValue).filter((item):item is number=>typeof item === "number");
+}
+
 function point(
   planetKey:string,
   tropicalLongitudeDeg:number,
@@ -369,8 +736,20 @@ export function assertChartPreviewSafe(model:ChartPreviewModel):void {
     /payment_provider/i,
     /webhook_secret/i,
     /api[_-]?key/i,
+    /credential/i,
+    /private[_-]?key/i,
+    /license[_-]?(key|secret|data|file|path|payload)/i,
+    /password/i,
+    /passphrase/i,
+    /authorization/i,
+    /auth[_-]?(header|value|key|secret)/i,
+    /session[_-]?(id|key|secret|token)/i,
+    /basic\s+[a-z0-9+/=:_-]+/i,
     /bearer\s+/i,
+    /sk_(live|test)_/i,
     /card/i,
+    /(^|\s)\/[A-Za-z0-9._/-]+|[A-Za-z]:\\/i,
+    /ASTRO_EPHEMERIS_PATH/i,
   ];
   if (blocked.some((pattern)=>pattern.test(serialized))) throw new Error("Chart preview must not expose secrets or provider identifiers.");
 }

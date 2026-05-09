@@ -128,3 +128,5 @@ ASTRO_REQUIRE_PINNED_EPHEMERIS=true
 The ephemeris path must refer to an approved mounted or packaged file set. Runtime ephemeris downloads and committed ephemeris binaries are forbidden.
 
 Swiss Ephemeris production startup must verify the manifest fingerprint and fail closed when the mounted file set is missing, empty, unsupported, or different from the approved manifest. Health output may report that a path is configured and may report sanitized error codes, but it must not expose raw local filesystem paths or license data.
+
+`ASTRO_CALC_SERVICE_URL` may be used by the web app for `/chart-preview?mode=live` in local or staging validation. It must point to an approved astro-calc service endpoint and must not contain embedded credentials. If the URL is missing, the service fails, or the returned snapshot is not the expected Swiss Ephemeris Thai almanac profile, the page must show Live mode as unavailable and must not fall back to Mock MVP.

@@ -32,6 +32,7 @@ export interface LineBetaPilotDryRunReport {
   steps:LineBetaPilotDryRunStep[];
   safety:{
     realLineApiCalls:number;
+    blockedRealLineConfig:boolean;
     containsRawLineIdentifier:boolean;
     containsRawBirthData:boolean;
     containsSecrets:boolean;
@@ -55,13 +56,8 @@ export async function runLineBetaPilotDryRun(input:{
   const sessionId = input.sessionId ?? DEFAULT_SESSION_ID;
   const userId = input.userId ?? DEFAULT_USER_ID;
   const baseUrl = input.baseUrl ?? SAFE_BASE_URL;
-  const env = {
-    NEXT_PUBLIC_APP_BASE_URL:baseUrl,
-    ASTRO_CALC_SERVICE_URL:"https://astro-calc.example.test",
-    LINE_PROVIDER_MODE:"sandbox",
-    ENABLE_REAL_LINE_SENDS:"false",
-    ...(input.env ?? {}),
-  };
+  const realLineConfigBlockers = realLineDryRunBlockers(input.env);
+  const env = dryRunEnv(input.env, baseUrl);
   const now = input.now ?? NOW;
   const provider = new SandboxLineProvider();
   resetMockMvpState("free");
@@ -70,6 +66,19 @@ export async function runLineBetaPilotDryRun(input:{
   const steps:LineBetaPilotDryRunStep[] = [];
 
   const richMenu = buildLineRichMenuTemplate(baseUrl, env);
+
+  if (realLineConfigBlockers.length > 0) {
+    steps.push({
+      id:"provider_guard",
+      label:"real LINE configuration is blocked in dry run",
+      status:"fail",
+      messageTypes:[],
+      suppressed:true,
+      reason:"real_line_config_blocked",
+      checks:realLineConfigBlockers.map((blocker)=>`fail:${blocker}`),
+    });
+    return buildReport({ richMenu, steps, provider, blockedRealLineConfig:true });
+  }
 
   steps.push(recordReply("follow", "follow welcome", await buildLineFirstReply({
     intent:"follow",
@@ -221,29 +230,7 @@ export async function runLineBetaPilotDryRun(input:{
     fetcher:dryRunAstroFetcher(liveServiceSnapshot()),
   }), [/ยังไม่มีข้อมูลเกิด/, /\/line\/onboarding|line_route=%2Fline%2Fonboarding/]));
 
-  const serialized = JSON.stringify({ richMenu, steps });
-  const safety = {
-    realLineApiCalls:provider.networkSendCount,
-    containsRawLineIdentifier:containsRawLineIdentifier(serialized),
-    containsRawBirthData:/1971-03-11|08:17|Bangkok|Asia\/Bangkok|13\.759|100\.535/i.test(serialized),
-    containsSecrets:/secret|token|authorization|bearer|LINE_CHANNEL_ACCESS_TOKEN|LINE_CHANNEL_SECRET/i.test(serialized),
-  };
-
-  return {
-    mode:"mock_dry_run",
-    userRef:"line_beta_pilot_user_ref",
-    providerMode:"sandbox",
-    richMenuLabels:richMenu.actions.map((action)=>action.label),
-    richMenuActions:richMenu.actions.map((action)=>({
-      label:action.label,
-      type:action.type,
-      intent:action.intent,
-      routeSafe:action.type === "message" || Boolean(action.uri?.startsWith("https://") || action.uri?.startsWith("http://localhost")),
-    })),
-    steps,
-    safety,
-    result:steps.every((step)=>step.status === "pass") && !safety.realLineApiCalls && !safety.containsRawLineIdentifier && !safety.containsRawBirthData && !safety.containsSecrets ? "pass" : "fail",
-  };
+  return buildReport({ richMenu, steps, provider, blockedRealLineConfig:false });
 }
 
 function recordReply(id:string, label:string, reply:LineFirstReply, expectedPatterns:RegExp[], expectSuppressed = false):LineBetaPilotDryRunStep {
@@ -269,6 +256,63 @@ function recordReply(id:string, label:string, reply:LineFirstReply, expectedPatt
 
 function dryRunAstroFetcher(snapshot:unknown):typeof fetch {
   return async () => new Response(JSON.stringify(snapshot), { status:200 });
+}
+
+function dryRunEnv(inputEnv:Record<string, string|undefined>|undefined, baseUrl:string):Record<string, string|undefined> {
+  return {
+    NEXT_PUBLIC_APP_BASE_URL:baseUrl,
+    ASTRO_CALC_SERVICE_URL:"https://astro-calc.example.test",
+    LINE_PROVIDER_MODE:"sandbox",
+    ENABLE_REAL_LINE_SENDS:"false",
+    LINE_LIFF_ID:inputEnv?.LINE_LIFF_ID,
+    LINE_LIFF_URL:inputEnv?.LINE_LIFF_URL,
+  };
+}
+
+function realLineDryRunBlockers(env:Record<string, string|undefined>|undefined):string[] {
+  if (!env) return [];
+  const blockers:string[] = [];
+  if ((env.LINE_PROVIDER_MODE ?? "").trim().toLowerCase() !== "" && (env.LINE_PROVIDER_MODE ?? "").trim().toLowerCase() !== "sandbox") {
+    blockers.push("REAL_LINE_PROVIDER_MODE_NOT_ALLOWED");
+  }
+  if ((env.ENABLE_REAL_LINE_SENDS ?? "").trim().toLowerCase() === "true") {
+    blockers.push("REAL_LINE_SENDS_NOT_ALLOWED");
+  }
+  if ((env.LINE_CHANNEL_ACCESS_TOKEN ?? "").trim() || (env.LINE_CHANNEL_SECRET ?? "").trim()) {
+    blockers.push("LINE_CREDENTIAL_PRESENT");
+  }
+  return blockers;
+}
+
+function buildReport(input:{
+  richMenu:ReturnType<typeof buildLineRichMenuTemplate>;
+  steps:LineBetaPilotDryRunStep[];
+  provider:SandboxLineProvider;
+  blockedRealLineConfig:boolean;
+}):LineBetaPilotDryRunReport {
+  const serialized = JSON.stringify({ richMenu:input.richMenu, steps:input.steps });
+  const safety = {
+    realLineApiCalls:input.provider.networkSendCount,
+    blockedRealLineConfig:input.blockedRealLineConfig,
+    containsRawLineIdentifier:containsRawLineIdentifier(serialized),
+    containsRawBirthData:/1971-03-11|08:17|Bangkok|Asia\/Bangkok|13\.759|100\.535/i.test(serialized),
+    containsSecrets:/secret|token|authorization|bearer|LINE_CHANNEL_ACCESS_TOKEN|LINE_CHANNEL_SECRET/i.test(serialized),
+  };
+  return {
+    mode:"mock_dry_run",
+    userRef:"line_beta_pilot_user_ref",
+    providerMode:"sandbox",
+    richMenuLabels:input.richMenu.actions.map((action)=>action.label),
+    richMenuActions:input.richMenu.actions.map((action)=>({
+      label:action.label,
+      type:action.type,
+      intent:action.intent,
+      routeSafe:action.type === "message" || Boolean(action.uri?.startsWith("https://") || action.uri?.startsWith("http://localhost")),
+    })),
+    steps:input.steps,
+    safety,
+    result:input.steps.every((step)=>step.status === "pass") && !safety.blockedRealLineConfig && !safety.realLineApiCalls && !safety.containsRawLineIdentifier && !safety.containsRawBirthData && !safety.containsSecrets ? "pass" : "fail",
+  };
 }
 
 function liveServiceSnapshot() {

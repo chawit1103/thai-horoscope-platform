@@ -10,6 +10,7 @@ describe("LINE beta pilot dry run", () => {
     assert.equal(report.providerMode, "sandbox");
     assert.equal(report.result, "pass");
     assert.equal(report.safety.realLineApiCalls, 0);
+    assert.equal(report.safety.blockedRealLineConfig, false);
     assert.equal(report.safety.containsRawLineIdentifier, false);
     assert.equal(report.safety.containsRawBirthData, false);
     assert.equal(report.safety.containsSecrets, false);
@@ -66,5 +67,25 @@ describe("LINE beta pilot dry run", () => {
 
     assert.doesNotMatch(serialized, /UdryRunLineUser|lineUserId|1971-03-11|08:17|Bangkok|Asia\/Bangkok|13\.759|100\.535/i);
     assert.doesNotMatch(serialized, /LINE_CHANNEL_ACCESS_TOKEN|LINE_CHANNEL_SECRET|authorization|bearer\s+|payment_|webhook/i);
+  });
+
+  it("fails closed when real LINE provider mode or send flags are supplied", async () => {
+    const report = await runLineBetaPilotDryRun({
+      env:{
+        LINE_PROVIDER_MODE:"http",
+        ENABLE_REAL_LINE_SENDS:"true",
+        LINE_CHANNEL_ACCESS_TOKEN:"should-not-be-used",
+        LINE_CHANNEL_SECRET:"should-not-be-used",
+        LINE_LIFF_URL:"https://liff.line.me/1234567890-AbCdEfGh",
+      },
+    });
+
+    assert.equal(report.result, "fail");
+    assert.equal(report.providerMode, "sandbox");
+    assert.equal(report.safety.blockedRealLineConfig, true);
+    assert.equal(report.safety.realLineApiCalls, 0);
+    assert.equal(report.steps[0]?.id, "provider_guard");
+    assert.equal(report.steps[0]?.status, "fail");
+    assert.doesNotMatch(JSON.stringify(report), /should-not-be-used|LINE_CHANNEL_ACCESS_TOKEN|LINE_CHANNEL_SECRET|authorization|bearer\s+/i);
   });
 });

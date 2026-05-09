@@ -31,6 +31,8 @@ ASTRO_CALC_SERVICE_URL=https://astro-calc.example.test
 
 The astro-calc response is mocked in-process. Tests must not call the LINE API, push messages, reply messages, upload Rich Menu assets, send Email, call Payment, or require production secrets.
 
+If a caller supplies real LINE mode, real-send flags, or LINE credentials to the dry-run helper, the helper fails closed with a blocked provider-guard step and still reports zero LINE API calls. Dry-run reports must not echo raw credential values or provider headers.
+
 ## Operator checklist
 
 Before a manual LINE pilot rehearsal:
@@ -68,6 +70,7 @@ The dry-run report must show:
 mode: mock_dry_run
 providerMode: sandbox
 realLineApiCalls: 0
+blockedRealLineConfig: false
 containsRawLineIdentifier: false
 containsRawBirthData: false
 containsSecrets: false
